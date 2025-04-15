@@ -3,11 +3,11 @@ import os
 class Config:
     """配置类"""
     # Cookie设置
-    COOKIE = " "
+    COOKIE = ""
     # 替换为你的抖音cookie
     
     # 文件保存路径
-    BASE_DIR = os.path.expanduser("~/Movies/myvideos/douyin/")  # 使用用户主目录
+    BASE_DIR = os.path.expanduser("")  # 使用用户主目录
     DOWNLOAD_DIR = os.path.join(BASE_DIR, "file")
     
     # 请求参数
@@ -69,8 +69,10 @@ class Config:
     def init(cls):
         """初始化配置"""
         # 确保下载目录存在
+        if not cls.DOWNLOAD_DIR:
+            raise ValueError("请在 config.py 中设置下载目录")
         os.makedirs(cls.DOWNLOAD_DIR, exist_ok=True)
         
         # 验证cookie是否已设置
-        if cls.COOKIE == "your_cookie_here":
+        if not cls.COOKIE:
             raise ValueError("请在 config.py 中设置你的抖音cookie") 
