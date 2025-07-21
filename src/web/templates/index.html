@@ -665,6 +665,17 @@
                                 </a>
                             </div>
                             <textarea class="form-control form-control-sm mt-1" id="cookie-input" rows="3" placeholder="请输入抖音Cookie（支持多行）"></textarea>
+                            <!-- 新增：Cookie验证状态显示 -->
+                            <div id="cookie-validation-status" class="mt-1" style="display: none;">
+                                <div id="cookie-status-indicator" class="d-flex align-items-center">
+                                    <i id="cookie-status-icon" class="bi me-1"></i>
+                                    <small id="cookie-status-text"></small>
+                                </div>
+                                <div id="cookie-missing-params" class="mt-1" style="display: none;">
+                                    <small class="text-muted">缺少必要参数：</small>
+                                    <div id="missing-params-list"></div>
+                                </div>
+                            </div>
                         </div>
                         <div class="mb-2">
                             <label for="download-dir-input" class="form-label small">下载目录</label>
@@ -1485,6 +1496,9 @@
             setupEventListeners();
             setupSocketIO();
             loadConfig();
+            
+            // 初始化Cookie验证
+            setupCookieValidation();
         });
 
         function initializeApp() {
@@ -1546,8 +1560,18 @@
             // 拖放功能
             setupDragDrop();
 
+            // Cookie验证功能
+            setupCookieValidation();
+
             // 粘贴功能
             document.addEventListener('paste', function (e) {
+                // 检查当前焦点是否在cookie输入框
+                const activeElement = document.activeElement;
+                if (activeElement && activeElement.id === 'cookie-input') {
+                    // 如果焦点在cookie输入框，不处理粘贴事件
+                    return;
+                }
+                
                 const pastedText = e.clipboardData.getData('text');
                 if (pastedText.includes('douyin.com') || pastedText.includes('dy.com')) {
                     document.getElementById('link-input').value = pastedText;
@@ -1850,9 +1874,19 @@
 
 
         async function saveConfig() {
+            const cookieValue = document.getElementById('cookie-input').value.trim();
+            const validation = validateCookie(cookieValue);
+            
+            // 如果Cookie无效，显示错误并阻止保存
+            if (!validation.isValid && validation.status !== 'empty') {
+                showToast('Cookie验证失败，请检查必要参数', 'error');
+                updateCookieValidationUI(validation);
+                return;
+            }
+
             const config = {
                 download_dir: document.getElementById('download-dir-input').value,
-                cookie: document.getElementById('cookie-input').value.trim()
+                cookie: cookieValue
             };
 
             try {
@@ -4650,6 +4684,108 @@
                 console.log('缓存中没有点赞作者数据，从服务器获取');
                 await downloadLikedAuthors();
             }
+        }
+
+        // Cookie验证相关函数
+        function validateCookie(cookieString) {
+            if (!cookieString || cookieString.trim() === '') {
+                return {
+                    isValid: false,
+                    status: 'empty',
+                    message: '请输入Cookie',
+                    missingParams: []
+                };
+            }
+
+            // 必要的Cookie参数
+            const requiredParams = [
+                'sessionid',
+                'ttwid',
+                'UIFID_TEMP',
+                'hevc_supported',
+                'odin_tt',
+                'passport_csrf_token'
+            ];
+
+            const missingParams = [];
+            const cookieLower = cookieString.toLowerCase();
+
+            requiredParams.forEach(param => {
+                if (!cookieLower.includes(param.toLowerCase())) {
+                    missingParams.push(param);
+                }
+            });
+
+            if (missingParams.length === 0) {
+                return {
+                    isValid: true,
+                    status: 'valid',
+                    message: 'Cookie格式正确',
+                    missingParams: []
+                };
+            } else {
+                return {
+                    isValid: false,
+                    status: 'invalid',
+                    message: 'Cookie缺少必要参数',
+                    missingParams: missingParams
+                };
+            }
+        }
+
+        function updateCookieValidationUI(validation) {
+            const statusContainer = document.getElementById('cookie-validation-status');
+            const statusIcon = document.getElementById('cookie-status-icon');
+            const statusText = document.getElementById('cookie-status-text');
+            const missingParamsContainer = document.getElementById('cookie-missing-params');
+            const missingParamsList = document.getElementById('missing-params-list');
+
+            // 显示验证状态容器
+            statusContainer.style.display = 'block';
+
+            if (validation.status === 'empty') {
+                statusContainer.style.display = 'none';
+                return;
+            }
+
+            if (validation.isValid) {
+                statusIcon.className = 'bi bi-check-circle-fill text-success me-1';
+                statusText.className = 'text-success';
+                statusText.textContent = validation.message;
+                missingParamsContainer.style.display = 'none';
+            } else {
+                statusIcon.className = 'bi bi-exclamation-triangle-fill text-danger me-1';
+                statusText.className = 'text-danger';
+                statusText.textContent = validation.message;
+                
+                if (validation.missingParams.length > 0) {
+                    missingParamsContainer.style.display = 'block';
+                    missingParamsList.innerHTML = validation.missingParams.map(param => 
+                        `<span class="badge bg-danger me-1">${param}</span>`
+                    ).join('');
+                } else {
+                    missingParamsContainer.style.display = 'none';
+                }
+            }
+        }
+
+        function setupCookieValidation() {
+            const cookieInput = document.getElementById('cookie-input');
+            
+            // 添加输入事件监听器
+            cookieInput.addEventListener('input', function() {
+                const validation = validateCookie(this.value);
+                updateCookieValidationUI(validation);
+            });
+
+            // 添加粘贴事件监听器
+            cookieInput.addEventListener('paste', function() {
+                // 延迟验证，确保粘贴内容已经填入
+                setTimeout(() => {
+                    const validation = validateCookie(this.value);
+                    updateCookieValidationUI(validation);
+                }, 100);
+            });
         }
 
         // 前往作者主页功能
