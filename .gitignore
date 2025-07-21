@@ -1,0 +1,118 @@
+# Python缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 分发/打包
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 单元测试/覆盖率报告
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# 环境
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE配置
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 项目特定文件
+config.json
+data/
+*.log
+
+# 调试和临时文件
+debug_*.json
+get_media_info.json
+liked_*.json
+user_*.json
+
+# 下载目录
+douyin_download/
+file/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 临时目录
+D:/
+temp/
+
+# 媒体文件
+*.mp4
+*.jpg
+*.jpeg
+# *.png
+*.gif
+*.webp
+*.m4a
+*.mp3
+
+# 备份文件
+*.bak
+*.backup
+*.orig
+
+# 压缩文件
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# 运行时文件
+*.pid
+*.sock
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 日志文件
+logs/
+*.log.*
+
+# 测试文件
+.coverage.*
+.pytest_cache/
+test_*.py
+*_test.py
+
+# 文档生成
+docs/_build/
+
+# 本地配置
+local_settings.py
+settings_local.py
