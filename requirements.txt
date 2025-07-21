@@ -1,5 +1,32 @@
+# 网络请求
 requests==2.28.1
 urllib3==1.26.12
+aiohttp>=3.8.0
+aiofiles>=0.8.0
+
+# 异步支持
 asyncio==3.4.3
+
+# 数据类型
 dataclasses==0.6
-PyExecJS  # 使用最新版本
+
+# JavaScript执行
+PyExecJS>=1.5.1  # 使用最新版本
+
+# 日期时间处理
+python-dateutil>=2.8.2
+
+# 进度条显示，增强下载器必需
+tqdm>=4.62.3
+
+# 性能优化依赖（增强下载器）
+psutil>=5.8.0  # 系统资源监控（可选）
+
+# Web界面依赖
+Flask>=2.0.0  # Web框架
+Flask-SocketIO>=5.0.0  # WebSocket支持
+python-socketio>=5.0.0  # SocketIO客户端
+
+# 测试工具
+pytest>=7.0.0
+pytest-asyncio>=0.18.0

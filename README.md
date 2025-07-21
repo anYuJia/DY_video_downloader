@@ -1,149 +1,259 @@
-# DY_video_downloader 抖音视频下载器
+<div align="center">
 
-一个用于下载抖音用户视频、图片和Live Photo的Python工具。支持通过用户主页URL、抖音号或昵称搜索用户,并下载其作品。同时支持下载已点赞视频作者的所有作品。
+# 🎵 DY Video Downloader
 
-## 功能特点
-- 支持下载用户的视频、图片和Live Photo
-- 支持通过用户主页URL、抖音号或昵称搜索用户
-- 支持批量下载选定作者的所有作品
-- 支持下载点赞视频作者的所有作品
-- 自动记录下载历史,避免重复下载
-- 支持自定义选择要下载的作品
-- 显示详细的下载进度和状态
+**一个功能强大的抖音视频下载器**
 
-## 环境要求
-- Python 3.7+
-- MacOS/Linux/Windows
+[![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#)
+[![Web Interface](https://img.shields.io/badge/Web%20Interface-✓-brightgreen.svg)](#)
+[![Downloads](https://img.shields.io/badge/Downloads-Video%20%7C%20Image%20%7C%20Live%20Photo-orange.svg)](#)
 
-## 安装
+[功能特点](#-功能特点) • [快速开始](#-快速开始) • [配置说明](#-配置说明) • [使用方法](#-使用方法) • [项目结构](#-项目结构)
 
-1. 克隆项目到本地:
+</div>
+
+---
+
+## 📖 简介
+
+DY Video Downloader 是一个专为抖音平台设计的多媒体下载工具。它提供了现代化的 Web 界面，支持批量下载用户作品、点赞视频等功能，并具备智能去重、断点续传等高级特性。
+
+## ✨ 功能特点
+
+### 🎯 核心功能
+- **多种搜索方式**: 支持昵称、抖音号、主页链接三种搜索方式
+- **批量下载**: 一键下载用户的所有视频作品
+- **点赞下载**: 下载自己点赞的视频和点赞作者的全部作品
+- **多媒体支持**: 支持视频、图片、Live Photo 等多种格式
+
+### 🚀 高级特性
+- **智能去重**: 自动跳过已下载的内容，避免重复下载
+- **分类存储**: 按用户自动创建文件夹，井然有序
+- **异步下载**: 高效的异步下载机制，提升下载速度
+- **断点续传**: 支持下载中断后继续下载
+- **进度监控**: 实时显示下载进度和状态
+
+### 🌐 Web 界面
+- **现代化设计**: 响应式界面，支持多设备访问
+- **实时通信**: WebSocket 实时更新下载状态
+- **拖拽支持**: 支持拖拽和粘贴链接
+- **任务管理**: 完整的下载任务管理系统
+
+## 🛠 环境要求
+
+- **Python**: 3.7 或更高版本
+- **操作系统**: Windows / macOS / Linux
+- **浏览器**: Chrome / Firefox / Safari / Edge
+- **Node.js**: 用于执行JavaScript签名算法（可选，内置PyExecJS）
+
+## 🚀 快速开始
+
+### 1️⃣ 克隆项目
+
 ```bash
 git clone https://github.com/anYuJia/DY_video_downloader.git
-cd douyin-downloader
+cd DY_video_downloader
 ```
-2. 安装依赖:
+
+### 2️⃣ 安装依赖
+
 ```bash
 pip install -r requirements.txt
 ```
-3. 配置:
-在 config.py 中配置你的抖音Cookie:
-```python
-COOKIE = "your_cookie_here"  # 替换为你的抖音cookie
+
+### 3️⃣ 配置应用
+
+编辑项目根目录的 `config.json` 文件：
+
+```json
+{
+  "cookie": "your_douyin_cookie_here",
+  "base_dir": "./douyin_download"
+}
 ```
-获取Cookie的方法:
 
-- 使用Chrome浏览器登录抖音网页版
+### 4️⃣ 启动应用
 
-- 按 F12 打开开发者工具
-
-- 在 Network 标签页中随便点击一个请求
-
-- 在 Headers 中找到 Cookie 字段
-
-- 复制整个Cookie值
-
-- 粘贴到 config.py 中的 COOKIE 变量中
-配置下载路径(可选):
-
-默认下载路径为用户的 Movies 目录下的 myvideos/douyin 文件夹。你可以在 config.py 中修改:
-```python
-BASE_DIR = os.path.expanduser("~/Movies/myvideos/douyin/")  # 修改为你想要的路径
-```
-## 使用方法
 ```bash
-python douyin.py
+python main.py
+```
 
-1. 搜索用户下载视频
-2. 下载点赞视频
-3. 下载点赞作者的作品
-4. 退出
+### 5️⃣ 访问 Web 界面
 
-请选择功能 (1-4): 1
-输入昵称/主页url/抖音号: 何柚 可
+在浏览器中打开：**http://localhost:5001**
 
-找到以下用户:
+> 💡 首次运行会启动配置向导，按照提示完成配置即可。
 
-1. 昵称: 何柚可
-   抖音号: snbb0616
-   粉丝数: 1920816
-   简介: 评论区点歌~ 偶像：@可可同学  🈴️：cassies0006（备注来意） 视频的唇釉及口红均在厨🪟里~
-   主页: https://www.douyin.com/user/MS4wLjABAAAAVKkcagSvSEU7R056QM5DHOkBsYuXEW-JMShvIpBicWA
+## ⚙️ 配置说明
 
-请选择用户序号(1-4): 1
+### 📝 配置文件详解
 
-确认下载? (Y/N): y
+项目支持通过 `config.json` 文件进行详细配置：
 
-找到 21 个新作品
-0. [视频] 这才是甜妹该唱的歌#forya #夹子音 #清唱
-1. [视频] 我见到你第一眼就知道你是我的菜#想你想你想我 #翻唱
+```json
+{
+  "cookie": "",                    // 抖音Cookie（必填）
+  "base_dir": "./douyin_download"  // 下载目录
+}
+```
 
-请输入要下载的序号
-1. 单个数字下载单个作品，多个数字用空格隔开下载多个作品
-2. 片段用-隔开
-3. 直接回车下载全部
-1 2
-正在下载第 1/2 个 [视频]
-下载视频成功：何柚可/我见到你第一眼就知道你是我的菜#想你想你想我.mp4
-正在下载第 2/2 个 [视频]
-下载视频成功：何柚可/“因为你的出现，打破所有的一切”#爱情错觉.mp4
+**Cookie 示例：**
+```
+ttwid=1%7C...; passport_csrf_token=...; d_ticket=...; ...
+```
 
-1. 搜索用户下载视频
-2. 下载点赞视频
-3. 下载点赞作者的作品
-4. 退出
+## 📸 界面预览
 
-请选择功能 (1-4): 
+### 🏠 主界面
+![主界面](img/index.png)
+
+### 👤 用户搜索
+![用户搜索](img/get_user.png)
+
+### 💖 点赞视频
+![点赞视频](img/get_liked_videos.png)
+
+### 👥 点赞作者
+![点赞作者](img/get_liked_author.png)
+
+### 📥 下载进度
+![下载进度](img/downloading.png)
+
+## 📋 使用方法
+
+本工具采用 **Web 界面操作**，无需复杂的命令行操作，简单易用。
+
+### 🔍 搜索用户
+
+在 Web 界面中支持三种搜索方式：
+
+| 搜索方式 | 示例 | 说明 |
+|---------|------|------|
+| 用户昵称 | `何柚可` | 输入用户的显示昵称 |
+| 抖音号 | `snbb0616` | 输入用户的抖音号 |
+| 主页链接 | `https://www.douyin.com/user/...` | 完整的用户主页URL |
+
+### 📥 下载操作
+
+通过 Web 界面进行下载操作：
+
+- **批量选择**: 在界面中勾选要下载的作品
+- **一键下载**: 点击下载按钮开始批量下载
+- **实时监控**: 在界面中查看下载进度和状态
+- **任务管理**: 可以暂停、恢复或取消下载任务
+
+### 💖 点赞功能
+
+- **下载点赞视频**: 下载您在抖音上点赞过的视频
+- **下载点赞作者作品**: 下载您点赞过的视频作者的所有作品
+
+## 📁 项目结构
 
 ```
-### 主菜单选项
+DY_video_downloader/
+├── 📄 main.py                 # 程序入口
+├── 📄 launcher.py             # 启动器
+├── 📄 requirements.txt        # 依赖列表
+├── 📄 config.json            # 配置文件
+├── 📄 setup.py               # 安装脚本
+├── 📄 __init__.py            # 包初始化
+├── 📁 src/                   # 源代码
+│   ├── 📁 api/               # API 模块
+│   │   ├── 📄 __init__.py
+│   │   └── 📄 api.py         # 抖音 API 实现
+│   ├── 📁 config/            # 配置模块
+│   │   ├── 📄 __init__.py
+│   │   └── 📄 config.py      # 配置管理
+│   ├── 📁 downloader/        # 下载模块
+│   │   ├── 📄 __init__.py
+│   │   └── 📄 downloader.py  # 下载器实现
+│   ├── 📁 user/              # 用户模块
+│   │   ├── 📄 __init__.py
+│   │   └── 📄 user_manager.py # 用户管理
+│   └── 📁 web/               # Web 界面
+│       ├── 📄 __init__.py
+│       ├── 📄 web_app.py     # Flask 应用
+│       ├── 📁 static/        # 静态资源
+│       └── 📁 templates/     # HTML 模板
+├── 📁 lib/                   # 第三方库
+│   └── 📁 js/
+│       └── 📄 douyin.js      # 签名生成脚本
+├── 📁 img/                   # 项目截图
+└── 📁 douyin_download/       # 下载文件存储目录
+```
 
-- 搜索用户下载视频
-  - 支持输入用户主页URL
-  - 支持输入抖音号(@开头)
-  - 支持输入用户昵称关键词搜索
+## 🔧 技术栈
 
-- 下载点赞视频
-  - 下载点赞作者的作品
+- **后端**: Python 3.7+, Flask, AsyncIO
+- **前端**: HTML5, CSS3, JavaScript, WebSocket
+- **网络**: Requests, AioHTTP
+- **JavaScript执行**: PyExecJS
+- **实时通信**: python-socketio
+- **数据处理**: JSON, Base64
 
-- 退出
-- 下载指定作品
-  - 当显示作品列表时:
-    - 输入单个数字下载单个作品
-    - 输入多个数字(用空格分隔)下载多个作品
-    - 输入数字范围(如 0-5)下载一段范围内的作品
-    - 直接回车下载全部作品
+## 📊 功能支持
 
+| 功能 | 支持格式 | 状态 |
+|------|----------|------|
+| 视频下载 | MP4 | ✅ |
+| 图片下载 | JPG, PNG | ✅ |
+| Live Photo | MP4 | ✅ |
+| 批量下载 | 所有格式 | ✅ |
+| 断点续传 | 所有格式 | ✅ |
+| 异步下载 | 所有格式 | ✅ |
+| 智能去重 | 所有格式 | ✅ |
+| 进度监控 | 实时显示 | ✅ |
 
-## 文件说明
-- douyin.py: 主程序文件
+## 🔧 常见问题
 
-- config.py: 配置文件
+### Q: Cookie 失效怎么办？
+A: 重新登录抖音网页版，按照上述步骤重新获取 Cookie 并更新配置文件。
 
-- requirements.txt: 依赖包列表
+### Q: 下载速度慢怎么办？
+A: 可以调整 `config.json` 中的 `chunk_size` 参数，或检查网络连接。
 
-## 注意事项
-- 请遵守抖音的使用规则,不要滥用下载功能
-- 请不要对他人的作品进行未经授权的复制或修改
-- 请不要将下载的作品用于商业目的
-- 请确保你的Cookie是有效的,建议定期更新Cookie
-- 下载大量视频时请注意磁盘空间
-- 建议不要频繁请求,以免被限制
-- 部分视频可能因为权限设置无法下载
+### Q: 无法访问 Web 界面？
+A: 检查端口是否被占用，默认端口为5001。如需修改端口，可以通过环境变量PORT设置。
 
-## 常见问题
-1. Cookie失效
-- 请检查你的Cookie是否过期或无效
-- 请确保你的Cookie是有效的,建议定期更新Cookie
-2. 下载失败
-- 请检查你的网络连接是否正常
-3. 找不到作者
-- 确认输入的用户名/抖音号是否正确
-- 尝试使用用户主页URL
+### Q: 下载的文件在哪里？
+A: 默认在项目目录的 `douyin_download` 文件夹中，可通过配置文件修改。
 
-## License
-MIT License
+## ⚠️ 注意事项
 
-## 免责声明
-本工具仅用于学习和研究目的,请在合法合规的范围内使用。作者不对因使用本工具而导致的任何法律问题负任何责任。
+- 🔒 请遵守抖音的使用规则，不要滥用下载功能
+- 📝 请不要对他人的作品进行未经授权的复制或修改
+- 💼 请不要将下载的作品用于商业目的
+- 🔄 建议定期更新 Cookie 以确保功能正常
+- ⚡ 下载采用异步机制，但为保护服务器，不支持高并发下载
+- 🛡️ 请确保在安全的网络环境中使用，保护个人隐私
+
+## 🤝 贡献指南
+
+欢迎提交 Issue 和 Pull Request！
+
+1. Fork 本项目
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 打开 Pull Request
+
+## 📄 许可证
+
+本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+
+## ⚖️ 免责声明
+
+本工具仅用于学习和研究目的，请在合法合规的范围内使用。作者不对因使用本工具而导致的任何法律问题承担责任。
+
+---
+
+<div align="center">
+
+**如果这个项目对您有帮助，请给它一个 ⭐️**
+
+[报告问题](../../issues) • [功能请求](../../issues) • [贡献代码](../../pulls)
+
+</div>
 
