@@ -26,6 +26,8 @@ psutil>=5.8.0  # 系统资源监控（可选）
 Flask>=2.0.0  # Web框架
 Flask-SocketIO>=5.0.0  # WebSocket支持
 python-socketio>=5.0.0  # SocketIO客户端
+gevent>=23.0.0  # 异步WebSocket支持
+gevent-websocket>=0.10.1  # WebSocket协议支持
 
 # 测试工具
 pytest>=7.0.0

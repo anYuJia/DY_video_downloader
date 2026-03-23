@@ -109,13 +109,15 @@ class DouyinUserManager:
                 "search_source": 'normal_search',
                 "query_correct_type": '1',
                 "is_filter_search": '0',
+                'from_group_id': '',
                 'offset': 0,
-                'count': 1  # 只返回1个结果
+                'count': 1,
+                'pc_search_top_1_params': '{"enable_ai_search_top_1":1}',
             }
-            
+
             # 添加自定义请求头
             headers = {
-                "Referer": "https://www.douyin.com/search?type=user&keyword=" + urllib.parse.quote(keyword)
+                "Referer": "https://www.douyin.com/jingxuan/search/" + urllib.parse.quote(keyword) + "?type=user"
             }
             
             if self.debug_mode:
@@ -159,21 +161,22 @@ class DouyinUserManager:
             "search_source": 'normal_search',
             "query_correct_type": '1',
             "is_filter_search": '0',
+            'from_group_id': '',
             'offset': 0,
-            'count': 4  # 直接获取4个结果
+            'count': 10,
+            'pc_search_top_1_params': '{"enable_ai_search_top_1":1}',
         }
-        
+
         # 添加自定义请求头
         headers = {
-            "Referer": "https://www.douyin.com/search?type=user&keyword=" + urllib.parse.quote(keyword)
+            "Referer": "https://www.douyin.com/jingxuan/search/" + urllib.parse.quote(keyword) + "?type=user"
         }
         
         if self.debug_mode:
             print(f"\033[93m[UserManager] 发送关键词搜索请求\033[0m")
         else:
             print(f"\033[93m发送关键词搜索请求\033[0m")
-            
-        # 不再直接传递cookie，让API类处理cookie
+
         resp, succ = await self.api.common_request('/aweme/v1/web/discover/search/',
                                                  params,
                                                  headers)

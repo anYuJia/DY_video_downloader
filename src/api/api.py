@@ -3,6 +3,9 @@ import urllib.parse
 import os
 import execjs
 import re
+import json
+import subprocess
+import sys
 
 
 
@@ -30,68 +33,84 @@ class DouyinAPI:
             'device_platform': 'webapp',
             'aid': '6383',
             'channel': 'channel_pc_web',
-            'update_version_code': '170400',
+            'update_version_code': '0',
             'pc_client_type': '1',
-            'version_code': '190500',
-            'version_name': '19.5.0',
+            'version_code': '190600',
+            'version_name': '19.6.0',
             'cookie_enabled': 'true',
             'screen_width': '1680',
             'screen_height': '1050',
             'browser_language': 'zh-CN',
-            'browser_platform': 'Win32',
-            'browser_name': 'Chrome',
-            'browser_version': '126.0.0.0',
+            'browser_platform': 'MacIntel',
+            'browser_name': 'Edge',
+            'browser_version': '145.0.0.0',
             'browser_online': 'true',
             'engine_name': 'Blink',
-            'engine_version': '126.0.0.0',
-            'os_name': 'Windows',
-            'os_version': '10',
+            'engine_version': '145.0.0.0',
+            'os_name': 'Mac OS',
+            'os_version': '10.15.7',
             'cpu_core_num': '8',
             'device_memory': '8',
             'platform': 'PC',
             'downlink': '10',
             'effective_type': '4g',
             'round_trip_time': '50',
+            'pc_libra_divert': 'Mac',
+            'support_h265': '1',
+            'support_dash': '1',
+            'disable_rs': '0',
+            'need_filter_settings': '1',
+            'list_type': 'single',
         }
-        
+
         # 通用请求头
         self.common_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0",
             "sec-fetch-site": "same-origin",
             "sec-fetch-mode": "cors",
             "sec-fetch-dest": "empty",
-            "sec-ch-ua-platform": "Windows",
+            "sec-ch-ua-platform": '"macOS"',
             "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua": '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
-            "referer": "https://www.douyin.com/?recommend=1",
+            "sec-ch-ua": '"Not:A-Brand";v="99", "Microsoft Edge";v="145", "Chromium";v="145"',
+            "referer": "https://www.douyin.com/",
             "priority": "u=1, i",
-            "pragma": "no-cache",
-            "cache-control": "no-cache",
-            "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
             "accept": "application/json, text/plain, */*",
-            "dnt": "1",
         }
 
     async def _get_webid(self, headers: dict) -> str:
         """获取webid"""
         try:
             url = 'https://www.douyin.com/?recommend=1'
-            headers = headers.copy()
-            headers['sec-fetch-dest'] = 'document'
-            
-            response = requests.get(url, headers=headers, timeout=10)
+            h = headers.copy()
+            h['sec-fetch-dest'] = 'document'
+            h['sec-fetch-mode'] = 'navigate'
+            h['accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+
+            response = requests.get(url, headers=h, timeout=10)
+            if self.debug_mode:
+                print(f"\033[93m[API] _get_webid 响应状态: {response.status_code}, 内容长度: {len(response.text)}\033[0m")
             if response.status_code != 200 or not response.text:
                 if self.debug_mode:
                     print(f"\033[91m[API] 获取webid失败: {response.status_code}\033[0m")
                 return None
-                
-            pattern = r'\\"user_unique_id\\":\\"(\d+)\\"'
-            match = re.search(pattern, response.text)
-            if match:
-                webid = match.group(1)
-                if self.debug_mode:
-                    print(f"\033[93m[API] 获取到webid: {webid}\033[0m")
-                return webid
+
+            # Try multiple patterns
+            for pattern in [
+                r'\\"user_unique_id\\":\\"(\d+)\\"',
+                r'"user_unique_id":"(\d+)"',
+                r'"webid":"(\d+)"',
+                r'webid=(\d+)',
+            ]:
+                match = re.search(pattern, response.text)
+                if match:
+                    webid = match.group(1)
+                    if self.debug_mode:
+                        print(f"\033[93m[API] 获取到webid: {webid}\033[0m")
+                    return webid
+
+            if self.debug_mode:
+                print(f"\033[91m[API] 未能从页面提取webid\033[0m")
         except Exception as e:
             if self.debug_mode:
                 print(f"\033[91m[API] 获取webid异常: {e}\033[0m")
@@ -103,28 +122,36 @@ class DouyinAPI:
             # 添加cookie到headers
             if self.cookie:
                 headers['Cookie'] = self.cookie
-            
+
             cookie = headers.get('cookie') or headers.get('Cookie')
             if not cookie:
                 return params
-                
+
             cookie_dict = self._cookies_to_dict(cookie)
-            
+
             # 从cookie中提取参数
             params['msToken'] = self._get_ms_token()
             params['screen_width'] = cookie_dict.get('dy_swidth', params.get('screen_width', 1680))
             params['screen_height'] = cookie_dict.get('dy_sheight', params.get('screen_height', 1050))
             params['cpu_core_num'] = cookie_dict.get('device_web_cpu_core', params.get('cpu_core_num', 8))
             params['device_memory'] = cookie_dict.get('device_web_memory_size', params.get('device_memory', 8))
-            params['verifyFp'] = cookie_dict.get('s_v_web_id',None)
-            params['fp'] = cookie_dict.get('s_v_web_id',None)
+            s_v_web_id = cookie_dict.get('s_v_web_id') or self._generate_s_v_web_id()
+            params['verifyFp'] = s_v_web_id
+            params['fp'] = s_v_web_id
+
+            # 从cookie中提取uifid并添加到header和参数
+            uifid = cookie_dict.get('UIFID', '')
+            if uifid:
+                headers['uifid'] = uifid
+                params['uifid'] = uifid
+
             # 获取webid
             webid = await self._get_webid(headers)
             if webid:
                 params['webid'] = webid
             else:
                 params['webid'] = "7393173430232106534"  # 默认值
-                
+
             return params
         except Exception as e:
             if self.debug_mode:
@@ -147,12 +174,20 @@ class DouyinAPI:
                 print(f"\033[91m[API] 解析cookie失败: {e}\033[0m")
         
         return cookie_dict
-    
+
     def _get_ms_token(self) -> str:
         """生成msToken"""
         import random
         import string
         return ''.join(random.choices(string.ascii_letters + string.digits, k=107))
+
+    def _generate_s_v_web_id(self) -> str:
+        """生成s_v_web_id (verifyFp)"""
+        import random
+        import string
+        charset = string.ascii_lowercase + string.digits
+        random_str = ''.join(random.choices(charset, k=16))
+        return f"verify_0{random_str}"
 
     async def common_request(self, uri: str, params: dict, headers: dict) -> tuple[dict, bool]:
         """
@@ -181,12 +216,13 @@ class DouyinAPI:
         
         if self.debug_mode:
             print(f'\033[94m[API] 响应状态码: {response.status_code}\033[0m')
-            print(f'\033[94m[API] 响应内容: {response.text[:500]}...\033[0m')
+            print(f'\033[94m[API] 响应内容长度: {len(response.text)}, 前500字符: {response.text[:500]}\033[0m')
 
         if response.status_code != 200 or response.text == '':
             if self.debug_mode:
-                print(f'\033[91m[API] 请求失败: 状态码 {response.status_code}\033[0m')
-            return {}, False
+                print(f'\033[93m[API] 普通请求失败(状态={response.status_code}, 空={response.text == ""}), 尝试浏览器请求...\033[0m')
+            # 回退到浏览器请求
+            return await self.browser_request(uri, params)
             
         try:
             json_response = response.json()
@@ -201,3 +237,55 @@ class DouyinAPI:
             return json_response, False
 
         return json_response, True
+
+    async def browser_request(self, uri: str, params: dict) -> tuple[dict, bool]:
+        """使用Playwright子进程发起真实浏览器请求，通过页面导航拦截真实API响应"""
+        try:
+            if self.debug_mode:
+                print(f"\033[94m[API] 启动浏览器子进程(导航模式)...\033[0m")
+
+            worker_path = os.path.join(os.path.dirname(__file__), 'browser_worker.py')
+            python_exe = sys.executable
+
+            req_data = json.dumps({
+                "cookie": self.cookie or "",
+                "api_path": uri,
+                "params": params,
+                "user_agent": self.common_headers["User-Agent"],
+            })
+
+            proc = subprocess.run(
+                [python_exe, worker_path],
+                input=req_data,
+                capture_output=True,
+                text=True,
+                timeout=45,
+            )
+
+            if proc.returncode != 0:
+                if self.debug_mode:
+                    print(f"\033[91m[API] 浏览器子进程错误: {proc.stderr[:500]}\033[0m")
+                return {}, False
+
+            if self.debug_mode and proc.stderr:
+                print(f"\033[93m[API] 浏览器日志: {proc.stderr[:2000]}\033[0m")
+
+            result = json.loads(proc.stdout)
+
+            if self.debug_mode:
+                result_str = json.dumps(result, ensure_ascii=False)
+                print(f"\033[94m[API] 浏览器响应: {result_str[:500]}...\033[0m")
+
+            if result and not result.get("error"):
+                if result.get('status_code', 0) != 0:
+                    return result, False
+                return result, True
+
+            if self.debug_mode and result.get("error"):
+                print(f"\033[91m[API] 浏览器请求失败: {result['error']}\033[0m")
+            return {}, False
+
+        except Exception as e:
+            if self.debug_mode:
+                print(f"\033[91m[API] 浏览器请求异常: {e}\033[0m")
+            return {}, False

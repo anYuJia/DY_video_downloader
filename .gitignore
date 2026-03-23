@@ -115,4 +115,10 @@ docs/_build/
 
 # 本地配置
 local_settings.py
-settings_local.py
+settings_local.pynode_modules/
+.venv/
+__pycache__/
+*.pyc
+data/
+*.json.bak
+get_media_info.json

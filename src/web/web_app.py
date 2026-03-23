@@ -1,3 +1,6 @@
+from gevent import monkey
+monkey.patch_all()
+
 from flask import Flask, render_template, request, jsonify, send_file, session
 from flask_socketio import SocketIO, emit
 import asyncio
@@ -26,7 +29,7 @@ app.config['SECRET_KEY'] = 'douyin_downloader_secret_key'
 socketio = SocketIO(
     app, 
     cors_allowed_origins="*",
-    async_mode='threading',  # 使用线程模式
+    async_mode='gevent',  # 使用gevent模式
     logger=True,  # 启用日志
     engineio_logger=True,  # 启用Engine.IO日志
     ping_timeout=60,  # 增加ping超时时间
@@ -116,7 +119,7 @@ def set_config():
         data = request.json
         
         if 'cookie' in data:
-            Config.COOKIE = data['cookie']
+            Config.COOKIE = data['cookie'].replace('\n', '').replace('\r', '').strip()
         if 'download_dir' in data:
             Config.BASE_DIR = data['download_dir']
             
@@ -179,6 +182,9 @@ def search_user():
                     'nickname': user_info.get('nickname', ''),
                     'unique_id': user_info.get('unique_id', ''),
                     'follower_count': user_info.get('follower_count', 0),
+                    'following_count': user_info.get('following_count', 0),
+                    'total_favorited': user_info.get('total_favorited', 0),
+                    'aweme_count': user_info.get('aweme_count', 0),
                     'signature': user_info.get('signature', ''),
                     'sec_uid': user_info.get('sec_uid', ''),
                     'avatar_thumb': user_info.get('avatar_thumb', {}).get('url_list', [''])[0] if user_info.get('avatar_thumb') else '',

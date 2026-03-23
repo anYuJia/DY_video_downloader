@@ -4,495 +4,508 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>抖音视频下载器 - Web版</title>
+    <title>DY Downloader</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        /* iOS风格全局样式 */
+        /* ═══════════════════════════════════════════════
+           DARK LUXURY DESIGN SYSTEM
+           Douyin-inspired coral + glassmorphism
+           ═══════════════════════════════════════════════ */
+
         :root {
-            --ios-blue: #007AFF;
-            --ios-green: #34C759;
-            --ios-orange: #FF9500;
-            --ios-red: #FF3B30;
-            --ios-purple: #AF52DE;
-            --ios-gray: #8E8E93;
-            --ios-light-gray: #F2F2F7;
-            --ios-dark-gray: #1C1C1E;
-            --ios-background: #F2F2F7;
-            --ios-card-background: #FFFFFF;
-            --ios-border-radius: 16px;
-            --ios-small-radius: 12px;
-            --ios-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-            --ios-shadow-hover: 0 8px 30px rgba(0, 0, 0, 0.12);
-            --ios-transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            --bg-primary: #08080d;
+            --bg-secondary: #0e0e15;
+            --bg-tertiary: #14141e;
+            --bg-card: rgba(255, 255, 255, 0.03);
+            --bg-card-hover: rgba(255, 255, 255, 0.06);
+            --glass-border: rgba(255, 255, 255, 0.06);
+            --glass-border-hover: rgba(255, 255, 255, 0.12);
+            --text-primary: #e8e8ed;
+            --text-secondary: #8b8b9e;
+            --text-muted: #55556a;
+            --accent: #FE2C55;
+            --accent-glow: rgba(254, 44, 85, 0.15);
+            --accent-hover: #ff4d73;
+            --accent-2: #25F4EE;
+            --accent-2-glow: rgba(37, 244, 238, 0.1);
+            --success: #00d68f;
+            --warning: #ffaa00;
+            --danger: #ff4757;
+            --info: #7c5cfc;
+            --radius-xl: 20px;
+            --radius-lg: 14px;
+            --radius-md: 10px;
+            --radius-sm: 8px;
+            --blur: blur(24px);
+            --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.4);
+            --shadow-glow: 0 0 40px var(--accent-glow);
         }
+
+        * { box-sizing: border-box; }
 
         body {
-            background: linear-gradient(135deg, #F2F2F7 0%, #E5E5EA 100%);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            color: var(--ios-dark-gray);
+            background: var(--bg-primary);
+            font-family: 'Outfit', 'Noto Sans SC', -apple-system, sans-serif;
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
         }
 
-        /* 导航栏iOS风格 */
+        /* Ambient background effect */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(ellipse at 20% 50%, rgba(254, 44, 85, 0.04) 0%, transparent 50%),
+                        radial-gradient(ellipse at 80% 20%, rgba(37, 244, 238, 0.03) 0%, transparent 50%),
+                        radial-gradient(ellipse at 50% 80%, rgba(124, 92, 252, 0.03) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container { position: relative; z-index: 1; max-width: 1280px; }
+
+        /* ── NAVBAR ── */
         .navbar {
-            background: linear-gradient(135deg, var(--ios-blue) 0%, #0056D6 100%) !important;
-            backdrop-filter: blur(20px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: var(--ios-shadow);
+            background: rgba(8, 8, 13, 0.85) !important;
+            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur);
+            border-bottom: 1px solid var(--glass-border);
+            padding: 12px 0;
+            z-index: 1000;
         }
 
         .navbar-brand {
-            font-weight: 600;
-            font-size: 1.25rem;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            font-size: 1.3rem;
             letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
-        /* 卡片iOS风格 */
+        .navbar-brand i {
+            -webkit-text-fill-color: var(--accent);
+            filter: drop-shadow(0 0 8px var(--accent-glow));
+            margin-right: 6px;
+        }
+
+        .navbar-text {
+            color: var(--text-secondary) !important;
+            font-size: 0.85rem;
+            font-weight: 400;
+        }
+
+        /* ── CARDS (Glassmorphism) ── */
         .card {
-            background: var(--ios-card-background);
-            border: none;
-            border-radius: var(--ios-border-radius);
-            box-shadow: var(--ios-shadow);
-            transition: var(--ios-transition);
+            background: var(--bg-card);
+            backdrop-filter: var(--blur);
+            -webkit-backdrop-filter: var(--blur);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+            transition: var(--transition);
             overflow: hidden;
+            animation: cardReveal 0.5s ease-out both;
         }
 
         .card:hover {
+            border-color: var(--glass-border-hover);
+            background: var(--bg-card-hover);
             transform: translateY(-2px);
-            box-shadow: var(--ios-shadow-hover);
+            box-shadow: var(--shadow-md);
         }
 
         .card-header {
-            background: linear-gradient(135deg, #FAFAFA 0%, #F5F5F5 100%);
-            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-            border-radius: var(--ios-border-radius) var(--ios-border-radius) 0 0 !important;
-            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.02);
+            border-bottom: 1px solid var(--glass-border);
+            padding: 14px 18px;
         }
 
         .card-header h6 {
+            font-family: 'Outfit', sans-serif;
             font-weight: 600;
-            color: var(--ios-dark-gray);
-            font-size: 0.95rem;
-            letter-spacing: -0.3px;
-        }
-
-        .card-body {
-            padding: 16px;
-        }
-
-        /* 按钮iOS风格 */
-        .btn {
-            border-radius: var(--ios-small-radius);
-            font-weight: 500;
+            color: var(--text-primary);
+            font-size: 0.9rem;
             letter-spacing: -0.2px;
-            transition: var(--ios-transition);
-            border: none;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            margin: 0;
+        }
+
+        .card-header h6 i {
+            color: var(--accent);
+            margin-right: 8px;
+            font-size: 0.95rem;
+        }
+
+        .card-body { padding: 18px; }
+
+        /* Card border accent variants (used by JS) */
+        .card.border-info, .card.border-success, .card.border-danger {
+            border-color: var(--glass-border-hover);
+        }
+
+        .card-header.bg-info,
+        .card-header.bg-success,
+        .card-header.bg-danger {
+            background: rgba(255, 255, 255, 0.04) !important;
+            color: var(--text-primary) !important;
+        }
+        .card-header.bg-info h6, .card-header.bg-success h6, .card-header.bg-danger h6 {
+            color: var(--text-primary);
+        }
+        .card-header .text-white { color: var(--text-primary) !important; }
+
+        /* ── BUTTONS ── */
+        .btn {
+            font-family: 'Outfit', sans-serif;
+            border-radius: var(--radius-sm);
+            font-weight: 500;
+            font-size: 0.85rem;
+            letter-spacing: -0.1px;
+            transition: var(--transition);
+            border: 1px solid transparent;
+            padding: 8px 16px;
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, var(--ios-blue) 0%, #0056D6 100%);
-            color: white;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            box-shadow: 0 2px 16px rgba(254, 44, 85, 0.25);
         }
-
         .btn-primary:hover {
-            background: linear-gradient(135deg, #0056D6 0%, #004BB8 100%);
+            background: var(--accent-hover);
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
+            box-shadow: 0 4px 24px rgba(254, 44, 85, 0.4);
         }
 
         .btn-success {
-            background: linear-gradient(135deg, var(--ios-green) 0%, #28A745 100%);
-            color: white;
+            background: var(--success);
+            color: #fff;
+            border: none;
+            box-shadow: 0 2px 16px rgba(0, 214, 143, 0.2);
+        }
+        .btn-success:hover {
+            background: #00e69a;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 24px rgba(0, 214, 143, 0.35);
         }
 
-        .btn-success:hover {
-            background: linear-gradient(135deg, #28A745 0%, #1E7E34 100%);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3);
+        .btn-info {
+            background: var(--info);
+            color: #fff;
+            border: none;
         }
 
         .btn-outline-primary {
-            background: rgba(0, 122, 255, 0.1);
-            border: 1px solid rgba(0, 122, 255, 0.3);
-            color: var(--ios-blue);
+            background: rgba(254, 44, 85, 0.08);
+            border: 1px solid rgba(254, 44, 85, 0.25);
+            color: var(--accent);
         }
-
         .btn-outline-primary:hover {
-            background: var(--ios-blue);
-            color: white;
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
             transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(254, 44, 85, 0.3);
         }
 
         .btn-outline-info {
-            background: rgba(175, 82, 222, 0.1);
-            border: 1px solid rgba(175, 82, 222, 0.3);
-            color: var(--ios-purple);
+            background: rgba(124, 92, 252, 0.08);
+            border: 1px solid rgba(124, 92, 252, 0.25);
+            color: var(--info);
         }
-
         .btn-outline-info:hover {
-            background: var(--ios-purple);
-            color: white;
+            background: var(--info);
+            border-color: var(--info);
+            color: #fff;
             transform: translateY(-1px);
         }
 
         .btn-outline-success {
-            background: rgba(52, 199, 89, 0.1);
-            border: 1px solid rgba(52, 199, 89, 0.3);
-            color: var(--ios-green);
+            background: rgba(0, 214, 143, 0.08);
+            border: 1px solid rgba(0, 214, 143, 0.25);
+            color: var(--success);
         }
-
         .btn-outline-success:hover {
-            background: var(--ios-green);
-            color: white;
+            background: var(--success);
+            color: #fff;
             transform: translateY(-1px);
         }
 
         .btn-outline-warning {
-            background: rgba(255, 149, 0, 0.1);
-            border: 1px solid rgba(255, 149, 0, 0.3);
-            color: var(--ios-orange);
+            background: rgba(255, 170, 0, 0.08);
+            border: 1px solid rgba(255, 170, 0, 0.25);
+            color: var(--warning);
         }
-
         .btn-outline-warning:hover {
-            background: var(--ios-orange);
-            color: white;
+            background: var(--warning);
+            color: #fff;
             transform: translateY(-1px);
         }
 
         .btn-outline-secondary {
-            background: rgba(142, 142, 147, 0.1);
-            border: 1px solid rgba(142, 142, 147, 0.3);
-            color: var(--ios-gray);
+            background: rgba(139, 139, 158, 0.08);
+            border: 1px solid rgba(139, 139, 158, 0.2);
+            color: var(--text-secondary);
         }
-
         .btn-outline-secondary:hover {
-            background: var(--ios-gray);
-            color: white;
+            background: var(--text-secondary);
+            color: var(--bg-primary);
             transform: translateY(-1px);
         }
 
-        /* 表单控件iOS风格 */
-        .form-control {
-            border: 1px solid rgba(0, 0, 0, 0.1);
-            border-radius: var(--ios-small-radius);
-            background: rgba(255, 255, 255, 0.9);
-            transition: var(--ios-transition);
-            font-size: 0.9rem;
+        .btn-outline-danger {
+            background: rgba(255, 71, 87, 0.08);
+            border: 1px solid rgba(255, 71, 87, 0.25);
+            color: var(--danger);
+        }
+        .btn-outline-danger:hover {
+            background: var(--danger);
+            color: #fff;
         }
 
-        .form-control:focus {
-            border-color: var(--ios-blue);
-            box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
-            background: white;
+        .btn-light {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+            border: 1px solid var(--glass-border);
         }
+        .btn-light:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+        }
+
+        .btn-secondary {
+            background: rgba(139, 139, 158, 0.15);
+            color: var(--text-secondary);
+            border: 1px solid rgba(139, 139, 158, 0.2);
+        }
+
+        .btn-sm { padding: 5px 12px; font-size: 0.8rem; }
+
+        /* ── FORMS ── */
+        .form-control, .form-select {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 0.88rem;
+            transition: var(--transition);
+        }
+        .form-control:focus, .form-select:focus {
+            background: rgba(255, 255, 255, 0.07);
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+            color: var(--text-primary);
+        }
+        .form-control::placeholder { color: var(--text-muted); }
+        .form-label { color: var(--text-secondary); font-size: 0.82rem; font-weight: 500; }
+        textarea.form-control { resize: vertical; }
 
         .input-group .form-control {
             border-top-right-radius: 0;
             border-bottom-right-radius: 0;
         }
-
         .input-group .btn {
             border-top-left-radius: 0;
             border-bottom-left-radius: 0;
         }
 
-        /* 徽章iOS风格 */
+        /* ── BADGES ── */
         .badge {
             border-radius: 20px;
             font-weight: 500;
-            padding: 4px 8px;
-            font-size: 0.75rem;
+            font-size: 0.72rem;
+            padding: 4px 10px;
+            letter-spacing: 0.2px;
         }
+        .badge.bg-primary { background: var(--accent) !important; }
+        .badge.bg-success { background: var(--success) !important; }
+        .badge.bg-danger { background: var(--danger) !important; }
+        .badge.bg-secondary { background: rgba(139, 139, 158, 0.3) !important; color: var(--text-secondary) !important; }
+        .badge.bg-light { background: rgba(255, 255, 255, 0.1) !important; color: var(--text-primary) !important; }
 
-        .badge.bg-primary {
-            background: linear-gradient(135deg, var(--ios-blue) 0%, #0056D6 100%) !important;
-        }
-
-        /* 状态指示器iOS风格 */
+        /* ── STATUS INDICATOR ── */
         .status-indicator {
-            width: 12px;
-            height: 12px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
             display: inline-block;
             margin-right: 8px;
-            box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
-            animation: pulse 2s infinite;
+            position: relative;
+        }
+        .status-indicator::after {
+            content: '';
+            position: absolute;
+            inset: -3px;
+            border-radius: 50%;
+            animation: statusPulse 2s infinite;
+        }
+        .status-ready { background: var(--success); }
+        .status-ready::after { box-shadow: 0 0 0 0 rgba(0, 214, 143, 0.5); }
+        .status-running { background: var(--warning); }
+        .status-running::after { box-shadow: 0 0 0 0 rgba(255, 170, 0, 0.5); }
+        .status-error { background: var(--danger); }
+        .status-error::after { box-shadow: 0 0 0 0 rgba(255, 71, 87, 0.5); }
+
+        @keyframes statusPulse {
+            0% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 0; }
         }
 
-        @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); }
-            70% { box-shadow: 0 0 0 4px rgba(255, 255, 255, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
-        }
-
-        .status-ready {
-            background: linear-gradient(135deg, var(--ios-green) 0%, #28A745 100%);
-        }
-
-        .status-running {
-            background: linear-gradient(135deg, var(--ios-orange) 0%, #FD7E14 100%);
-        }
-
-        .status-error {
-            background: linear-gradient(135deg, var(--ios-red) 0%, #DC3545 100%);
-        }
-
-        /* 拖拽区域iOS风格 */
+        /* ── DROP ZONE ── */
         .drop-zone {
-            border: 2px dashed rgba(0, 122, 255, 0.3);
-            border-radius: var(--ios-border-radius);
-            padding: 40px;
+            border: 1.5px dashed rgba(254, 44, 85, 0.2);
+            border-radius: var(--radius-lg);
+            padding: 32px;
             text-align: center;
-            background: linear-gradient(135deg, rgba(0, 122, 255, 0.05) 0%, rgba(0, 122, 255, 0.02) 100%);
-            transition: var(--ios-transition);
+            background: rgba(254, 44, 85, 0.02);
+            transition: var(--transition);
             cursor: pointer;
-            backdrop-filter: blur(10px);
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            background: rgba(254, 44, 85, 0.06);
+            border-color: var(--accent);
+            box-shadow: 0 0 30px var(--accent-glow);
         }
 
-        .drop-zone:hover {
-            background: linear-gradient(135deg, rgba(0, 122, 255, 0.1) 0%, rgba(0, 122, 255, 0.05) 100%);
-            border-color: var(--ios-blue);
-            transform: scale(1.02);
-        }
-
-        .drop-zone.dragover {
-            background: linear-gradient(135deg, rgba(0, 122, 255, 0.15) 0%, rgba(0, 122, 255, 0.08) 100%);
-            border-color: var(--ios-blue);
-            transform: scale(1.02);
-            box-shadow: var(--ios-shadow-hover);
-        }
-
-        /* 用户卡片iOS风格 */
-        .user-card {
-            transition: var(--ios-transition);
-            border-radius: var(--ios-border-radius);
-            overflow: hidden;
-        }
-
-        .user-card:hover {
-            transform: translateY(-4px) scale(1.02);
-            box-shadow: var(--ios-shadow-hover);
-        }
-
-        /* 日志容器iOS风格 */
+        /* ── LOG CONTAINER ── */
         .log-container {
-            height: 300px;
+            height: 100%;
             overflow-y: auto;
-            background: linear-gradient(135deg, #FAFAFA 0%, #F5F5F5 100%);
-            border: 1px solid rgba(0, 0, 0, 0.05);
-            border-radius: var(--ios-small-radius);
-            padding: 12px;
-            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+            font-family: 'JetBrains Mono', monospace;
             font-size: 11px;
-            line-height: 1.4;
+            line-height: 1.5;
+            color: var(--text-secondary);
         }
 
-        /* 滚动条iOS风格 */
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: rgba(0, 0, 0, 0.05);
-            border-radius: 3px;
-        }
-
+        /* ── SCROLLBAR ── */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb {
-            background: linear-gradient(135deg, rgba(0, 0, 0, 0.2) 0%, rgba(0, 0, 0, 0.1) 100%);
-            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
         }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.15); }
 
-        ::-webkit-scrollbar-thumb:hover {
-            background: linear-gradient(135deg, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.2) 100%);
-        }
-
-        /* 进度条iOS风格 */
+        /* ── PROGRESS ── */
         .progress {
-            height: 8px;
-            border-radius: 4px;
-            background: rgba(0, 0, 0, 0.1);
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.06);
             overflow: hidden;
         }
-
         .progress-bar {
-            background: linear-gradient(90deg, var(--ios-blue) 0%, #0056D6 100%);
-            border-radius: 4px;
-            transition: var(--ios-transition);
+            background: linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 100%);
+            border-radius: 3px;
+            transition: width 0.3s ease;
         }
+        .progress-bar.bg-success { background: linear-gradient(90deg, var(--success), #00e69a) !important; }
+        .progress-bar.bg-danger { background: linear-gradient(90deg, var(--danger), #ff6b7a) !important; }
+        .progress-bar.bg-primary { background: linear-gradient(90deg, var(--accent), var(--accent-hover)) !important; }
+        .progress-bar.bg-secondary { background: rgba(255, 255, 255, 0.1) !important; }
 
-        /* 容器间距优化 */
-        .container {
-            max-width: 1200px;
-        }
-
-        .row {
-            margin-left: -8px;
-            margin-right: -8px;
-        }
-
-        .col-md-3, .col-md-4 {
-            padding-left: 8px;
-            padding-right: 8px;
-        }
-
-        /* 响应式优化 */
-        @media (max-width: 768px) {
-            .card {
-                margin-bottom: 16px;
-            }
-            
-            .btn {
-                font-size: 0.85rem;
-                padding: 6px 12px;
-            }
-        }
-
-        /* 动画效果 */
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .card {
-            animation: fadeInUp 0.6s ease-out;
-        }
-
-        /* 特色图标 */
-        .feature-icon {
-            font-size: 2rem;
-            color: var(--ios-blue);
-            text-shadow: 0 2px 4px rgba(0, 122, 255, 0.2);
-        }
-
-        /* Toast通知iOS风格 */
-        .toast {
-            border-radius: var(--ios-small-radius);
-            backdrop-filter: blur(20px);
-            box-shadow: var(--ios-shadow);
-        }
-
-        /* 视频卡片优化 */
+        /* ── VIDEO CARDS ── */
         .video-card {
-            transition: var(--ios-transition);
-            border-radius: var(--ios-border-radius);
+            transition: var(--transition);
+            border-radius: var(--radius-lg);
             overflow: hidden;
-            height: 380px !important; /* 固定高度确保统一 */
+            height: 380px !important;
+            background: var(--bg-card);
+            border: 1px solid var(--glass-border);
         }
-
         .video-card:hover {
-            transform: translateY(-4px) scale(1.02);
-            box-shadow: var(--ios-shadow-hover);
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-md);
+            border-color: var(--glass-border-hover);
         }
 
         .video-cover-container {
-            height: 280px;
+            height: 260px;
             overflow: hidden;
             position: relative;
         }
-
         .video-cover {
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transition: var(--ios-transition);
+            transition: var(--transition);
         }
+        .video-card:hover .video-cover { transform: scale(1.05); }
 
         .video-overlay {
             position: absolute;
             bottom: 0;
             left: 0;
             right: 0;
-            background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
-            padding: 20px 12px 12px;
+            background: linear-gradient(transparent, rgba(8, 8, 13, 0.9));
+            padding: 24px 12px 12px;
             opacity: 0;
-            transition: var(--ios-transition);
+            transition: var(--transition);
         }
-
-        .video-card:hover .video-overlay {
-            opacity: 1;
-        }
+        .video-card:hover .video-overlay { opacity: 1; }
 
         .video-stats {
             display: flex;
             justify-content: space-around;
             align-items: center;
         }
-
         .stat-item {
             display: flex;
             flex-direction: column;
             align-items: center;
-            color: white;
-            font-size: 0.75rem;
+            color: #fff;
+            font-size: 0.72rem;
             font-weight: 500;
         }
-
-        .stat-item i {
-            font-size: 1.1rem;
-            margin-bottom: 2px;
-        }
-
-        .stat-item:nth-child(1) i { color: #FF3B30; }
-        .stat-item:nth-child(2) i { color: #007AFF; }
-        .stat-item:nth-child(3) i { color: #34C759; }
+        .stat-item i { font-size: 1rem; margin-bottom: 2px; }
+        .stat-item:nth-child(1) i { color: var(--accent); }
+        .stat-item:nth-child(2) i { color: var(--accent-2); }
+        .stat-item:nth-child(3) i { color: var(--success); }
 
         .video-card-body {
-            padding: 8px;
+            padding: 10px 12px;
             display: flex;
             flex-direction: column;
             height: 120px;
         }
-
         .video-desc {
-            font-size: 0.85rem;
+            font-size: 0.82rem;
             line-height: 1.3;
             margin-bottom: 4px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-            flex-shrink: 0;
+            color: var(--text-primary);
         }
-
         .video-date {
-            font-size: 0.75rem;
-            margin-bottom: 4px;
-            flex-shrink: 0;
+            font-size: 0.72rem;
+            margin-bottom: 6px;
+            color: var(--text-muted);
         }
-
-        .video-actions {
-            display: flex;
-            gap: 4px;
-            flex-wrap: wrap;
-            margin-top: 0;
-        }
-
+        .video-actions { display: flex; gap: 4px; flex-wrap: wrap; }
         .video-btn {
             flex: 1;
             min-width: 36px;
             padding: 4px 6px;
-            border-radius: 8px;
-            font-size: 0.75rem;
-            transition: var(--ios-transition);
+            border-radius: 6px;
+            font-size: 0.72rem;
+            transition: var(--transition);
         }
+        .video-btn:hover { transform: translateY(-1px); }
 
-        .video-btn:hover {
-            transform: translateY(-1px);
-        }
-
-        /* 作者卡片优化 */
-        .author-card {
-            height: 190px !important; /* 更紧凑的高度 */
-        }
-        
-        /* 作者统计数据单行显示 */
+        /* ── AUTHOR CARDS ── */
+        .author-card { height: 190px !important; }
         .author-stats {
             display: flex;
             justify-content: space-between;
@@ -501,27 +514,10 @@
             white-space: nowrap;
             margin-bottom: 8px;
         }
-        
-        .author-stats .col-3 {
-            flex: 1;
-            min-width: 0;
-            text-align: center;
-            padding: 0 2px;
-        }
-        
-        .author-stats .text-muted {
-            font-size: 0.7rem;
-            margin-bottom: 2px;
-            display: block;
-        }
-        
-        .author-stats .small {
-            font-size: 0.75rem;
-            font-weight: 600;
-            display: block;
-        }
-        
-        /* 用户详情统计数据单行显示 */
+        .author-stats .col-3 { flex: 1; min-width: 0; text-align: center; padding: 0 2px; }
+        .author-stats .text-muted { font-size: 0.68rem; margin-bottom: 2px; display: block; color: var(--text-muted); }
+        .author-stats .small { font-size: 0.75rem; font-weight: 600; display: block; }
+
         .user-detail-stats {
             display: flex;
             justify-content: space-between;
@@ -529,111 +525,177 @@
             flex-wrap: nowrap;
             white-space: nowrap;
         }
-        
-        .user-detail-stats .col-3 {
-            flex: 1;
-            min-width: 0;
-            text-align: center;
-            padding: 0 2px;
-        }
-        
-        .user-detail-stats .text-muted {
-            font-size: 0.7rem;
-            margin-bottom: 2px;
-            display: block;
-        }
-        
-        .user-detail-stats .small {
-            font-size: 0.75rem;
-            font-weight: 600;
-            display: block;
-        }
+        .user-detail-stats .col-3 { flex: 1; min-width: 0; text-align: center; padding: 0 2px; }
+        .user-detail-stats .text-muted { font-size: 0.68rem; margin-bottom: 2px; display: block; color: var(--text-muted); }
+        .user-detail-stats .small { font-size: 0.75rem; font-weight: 600; display: block; }
 
-        .author-card-body {
-            padding: 10px;
-            display: flex;
-            flex-direction: column;
-            height: 100%;
-        }
-
+        .author-card-body { padding: 10px; display: flex; flex-direction: column; height: 100%; }
         .author-desc {
-            font-size: 0.8rem;
-            color: var(--ios-gray);
+            font-size: 0.78rem;
+            color: var(--text-muted);
             margin-bottom: 6px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-            flex-shrink: 0;
         }
-
-        .author-actions {
-            display: flex;
-            gap: 6px;
-            margin-top: 0;
-        }
-
+        .author-actions { display: flex; gap: 6px; }
         .author-btn {
             flex: 1;
             padding: 6px 8px;
             border-radius: 8px;
-            font-size: 0.8rem;
-            transition: var(--ios-transition);
+            font-size: 0.78rem;
+            transition: var(--transition);
+        }
+        .author-btn:hover { transform: translateY(-1px); }
+
+        .user-card {
+            transition: var(--transition);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+        }
+        .user-card:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-md);
         }
 
-        .author-btn:hover {
-            transform: translateY(-1px);
+        /* ── MODALS ── */
+        .modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-xl);
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+        }
+        .modal-header {
+            border-bottom: 1px solid var(--glass-border);
+            padding: 18px 24px;
+        }
+        .modal-title {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .modal-body { padding: 24px; color: var(--text-primary); }
+        .modal-footer { border-top: 1px solid var(--glass-border); padding: 16px 24px; }
+        .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
+
+        /* ── TOAST ── */
+        .toast {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+        }
+        .toast-header {
+            background: transparent;
+            border-bottom: 1px solid var(--glass-border);
+            color: var(--text-primary);
+        }
+        .toast-body { color: var(--text-secondary); }
+
+        /* ── TEXT UTILITIES ── */
+        .text-muted { color: var(--text-muted) !important; }
+        .text-primary { color: var(--accent) !important; }
+        .text-success { color: var(--success) !important; }
+        .text-danger { color: var(--danger) !important; }
+        .text-info { color: var(--info) !important; }
+        .text-warning { color: var(--warning) !important; }
+        .text-dark { color: var(--text-primary) !important; }
+        .text-white { color: var(--text-primary) !important; }
+        a { color: var(--accent); }
+        a:hover { color: var(--accent-hover); }
+        .fw-bold { color: var(--text-primary); }
+        .small, small { color: var(--text-secondary); }
+        .border { border-color: var(--glass-border) !important; }
+        .rounded { border-radius: var(--radius-md) !important; }
+        .border.rounded { border-color: var(--glass-border) !important; }
+
+        /* ── BG UTILITY OVERRIDES ── */
+        .bg-primary { background: var(--accent) !important; }
+        .bg-success { background: var(--success) !important; }
+        .bg-danger { background: var(--danger) !important; }
+        .bg-info { background: var(--info) !important; }
+        .bg-warning { background: var(--warning) !important; }
+
+        /* Card bg utilities for storage modal */
+        .card.bg-primary, .card.bg-info, .card.bg-success, .card.bg-warning {
+            background: rgba(255, 255, 255, 0.04) !important;
+            border: 1px solid var(--glass-border);
+        }
+        .card.bg-primary h5, .card.bg-info h5, .card.bg-success h5, .card.bg-warning h5 {
+            color: var(--text-primary);
+        }
+        .card.bg-primary small { color: var(--accent); }
+        .card.bg-info small { color: var(--info); }
+        .card.bg-success small { color: var(--success); }
+        .card.bg-warning small { color: var(--warning); }
+
+        /* ── ANIMATIONS ── */
+        @keyframes cardReveal {
+            from { opacity: 0; transform: translateY(16px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
-        /* 功能按钮圆润化 */
-        #search-btn, #download-link-btn, #download-liked-btn, #download-liked-authors-btn {
-            border-radius: var(--ios-small-radius) !important;
-            font-weight: 500;
-            transition: var(--ios-transition);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        .row > [class*="col-"]:nth-child(1) .card { animation-delay: 0s; }
+        .row > [class*="col-"]:nth-child(2) .card { animation-delay: 0.06s; }
+        .row > [class*="col-"]:nth-child(3) .card { animation-delay: 0.12s; }
+        .row > [class*="col-"]:nth-child(4) .card { animation-delay: 0.18s; }
+
+        /* ── CAROUSEL DARK ── */
+        .carousel-control-prev-icon, .carousel-control-next-icon {
+            filter: none;
+            background-color: rgba(254, 44, 85, 0.7);
+            border-radius: 50%;
+            padding: 8px;
         }
 
-        #search-btn:hover, #download-link-btn:hover, #download-liked-btn:hover, #download-liked-authors-btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        }
+        /* ── RESPONSIVE ── */
+        .row { margin-left: -8px; margin-right: -8px; }
+        .col-md-3, .col-md-4 { padding-left: 8px; padding-right: 8px; }
 
-        /* 输入框圆润化 */
-        #search-input, #link-input, #liked-videos-count, #liked-authors-count {
-            border-radius: var(--ios-small-radius) 0 0 var(--ios-small-radius) !important;
-        }
-
-        /* 响应式优化 */
         @media (max-width: 768px) {
-            .video-card {
-                height: 340px !important;
-            }
-            
-            .author-card {
-                height: 180px !important;
-            }
-            
-            .video-cover-container {
-                height: 220px;
-            }
-            
-            .video-card-body {
-                height: 120px;
-            }
-            
-            .author-card-body {
-                height: 100%;
-            }
+            .card { margin-bottom: 14px; }
+            .btn { font-size: 0.82rem; padding: 6px 12px; }
+            .video-card { height: 340px !important; }
+            .author-card { height: 180px !important; }
+            .video-cover-container { height: 220px; }
         }
+
+        /* ── FEATURE ICONS ── */
+        .feature-icon { font-size: 2rem; color: var(--accent); }
+
+        /* ── ROUNDED INPUTS ── */
+        #search-input, #link-input, #liked-videos-count, #liked-authors-count {
+            border-radius: var(--radius-sm) 0 0 var(--radius-sm) !important;
+        }
+        #search-btn, #download-link-btn, #download-liked-btn, #download-liked-authors-btn {
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0 !important;
+        }
+
+        /* ── SECTION HEADERS ── */
+        .section-label {
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            padding-left: 2px;
+        }
+
+        /* ── IMG FLUID DARK ── */
+        .img-fluid { border-radius: var(--radius-md); }
+        .rounded-circle { border: 2px solid var(--glass-border); }
     </style>
 </head>
 
 <body>
     <!-- 导航栏 -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
             <a class="navbar-brand" href="#">
-                <i class="bi bi-cloud-download"></i>
-                抖音视频下载器
+                <i class="bi bi-play-circle-fill"></i>
+                DY Downloader
             </a>
             <div class="navbar-nav ms-auto">
                 <span class="navbar-text">
@@ -645,8 +707,9 @@
     </nav>
 
     <div class="container mt-4">
-        <!-- 顶部三栏布局：配置、进度、日志 -->
-        <div class="row mb-3">
+        <!-- Section: Dashboard -->
+        <div class="section-label">Dashboard</div>
+        <div class="row mb-4">
             <!-- 配置设置 -->
             <div class="col-md-4">
                 <div class="card h-100">
@@ -730,8 +793,8 @@
                             </button>
                         </div>
                     </div>
-                    <div class="card-body py-1" style="height: 200px; overflow-y: auto; font-size: 11px; line-height: 1.3;">
-                        <div id="log-container" style="height: 100%;">
+                    <div class="card-body py-1" style="height: 200px; overflow-y: auto;">
+                        <div id="log-container" class="log-container">
                             <div class="text-muted small">等待操作...</div>
                         </div>
                     </div>
@@ -740,7 +803,8 @@
         </div>
 
         <!-- 功能模块四等分布局 -->
-        <div class="row mb-3">
+        <div class="section-label">Tools</div>
+        <div class="row mb-4">
             <!-- 用户搜索 -->
             <div class="col-md-3">
                 <div class="card h-100">
@@ -1963,6 +2027,12 @@
             const modal = new bootstrap.Modal(document.getElementById('user-select-modal'));
             const userList = document.getElementById('modal-user-list');
 
+            // 缓存用户数据，后续selectUser直接使用
+            _cachedSearchUsers = {};
+            users.forEach(user => {
+                if (user.sec_uid) _cachedSearchUsers[user.sec_uid] = user;
+            });
+
             userList.innerHTML = users.map(user => createUserCard(user, false)).join('');
             modal.show();
         }
@@ -2206,10 +2276,20 @@
             }
         }
 
+        // 缓存搜索结果用户数据
+        let _cachedSearchUsers = {};
+
         function selectUser(secUid, nickname) {
             bootstrap.Modal.getInstance(document.getElementById('user-select-modal')).hide();
 
-            // 获取用户详情
+            // 直接从缓存获取用户数据（搜索结果已包含所需信息）
+            if (_cachedSearchUsers[secUid]) {
+                currentUser = _cachedSearchUsers[secUid];
+                showUserDetail(currentUser);
+                return;
+            }
+
+            // 回退：调用详情接口
             fetch('/api/user_detail', {
                 method: 'POST',
                 headers: {
@@ -2223,7 +2303,7 @@
                         currentUser = data.user;
                         showUserDetail(data.user);
                     } else {
-                        showToast(data.message, 'error');
+                        showToast(data.message || '获取用户详情失败', 'error');
                     }
                 })
                 .catch(error => {

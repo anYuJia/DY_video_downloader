@@ -81,7 +81,7 @@ class Config:
             try:
                 with open(cls.CONFIG_FILE, 'r', encoding='utf-8') as f:
                     config_data = json.load(f)
-                    cls.COOKIE = config_data.get("cookie", cls.COOKIE)
+                    cls.COOKIE = config_data.get("cookie", cls.COOKIE).replace('\n', '').replace('\r', '').strip()
                     cls.BASE_DIR = config_data.get("base_dir", cls.BASE_DIR)
                     cls.DOWNLOAD_DIR = os.path.join(cls.BASE_DIR, "douyin_download")
                     print("\033[92m配置已从配置文件加载\033[0m")
