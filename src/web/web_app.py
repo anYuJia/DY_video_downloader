@@ -255,18 +255,19 @@ def get_liked_videos_api():
         count = data.get('count', 20)
         if not user_manager:
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
-        # 在新的事件循环中运行异步任务
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         videos = loop.run_until_complete(user_manager.get_liked_videos(count))
         loop.close()
+        if not videos:
+            return jsonify({'success': False, 'message': '获取点赞视频失败。该接口需要登录态，请确认Cookie有效且包含完整的登录信息。如果Cookie已过期请重新获取。'})
         return jsonify({
-            'success': True, 
+            'success': True,
             'data': videos,
             'count': len(videos)
         })
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'success': False, 'message': f'获取点赞视频失败: {str(e)}'}), 500
 
 @app.route('/api/get_liked_authors', methods=['POST'])
 def get_liked_authors_api():
@@ -274,15 +275,17 @@ def get_liked_authors_api():
     try:
         data = request.json
         count = data.get('count', 20)
-        
+
         if not user_manager:
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
-        
-        # 在新的事件循环中运行异步任务
+
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         authors = loop.run_until_complete(user_manager.get_liked_authors(count))
         loop.close()
+
+        if not authors:
+            return jsonify({'success': False, 'message': '获取点赞作者失败。该接口需要登录态，请确认Cookie有效且包含完整的登录信息。'})
         
         return jsonify({
             'success': True, 
@@ -307,73 +310,89 @@ def download_liked_videos_api():
 
 @app.route('/api/user_videos', methods=['POST'])
 def get_user_videos():
-    """获取用户视频列表"""
+    """获取用户视频列表（支持分页渐进加载）"""
     try:
         data = request.json
         sec_uid = data.get('sec_uid', '').strip()
-        
-        #print(f"[DEBUG] 获取用户视频列表请求: sec_uid={sec_uid}, page={page}, page_size={page_size}")
-        
+        cursor = data.get('cursor', 0)  # 分页游标
+        count = data.get('count', 18)   # 每页数量
+
         if not sec_uid:
-            print("[ERROR] 用户ID为空")
             return jsonify({'success': False, 'message': '用户ID不能为空'}), 400
-        
+
         if not user_manager:
-            print("[ERROR] user_manager未初始化")
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
-        
-        # 在新线程中运行异步任务，获取所有视频
-        def run_get_videos_and_details():
+
+        def run_get_page():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                # 获取视频列表
-                all_videos = loop.run_until_complete(user_manager.get_user_videos(sec_uid, offset=0, limit=1000))
-                if not all_videos:
-                    return [], 0
-                print(f"[DEBUG] 获取到用户 {sec_uid} 的视频总数: {len(all_videos)}")
-                open('debug_all_videos.json', 'w').write(json.dumps(all_videos, indent=2))
-                total_count = len(all_videos)
-                # 获取详情
-                video_list_with_details = []
-                for video in all_videos:
-                    aweme_id = video.get('aweme_id')
-                    if not aweme_id:
-                        continue
-                    # 提取封面URL
-                    cover_url = ""
-                    if video.get('video') and video['video'].get('cover'):
-                        cover_url = video['video']['cover']['url_list'][0]
-                    elif video.get('images'):
-                        cover_url = video['images'][0]['url_list'][-1]
-                    media_type, media_urls = user_manager.get_media_info(video)
-                    video_list_with_details.append({
-                        'aweme_id': aweme_id,
-                        'desc': video.get('desc', ''),
-                        'create_time': video.get('create_time', 0),
-                        'digg_count': video.get('statistics', {}).get('digg_count', 0),
-                        'comment_count': video.get('statistics', {}).get('comment_count', 0),
-                        'share_count': video.get('statistics', {}).get('share_count', 0),
-                        'cover_url': cover_url,
-                        'media_type': media_type,
-                        'media_urls': media_urls,
-                        'author': {
-                            'nickname': video.get('author', {}).get('nickname', ''),
-                            'avatar_thumb': video.get('author', {}).get('avatar_thumb', {}).get('url_list', [''])[0] if video.get('author', {}).get('avatar_thumb') else ''
-                        }
-                    })
-                return video_list_with_details, total_count
+                params = {
+                    "publish_video_strategy_type": 2,
+                    "max_cursor": cursor,
+                    "sec_user_id": sec_uid,
+                    "locate_query": False,
+                    'show_live_replay_strategy': 1,
+                    'need_time_list': 0,
+                    'time_list_query': 0,
+                    'whale_cut_token': '',
+                    'count': count
+                }
+                resp, succ = loop.run_until_complete(
+                    user_manager.api.common_request('/aweme/v1/web/aweme/post/', params, {})
+                )
+                return resp, succ
             finally:
                 loop.close()
 
-        video_list, total_count = run_get_videos_and_details()
+        resp, succ = run_get_page()
 
-        if not video_list:
-            return jsonify({'success': False, 'message': '未找到视频或该用户没有公开作品'})
+        if not succ or not resp.get('aweme_list'):
+            return jsonify({
+                'success': True,
+                'videos': [],
+                'has_more': False,
+                'cursor': 0,
+                'total_count': 0
+            })
+
+        videos = resp.get('aweme_list', [])
+        has_more = resp.get('has_more', 0) == 1
+        next_cursor = resp.get('max_cursor', 0)
+
+        video_list = []
+        for video in videos:
+            aweme_id = video.get('aweme_id')
+            if not aweme_id:
+                continue
+            cover_url = ""
+            if video.get('video') and video['video'].get('cover'):
+                cover_url = video['video']['cover']['url_list'][0]
+            elif video.get('images'):
+                cover_url = video['images'][0]['url_list'][-1]
+            media_type, media_urls = user_manager.get_media_info(video)
+            video_list.append({
+                'aweme_id': aweme_id,
+                'desc': video.get('desc', ''),
+                'create_time': video.get('create_time', 0),
+                'digg_count': video.get('statistics', {}).get('digg_count', 0),
+                'comment_count': video.get('statistics', {}).get('comment_count', 0),
+                'share_count': video.get('statistics', {}).get('share_count', 0),
+                'cover_url': cover_url,
+                'media_type': media_type,
+                'media_urls': media_urls,
+                'author': {
+                    'nickname': video.get('author', {}).get('nickname', ''),
+                    'avatar_thumb': video.get('author', {}).get('avatar_thumb', {}).get('url_list', [''])[0] if video.get('author', {}).get('avatar_thumb') else ''
+                }
+            })
+
         return jsonify({
             'success': True,
             'videos': video_list,
-            'total_count': total_count,
+            'has_more': has_more,
+            'cursor': next_cursor,
+            'total_count': len(video_list)
         })
     except Exception as e:
         print(f"[ERROR] 获取用户视频列表失败: {str(e)}")
@@ -638,7 +657,8 @@ def download_user_video():
     try:
         data = request.json
         sec_uid = data.get('sec_uid')
-        
+        nickname = data.get('nickname', '')  # 前端传来，跳过详情接口
+
         if not sec_uid:
             return jsonify({'success': False, 'message': 'sec_uid参数不能为空'}), 400
         
@@ -658,12 +678,9 @@ def download_user_video():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                # 首先获取用户详情
-                user_detail = loop.run_until_complete(user_manager.get_user_detail(sec_uid))
-                if not user_detail:
-                    raise Exception('无法获取用户详情')
-                
-                nickname = user_detail.get('nickname', 'unknown')
+                # 使用前端传来的nickname，不再调用get_user_detail
+                if not nickname:
+                    nickname = 'unknown'
                 
                 # 发送开始信号
                 socketio.emit('download_started', {

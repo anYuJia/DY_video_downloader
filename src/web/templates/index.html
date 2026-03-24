@@ -686,6 +686,20 @@
         /* ── IMG FLUID DARK ── */
         .img-fluid { border-radius: var(--radius-md); }
         .rounded-circle { border: 2px solid var(--glass-border); }
+
+        /* ── MULTI-SELECT ── */
+        .video-card.selected {
+            border-color: var(--accent) !important;
+            box-shadow: 0 0 20px var(--accent-glow), inset 0 0 0 1px var(--accent);
+        }
+        .video-card.selected .video-select-overlay i {
+            color: var(--accent) !important;
+        }
+        #selectModeBtn.active {
+            background: var(--accent) !important;
+            color: #fff !important;
+            border-color: var(--accent) !important;
+        }
     </style>
 </head>
 
@@ -960,6 +974,15 @@
                             <h6 class="mb-0">作品列表</h6>
                             <div>
                                 <span id="videoCount" class="badge bg-light text-dark me-2">0 个作品</span>
+                                <button id="selectModeBtn" onclick="toggleSelectMode()" class="btn btn-light btn-sm me-1">
+                                    <i class="bi bi-check2-square"></i> 多选
+                                </button>
+                                <span id="selectedActions" style="display:none;">
+                                    <span id="selectedCount" class="badge bg-primary me-1">已选 0</span>
+                                    <button onclick="downloadSelected()" class="btn btn-light btn-sm me-1">
+                                        <i class="bi bi-download"></i> 下载选中
+                                    </button>
+                                </span>
                                 <button onclick="downloadUserVideos()" class="btn btn-light btn-sm">
                                     <i class="bi bi-download"></i> 下载全部
                                 </button>
@@ -2076,7 +2099,7 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ sec_uid: secUid })
+                    body: JSON.stringify({ sec_uid: secUid, nickname: nickname || '' })
                 });
 
                 const result = await response.json();
@@ -2330,155 +2353,214 @@
         }
 
         // 加载用户视频列表
+        // 渐进式加载状态
+        let _loadingVideos = false;
+        let _loadCursor = 0;
+        let _hasMoreVideos = true;
+        let _selectMode = false;
+        let _selectedVideos = new Set();
+
         function loadUserVideos() {
             if (!currentUser) {
                 showToast('请先选择用户', 'warning');
                 return;
             }
 
-            fetch('/api/user_videos', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    sec_uid: currentUser.sec_uid,
-                    page: 1,
-                    page_size: 1000
-                })
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        allVideos = data.videos;
-                        totalVideos = data.videos.length;
-                        hasMoreVideos = false;
-                        showUserVideos(allVideos);
-                    } else {
-                        showToast(data.message, 'error');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showToast('获取视频列表失败', 'error');
+            // 重置状态
+            allVideos = [];
+            _loadCursor = 0;
+            _hasMoreVideos = true;
+            _selectedVideos.clear();
+            _selectMode = false;
+
+            // 显示区域和loading
+            document.getElementById('userVideosSection').style.display = 'block';
+            document.getElementById('userVideosList').innerHTML = '';
+            document.getElementById('videoCount').textContent = '加载中...';
+
+            // 开始渐进式加载
+            _loadNextPage();
+        }
+
+        async function _loadNextPage() {
+            if (_loadingVideos || !_hasMoreVideos) return;
+            _loadingVideos = true;
+
+            try {
+                const response = await fetch('/api/user_videos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sec_uid: currentUser.sec_uid,
+                        cursor: _loadCursor,
+                        count: 18
+                    })
                 });
+                const data = await response.json();
+
+                if (data.success && data.videos.length > 0) {
+                    allVideos = allVideos.concat(data.videos);
+                    window.currentVideos = allVideos;
+                    _hasMoreVideos = data.has_more;
+                    _loadCursor = data.cursor;
+
+                    // 追加渲染新视频（不清空已有的）
+                    displayVideos(data.videos, true);
+                    document.getElementById('videoCount').textContent = `${allVideos.length} 个作品` + (_hasMoreVideos ? '（加载中...）' : '');
+
+                    // 自动加载下一页
+                    if (_hasMoreVideos) {
+                        setTimeout(() => _loadNextPage(), 300);
+                    }
+                } else {
+                    _hasMoreVideos = false;
+                    if (allVideos.length === 0) {
+                        document.getElementById('videoCount').textContent = '无作品';
+                    } else {
+                        document.getElementById('videoCount').textContent = `${allVideos.length} 个作品`;
+                    }
+                }
+            } catch (error) {
+                console.error('加载视频失败:', error);
+                showToast('加载视频失败', 'error');
+            }
+
+            _loadingVideos = false;
+        }
+
+        // 切换多选模式
+        function toggleSelectMode() {
+            _selectMode = !_selectMode;
+            _selectedVideos.clear();
+            const btn = document.getElementById('selectModeBtn');
+            if (_selectMode) {
+                btn.classList.add('active');
+                btn.innerHTML = '<i class="bi bi-x-lg"></i> 取消选择';
+                document.getElementById('selectedActions').style.display = 'inline-block';
+            } else {
+                btn.classList.remove('active');
+                btn.innerHTML = '<i class="bi bi-check2-square"></i> 多选';
+                document.getElementById('selectedActions').style.display = 'none';
+            }
+            // 更新所有卡片的选择UI
+            document.querySelectorAll('.video-select-overlay').forEach(el => {
+                el.style.display = _selectMode ? 'flex' : 'none';
+            });
+            document.querySelectorAll('.video-card').forEach(el => el.classList.remove('selected'));
+            updateSelectedCount();
+        }
+
+        function toggleVideoSelect(awemeId, el) {
+            if (!_selectMode) return;
+            const card = el.closest('.video-card');
+            if (_selectedVideos.has(awemeId)) {
+                _selectedVideos.delete(awemeId);
+                card.classList.remove('selected');
+            } else {
+                _selectedVideos.add(awemeId);
+                card.classList.add('selected');
+            }
+            updateSelectedCount();
+        }
+
+        function updateSelectedCount() {
+            const el = document.getElementById('selectedCount');
+            if (el) el.textContent = `已选 ${_selectedVideos.size}`;
+        }
+
+        function downloadSelected() {
+            if (_selectedVideos.size === 0) {
+                showToast('请先选择要下载的作品', 'warning');
+                return;
+            }
+            _selectedVideos.forEach(awemeId => {
+                downloadVideoFromList(awemeId);
+            });
+            showToast(`开始下载 ${_selectedVideos.size} 个作品`, 'success');
+            addLog(`批量下载 ${_selectedVideos.size} 个选中作品`);
         }
 
         // 视频列表变量
         let allVideos = [];
         let totalVideos = 0;
 
-        // 显示用户视频列表
+        // 显示用户视频列表（兼容旧调用）
         function showUserVideos(videos) {
-            // 存储当前视频列表到全局变量，供预览功能使用
             window.currentVideos = videos;
-
-            // 自动存储视频数据到本地 - 保存完整的API响应数据
-            if (videos && videos.length > 0) {
-                // 确保每个视频都包含完整的数据结构
-                const enhancedVideos = videos.map(video => {
-                    // 保留API返回的所有原始数据
-                    const enhancedVideo = {
-                        ...video,
-                        // 确保关键字段存在
-                        aweme_id: video.aweme_id,
-                        desc: video.desc || '',
-                        create_time: video.create_time,
-                        digg_count: video.digg_count || 0,
-                        comment_count: video.comment_count || 0,
-                        share_count: video.share_count || 0,
-                        cover_url: video.cover_url || '',
-                        media_urls: video.media_urls || [],
-                        media_type: video.media_type || (video.is_image ? 'image' : 'video'),
-                        raw_media_type: video.raw_media_type || video.media_type,
-                        // 保存作者信息
-                        author: video.author || {},
-                        // 保存其他可能的字段
-                        duration: video.duration || 0,
-                        is_image: video.is_image || false,
-                        image_count: video.image_count || 0,
-                        // 保存原始的images和videos字段（如果存在）
-                        images: video.images || null,
-                        videos: video.videos || null,
-                        // 添加存储时间戳
-                        stored_at: Date.now()
-                    };
-                    return enhancedVideo;
-                });
-
-                const savedCount = VideoStorage.saveVideos(enhancedVideos);
-                console.log(`已存储 ${savedCount} 个视频的完整数据到本地`);
-                addLog(`已存储 ${savedCount} 个视频的完整数据到本地（包含所有API字段）`);
-            }
-
-            // 重置显示
+            allVideos = videos;
             document.getElementById('userVideosList').innerHTML = '';
-
-            // 显示所有视频
             displayVideos(videos, false);
-
-            // 更新视频计数
             document.getElementById('videoCount').textContent = `${videos.length} 个作品`;
-
             document.getElementById('userVideosSection').style.display = 'block';
         }
 
-        // 显示视频列表
+        // 显示视频列表（支持追加模式和多选）
         function displayVideos(videos, append = false) {
             const videosList = document.getElementById('userVideosList');
-            let html = append ? videosList.innerHTML : '';
+            if (!append) videosList.innerHTML = '';
+
+            // 存储视频到本地
+            if (videos && videos.length > 0) {
+                const enhancedVideos = videos.map(v => ({...v, stored_at: Date.now()}));
+                VideoStorage.saveVideos(enhancedVideos);
+                window.currentVideos = allVideos;
+            }
 
             videos.forEach(video => {
                 const coverUrl = video.cover_url || '/static/default-cover.svg';
                 const createTime = new Date(video.create_time * 1000).toLocaleDateString();
-                const mediaType = video.is_image ? (video.image_count > 1 ? '图集' : '图片') : '视频';
+                const mediaType = video.media_type === 'image' ? '图集' : video.media_type === 'live_photo' ? 'Live' : '视频';
                 const duration = video.duration > 0 ? formatDuration(video.duration) : '';
 
-                html += `
-                    <div class="col-md-3 col-sm-6 mb-3">
-                        <div class="card h-100 video-card">
-                            <div class="position-relative video-cover-container">
-                                <img src="${coverUrl}" class="card-img-top video-cover" alt="封面" onerror="this.src='/static/default-cover.svg'">
-                                <div class="video-overlay">
-                                    <div class="video-stats">
-                                        <div class="stat-item">
-                                            <i class="bi bi-heart-fill"></i>
-                                            <span>${formatNumber(video.digg_count)}</span>
-                                        </div>
-                                        <div class="stat-item">
-                                            <i class="bi bi-chat-fill"></i>
-                                            <span>${formatNumber(video.comment_count)}</span>
-                                        </div>
-                                        <div class="stat-item">
-                                            <i class="bi bi-share-fill"></i>
-                                            <span>${formatNumber(video.share_count)}</span>
-                                        </div>
+                const col = document.createElement('div');
+                col.className = 'col-md-3 col-sm-6 mb-3';
+                col.innerHTML = `
+                    <div class="card h-100 video-card" data-aweme-id="${video.aweme_id}">
+                        <div class="position-relative video-cover-container">
+                            <img src="${coverUrl}" class="card-img-top video-cover" alt="封面" onerror="this.src='/static/default-cover.svg'">
+                            <div class="video-overlay">
+                                <div class="video-stats">
+                                    <div class="stat-item">
+                                        <i class="bi bi-heart-fill"></i>
+                                        <span>${formatNumber(video.digg_count)}</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <i class="bi bi-chat-fill"></i>
+                                        <span>${formatNumber(video.comment_count)}</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <i class="bi bi-share-fill"></i>
+                                        <span>${formatNumber(video.share_count)}</span>
                                     </div>
                                 </div>
-                                <span class="badge bg-primary position-absolute top-0 end-0 m-2">${mediaType}</span>
-                                ${duration ? `<span class="badge bg-dark position-absolute bottom-0 start-0 m-2">${duration}</span>` : ''}
                             </div>
-                            <div class="card-body video-card-body">
-                                <p class="card-text video-desc">${video.desc || '无描述'}</p>
-                                <div class="text-muted small video-date">${createTime}</div>
-                                <div class="video-actions">
-                                    <button class="btn btn-sm btn-outline-primary video-btn" onclick="downloadVideoFromList('${video.aweme_id}')">
-                                        <i class="bi bi-download"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-info video-btn" onclick="showVideoDetail('${video.aweme_id}')">
-                                        <i class="bi bi-eye"></i>
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-success video-btn" onclick="previewMediaFromList('${video.aweme_id}')">
-                                        <i class="bi bi-play-circle"></i>
-                                    </button>
-                                </div>
+                            <span class="badge bg-primary position-absolute top-0 end-0 m-2">${mediaType}</span>
+                            ${duration ? `<span class="badge bg-dark position-absolute bottom-0 start-0 m-2">${duration}</span>` : ''}
+                            <div class="video-select-overlay position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+                                 style="display:${_selectMode ? 'flex' : 'none'} !important; background:rgba(0,0,0,0.3); cursor:pointer; z-index:5;"
+                                 onclick="toggleVideoSelect('${video.aweme_id}', this)">
+                                <i class="bi bi-check-circle-fill" style="font-size:2rem; color:rgba(255,255,255,0.8);"></i>
+                            </div>
+                        </div>
+                        <div class="card-body video-card-body">
+                            <p class="card-text video-desc">${video.desc || '无描述'}</p>
+                            <div class="text-muted small video-date">${createTime}</div>
+                            <div class="video-actions">
+                                <button class="btn btn-sm btn-outline-primary video-btn" onclick="downloadVideoFromList('${video.aweme_id}')">
+                                    <i class="bi bi-download"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-info video-btn" onclick="showVideoDetail('${video.aweme_id}')">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-success video-btn" onclick="previewMediaFromList('${video.aweme_id}')">
+                                    <i class="bi bi-play-circle"></i>
+                                </button>
                             </div>
                         </div>
                     </div>
                 `;
+                videosList.appendChild(col);
             });
-
-            videosList.innerHTML = html;
         }
 
 
@@ -2657,7 +2739,8 @@
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    sec_uid: currentUser.sec_uid
+                    sec_uid: currentUser.sec_uid,
+                    nickname: currentUser.nickname || ''
                 })
             })
                 .then(response => response.json())
@@ -3426,7 +3509,8 @@
                             'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({
-                            sec_uid: secUid
+                            sec_uid: secUid,
+                            nickname: nickname || ''
                         })
                     });
                     
@@ -4887,7 +4971,7 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ sec_uid: secUid })
+                    body: JSON.stringify({ sec_uid: secUid, nickname: nickname || '' })
                 });
 
                 const result = await response.json();
