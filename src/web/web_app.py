@@ -9,6 +9,7 @@ import os
 import sys
 import json
 import uuid
+import requests as http_requests
 from datetime import datetime
 
 # 添加项目根目录到Python路径
@@ -136,7 +137,7 @@ def set_config():
 def media_proxy():
     """代理抖音媒体资源，添加必要的Referer和Cookie头"""
     url = request.args.get('url', '')
-    if not url or 'douyin' not in url and 'douyinvod' not in url and 'douyinpic' not in url and 'byteimg' not in url:
+    if not url or not any(d in url for d in ['douyin', 'douyinvod', 'douyinpic', 'byteimg', 'douyinstatic', 'ixigua']):
         return 'Invalid URL', 400
 
     try:
@@ -155,7 +156,7 @@ def media_proxy():
         if range_header:
             headers['Range'] = range_header
 
-        resp = requests.get(url, headers=headers, stream=True, timeout=15)
+        resp = http_requests.get(url, headers=headers, stream=True, timeout=15)
 
         # 构建响应头
         resp_headers = {}
