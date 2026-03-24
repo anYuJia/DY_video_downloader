@@ -1,16 +1,22 @@
 from gevent import monkey
 monkey.patch_all()
 
-from flask import Flask, render_template, request, jsonify, send_file, session, Response
-from flask_socketio import SocketIO, emit
+from flask import Flask, render_template, request, jsonify, Response
+from flask_socketio import SocketIO
 import asyncio
 import threading
 import os
 import sys
 import json
 import uuid
+import logging
 import requests as http_requests
 from datetime import datetime
+
+# 配置日志
+logging.basicConfig(level=logging.DEBUG if os.environ.get('DEBUG_MODE', '').lower() in ('true', '1') else logging.INFO,
+                    format='[%(levelname)s] %(message)s')
+logger = logging.getLogger('web_app')
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -89,13 +95,13 @@ def init_app():
         
         # 使用标准下载器
         downloader = DouyinDownloader(api, socketio=socketio)
-        print("Web服务使用标准下载器")
+        logger.info("Web服务使用标准下载器")
         
         # 传递socketio对象给用户管理器
         user_manager = DouyinUserManager(api, downloader, socketio=socketio,cookie=cookie)
-        print("Web应用初始化完成")
+        logger.info("Web应用初始化完成")
     except Exception as e:
-        print(f"Web应用初始化失败: {str(e)}")
+        logger.error(f"Web应用初始化失败: {str(e)}")
 
 @app.route('/')
 def index():
@@ -106,6 +112,7 @@ def index():
 @app.route('/api/config', methods=['GET'])
 def get_config():
     """获取配置信息"""
+    # 注意：Cookie只在localhost环境下返回给前端回显，不应在公网暴露
     return jsonify({
         'cookie_set': bool(Config.COOKIE),
         'download_dir': Config.BASE_DIR,
@@ -483,7 +490,7 @@ def get_user_videos():
             'total_count': len(video_list)
         })
     except Exception as e:
-        print(f"[ERROR] 获取用户视频列表失败: {str(e)}")
+        logger.error(f" 获取用户视频列表失败: {str(e)}")
         return jsonify({'success': False, 'message': f'获取用户视频列表失败: {str(e)}'}), 500
                 
 @app.route('/api/download_single_video', methods=['POST'])
@@ -517,15 +524,15 @@ def download_single_video():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                print(f"[DEBUG] 开始下载任务: {task_id}")
-                print(f"[DEBUG] 作品ID: {aweme_id}")
-                print(f"[DEBUG] 媒体类型: {raw_media_type}")
-                print(f"[DEBUG] 媒体URL数量: {len(media_urls)}")
-                print(f"[DEBUG] 媒体URLs: {media_urls}")
+                logger.debug(f" 开始下载任务: {task_id}")
+                logger.debug(f" 作品ID: {aweme_id}")
+                logger.debug(f" 媒体类型: {raw_media_type}")
+                logger.debug(f" 媒体URL数量: {len(media_urls)}")
+                logger.debug(f" 媒体URLs: {media_urls}")
                 
                 # 发送下载开始事件
                 try:
-                    print(f"[DEBUG] 发送WebSocket下载开始事件: task_id={task_id}")
+                    logger.debug(f" 发送WebSocket下载开始事件: task_id={task_id}")
                     # 修复变量作用域问题，确保在使用urls前已定义
                     media_count = len(media_urls)
                     socketio.emit('download_started', {
@@ -536,9 +543,9 @@ def download_single_video():
                         'media_type': raw_media_type,
                         'media_count': media_count
                     }, broadcast=True)  # 添加broadcast=True确保消息广播到所有客户端
-                    print(f"[DEBUG] WebSocket事件已发送")
+                    logger.debug(f" WebSocket事件已发送")
                 except Exception as e:
-                    print(f"[ERROR] 发送WebSocket事件失败: {str(e)}")
+                    logger.error(f" 发送WebSocket事件失败: {str(e)}")
                 
                 # 发送进度更新 - 开始
                 display_name = video_desc[:8] if video_desc else "下载任务"
@@ -557,20 +564,20 @@ def download_single_video():
                 if isinstance(media_urls, list):
                     urls = media_urls
                 else:
-                    print(f"[ERROR] 媒体URL格式错误: {type(media_urls)}")
+                    logger.error(f" 媒体URL格式错误: {type(media_urls)}")
                     raise ValueError(f"媒体URL格式错误: {type(media_urls)}")
                 
-                print(f"[DEBUG] 提取的URL列表: {urls}")
+                logger.debug(f" 提取的URL列表: {urls}")
                 
                 if not urls:
                     raise ValueError("没有有效的媒体URL")
                 
                 # 使用作者名字作为文件夹，作品描述作为文件名
                 file_path = f"{author_name}/{video_desc}"
-                print(f"[DEBUG] 文件路径: {file_path}")
+                logger.debug(f" 文件路径: {file_path}")
                 
                 # 统一下载处理，不再区分媒体类型
-                print(f"[DEBUG] 开始统一下载: {len(urls)} 个文件")
+                logger.debug(f" 开始统一下载: {len(urls)} 个文件")
                 socketio.emit('download_progress', {
                     'task_id': task_id,
                     'progress': 10,
@@ -591,7 +598,7 @@ def download_single_video():
                 
                 try:
                     # 统一下载处理，直接传入urls参数
-                    print(f"[DEBUG] 开始下载: {len(urls)} 个文件")
+                    logger.debug(f" 开始下载: {len(urls)} 个文件")
                     success = downloader.download_media_group(urls, file_path, aweme_id, socketio=socketio, task_id=task_id)
                     
                     if success:
@@ -618,7 +625,7 @@ def download_single_video():
                         
                 except Exception as e:
                     success = False
-                    print(f"[ERROR] 下载失败: {str(e)}")
+                    logger.error(f" 下载失败: {str(e)}")
                     if 'progress' not in locals() or 'download_progress' not in str(e):
                         socketio.emit('download_progress', {
                             'task_id': task_id,
@@ -636,7 +643,7 @@ def download_single_video():
                         })
                     raise e
 
-                print(f"[DEBUG] 下载任务完成，结果: {success}")
+                logger.debug(f" 下载任务完成，结果: {success}")
                 
                 # 发送最终完成事件（统一处理）
                 if success:
@@ -647,13 +654,13 @@ def download_single_video():
                         'media_type': raw_media_type,
                         'file_count': len(media_urls)
                     })
-                    print(f"[DEBUG] 发送下载完成事件: task_id={task_id}")
+                    logger.debug(f" 发送下载完成事件: task_id={task_id}")
                 else:
                     raise Exception('下载失败')
 
             except Exception as e:
                 error_msg = f"下载失败: {str(e)}"
-                print(f"[ERROR] {error_msg}")
+                logger.error(f" {error_msg}")
                 socketio.emit('download_failed', {'task_id': task_id, 'error': error_msg})
             finally:
                 loop.close()
@@ -669,11 +676,11 @@ def download_single_video():
 @app.route('/api/download_user', methods=['POST'])
 def download_user():
     """下载用户视频"""
-    print("Received download_user request")
+    logger.debug("Received download_user request")
     try:
         data = request.json
         user_info = data.get('user_info')
-        print(user_info)
+        logger.debug(f"user_info: {user_info}")
         if not user_info:
             return jsonify({'success': False, 'message': '用户信息不完整'}), 400
         
@@ -702,7 +709,7 @@ def download_user():
                 })
                 
                 # 执行下载
-                print("开始下载")
+                logger.debug("开始下载")
                 loop.run_until_complete(user_manager.download_user_videos(user_info,True,True))
                 
                 # 更新任务状态
@@ -741,7 +748,7 @@ def download_user():
 @app.route('/api/download_user_video', methods=['POST'])
 def download_user_video():
     """通过sec_uid下载用户所有视频，支持WebSocket进度反馈"""
-    print("Received download_user_video request")
+    logger.debug("Received download_user_video request")
     try:
         data = request.json
         sec_uid = data.get('sec_uid')
@@ -1039,7 +1046,7 @@ def get_video_detail():
                 result = loop.run_until_complete(user_manager.get_video_detail(aweme_id))
                 return result
             except Exception as e:
-                print(f"[ERROR] get_video_detail异常: {str(e)}")
+                logger.error(f" get_video_detail异常: {str(e)}")
                 return None
             finally:
                 loop.close()
@@ -1099,28 +1106,28 @@ def get_video_detail():
             video_detail['media_urls'] = media_urls
             video_detail['media_count'] = len(media_urls)
             
-            print(f"[DEBUG] 视频详情 {video_detail.get('aweme_id', 'unknown')} 媒体信息:")
-            print(f"[DEBUG]   - 媒体类型: {media_type}")
-            print(f"[DEBUG]   - 媒体数量: {len(media_urls)}")
-            print(f"[DEBUG]   - 原始视频数据结构:")
-            print(f"[DEBUG]     - 是否有images字段: {'images' in video_detail}")
-            print(f"[DEBUG]     - 是否有video字段: {'video' in video_detail}")
+            logger.debug(f" 视频详情 {video_detail.get('aweme_id', 'unknown')} 媒体信息:")
+            logger.debug(f"   - 媒体类型: {media_type}")
+            logger.debug(f"   - 媒体数量: {len(media_urls)}")
+            logger.debug(f"   - 原始视频数据结构:")
+            logger.debug(f"     - 是否有images字段: {'images' in video_detail}")
+            logger.debug(f"     - 是否有video字段: {'video' in video_detail}")
             if 'images' in video_detail:
-                print(f"[DEBUG]     - images数量: {len(video_detail.get('images', []))}")
+                logger.debug(f"     - images数量: {len(video_detail.get('images', []))}")
             if 'video' in video_detail:
                 video_data = video_detail.get('video', {})
-                print(f"[DEBUG]     - video.play_addr存在: {'play_addr' in video_data}")
+                logger.debug(f"     - video.play_addr存在: {'play_addr' in video_data}")
                 if 'play_addr' in video_data:
                     play_addr = video_data.get('play_addr', {})
-                    print(f"[DEBUG]     - play_addr.url_list存在: {'url_list' in play_addr}")
+                    logger.debug(f"     - play_addr.url_list存在: {'url_list' in play_addr}")
                     if 'url_list' in play_addr:
                         url_list = play_addr.get('url_list', [])
-                        print(f"[DEBUG]     - url_list长度: {len(url_list)}")
+                        logger.debug(f"     - url_list长度: {len(url_list)}")
                         if url_list:
-                            print(f"[DEBUG]     - 第一个URL: {url_list[0][:100]}...")
+                            logger.debug(f"     - 第一个URL: {url_list[0][:100]}...")
             for idx, url_info in enumerate(media_urls):
-                print(f"[DEBUG]   - 媒体{idx+1}: {url_info.get('type', 'unknown')}")
-                print(f"[DEBUG]     完整URL: {url_info.get('url', 'no_url')[:100]}...")
+                logger.debug(f"   - 媒体{idx+1}: {url_info.get('type', 'unknown')}")
+                logger.debug(f"     完整URL: {url_info.get('url', 'no_url')[:100]}...")
             
             return jsonify({
                 'success': True,
@@ -1173,7 +1180,7 @@ def parse_link():
                     }
                 return video_info, user_detail
             except Exception as e:
-                print(f"[ERROR] parse_link异常: {str(e)}")
+                logger.error(f" parse_link异常: {str(e)}")
                 return None, None
             finally:
                 loop.close()
@@ -1287,18 +1294,18 @@ def get_tasks():
 @socketio.on('connect')
 def handle_connect():
     """客户端连接"""
-    print('客户端已连接')
+    logger.debug("客户端已连接")
     emit('connected', {'message': '连接成功'})
 
 @socketio.on('disconnect')
 def handle_disconnect():
     """客户端断开连接"""
-    print('客户端已断开连接')
+    logger.debug("客户端已断开连接")
 
 @socketio.on('test_connection')
 def handle_test_connection(data):
     """测试WebSocket连接"""
-    print(f'收到测试连接请求: {data}')
+    logger.debug(f"收到测试连接请求: {data}")
     # 直接向发送请求的客户端回复
     emit('test_response', {'message': '连接测试成功', 'received': data})
     # 同时广播一条消息给所有客户端
@@ -1307,7 +1314,7 @@ def handle_test_connection(data):
 # 添加一个定时发送心跳的函数
 def send_heartbeat():
     """定时发送心跳消息"""
-    print('发送WebSocket心跳消息')
+    logger.debug("发送WebSocket心跳消息")
     socketio.emit('heartbeat', {'timestamp': datetime.now().strftime('%H:%M:%S')})
     
 
@@ -1320,12 +1327,12 @@ def main():
     import time
     
     # 先初始化socketio，然后再初始化应用
-    print("启动抖音下载器Web服务...")
+    logger.info("启动抖音下载器Web服务...")
     
     # 从环境变量获取端口，默认为5001
     port = int(os.environ.get('PORT', 5001))
     url = f"http://localhost:{port}"
-    print(f"访问地址: {url}")
+    logger.info(f"访问地址: {url}")
     
     # 初始化应用
     init_app()
@@ -1335,9 +1342,9 @@ def main():
         time.sleep(1.5)  # 等待服务器启动
         try:
             webbrowser.open(url)
-            print(f"已自动打开浏览器: {url}")
+            logger.info(f"已自动打开浏览器: {url}")
         except Exception as e:
-            print(f"自动打开浏览器失败: {str(e)}")
+            logger.warning(f"自动打开浏览器失败: {str(e)}")
     
     # 在新线程中打开浏览器
     browser_thread = threading.Thread(target=open_browser, daemon=True)

@@ -292,8 +292,6 @@ class DouyinUserManager:
             
             # 获取媒体信息
             media_type, urls = self.get_media_info(post)
-            with open('get_media_info.json', 'w') as f:
-                json.dump(post, f, indent=4)
             # 构建详情信息
             detail = {
                 'aweme_id': post.get('aweme_id', ''),

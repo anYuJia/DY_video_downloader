@@ -6,6 +6,8 @@ import re
 import json
 import subprocess
 import sys
+import random
+import string
 
 
 
@@ -177,14 +179,10 @@ class DouyinAPI:
 
     def _get_ms_token(self) -> str:
         """生成msToken"""
-        import random
-        import string
         return ''.join(random.choices(string.ascii_letters + string.digits, k=107))
 
     def _generate_s_v_web_id(self) -> str:
         """生成s_v_web_id (verifyFp)"""
-        import random
-        import string
         charset = string.ascii_lowercase + string.digits
         random_str = ''.join(random.choices(charset, k=16))
         return f"verify_0{random_str}"

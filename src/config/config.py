@@ -110,19 +110,12 @@ class Config:
     @classmethod
     def init(cls):
         """初始化配置"""
-        # 尝试加载配置
         cls.load_config()
-        
-        # 如果配置不完整，启动配置向导
-        if not cls.BASE_DIR:
-            
-        
+
         # 确保下载目录存在
-            os.makedirs(cls.DOWNLOAD_DIR, exist_ok=True)
-        
-        # 如果cookie未设置，提示用户但不阻止程序运行
+        os.makedirs(cls.DOWNLOAD_DIR, exist_ok=True)
+
         if not cls.COOKIE:
             print("\033[93m警告: 未设置抖音cookie，部分功能将受限\033[0m")
-            print("\033[93m受限功能: 下载点赞视频、下载点赞作者作品\033[0m")
-        
+
         return True
