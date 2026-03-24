@@ -2476,9 +2476,9 @@
             document.getElementById('userNickname').textContent = user.nickname;
             document.getElementById('userUniqueId').textContent = '@' + (user.unique_id || '未设置');
             document.getElementById('userSignature').textContent = user.signature || '暂无简介';
-            document.getElementById('userAwemeCount').textContent = formatNumber(user.aweme_count || 0);
+            document.getElementById('userAwemeCount').textContent = user.aweme_count != null ? formatNumber(user.aweme_count) : '-';
             document.getElementById('userFollowerCount').textContent = formatNumber(user.follower_count || 0);
-            document.getElementById('userFollowingCount').textContent = formatNumber(user.following_count || 0);
+            document.getElementById('userFollowingCount').textContent = user.following_count != null ? formatNumber(user.following_count) : '-';
             document.getElementById('userTotalFavorited').textContent = formatNumber(user.total_favorited || 0);
 
             document.getElementById('userDetailSection').style.display = 'block';
@@ -2529,6 +2529,12 @@
                     })
                 });
                 const data = await response.json();
+
+                if (data.need_verify) {
+                    showVerifyDialog();
+                    _loadingVideos = false;
+                    return;
+                }
 
                 if (data.success && data.videos.length > 0) {
                     allVideos = allVideos.concat(data.videos);
@@ -4587,6 +4593,17 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // ── 统一 API 请求（自动检测验证码）──
+        async function apiFetch(url, options = {}) {
+            const resp = await fetch(url, options);
+            const data = await resp.json();
+            if (data.need_verify) {
+                showVerifyDialog();
+                throw new Error('need_verify');
+            }
+            return data;
         }
 
         // ── 验证弹窗 ──

@@ -431,6 +431,10 @@ def get_user_videos():
 
         resp, succ = run_get_page()
 
+        # 检测验证码
+        if isinstance(resp, dict) and resp.get('_need_verify'):
+            return jsonify({'success': False, 'need_verify': True, 'message': '需要完成滑块验证'})
+
         if not succ or not resp.get('aweme_list'):
             return jsonify({
                 'success': True,
