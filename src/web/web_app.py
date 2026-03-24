@@ -188,6 +188,30 @@ def media_proxy():
     except Exception as e:
         return f'Proxy error: {str(e)}', 502
 
+@app.route('/api/verify_page')
+def verify_page():
+    """返回一个验证页面，用iframe嵌入抖音来完成滑块验证"""
+    return '''<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>抖音验证</title>
+<style>
+body{margin:0;background:#0a0a0f;color:#fff;font-family:'Outfit',sans-serif;display:flex;flex-direction:column;height:100vh}
+.header{padding:16px 24px;background:rgba(255,255,255,0.03);border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:space-between}
+.header h3{margin:0;font-size:1.1rem}
+.header .hint{color:#8b8b9e;font-size:0.82rem}
+iframe{flex:1;border:none;width:100%}
+.btn-done{background:#FE2C55;color:#fff;border:none;padding:10px 28px;border-radius:10px;font-size:0.9rem;cursor:pointer;font-weight:500}
+.btn-done:hover{background:#ff4d73}
+</style></head><body>
+<div class="header">
+    <div>
+        <h3>请完成滑块验证</h3>
+        <div class="hint">在下方页面完成验证后点击"验证完成"</div>
+    </div>
+    <button class="btn-done" onclick="window.close()">验证完成</button>
+</div>
+<iframe src="https://www.douyin.com/"></iframe>
+</body></html>'''
+
 @app.route('/api/search_user', methods=['POST'])
 def search_user():
     """搜索用户"""
@@ -212,9 +236,13 @@ def search_user():
                 loop.close()
         
         users = run_search()
-        
+
         if users is None:
             return jsonify({'success': False, 'message': '未找到用户'})
+
+        # 检测验证码
+        if isinstance(users, dict) and users.get('_need_verify'):
+            return jsonify({'success': False, 'need_verify': True, 'message': '需要完成滑块验证'})
         
         if isinstance(users, dict):  # 单个用户
             return jsonify({

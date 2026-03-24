@@ -2160,6 +2160,8 @@
                     } else {
                         showMultipleUsers(result.users);
                     }
+                } else if (result.need_verify) {
+                    showVerifyDialog();
                 } else {
                     showToast(result.message, 'error');
                 }
@@ -4585,6 +4587,24 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // ── 验证弹窗 ──
+        function showVerifyDialog() {
+            // 直接在同一浏览器打开抖音主页完成验证
+            const verifyWin = window.open('https://www.douyin.com/', 'douyin_verify', 'width=1100,height=750,scrollbars=yes');
+
+            showToast('需要滑块验证，请在弹出窗口中完成验证后重试', 'warning');
+            addLog('触发滑块验证，请在弹出窗口中完成后重新搜索', 'warning');
+
+            // 监听窗口关闭
+            const checkClosed = setInterval(() => {
+                if (verifyWin && verifyWin.closed) {
+                    clearInterval(checkClosed);
+                    showToast('验证窗口已关闭，请重新搜索', 'info');
+                    addLog('验证窗口已关闭', 'info');
+                }
+            }, 500);
         }
 
         function showToast(message, type = 'info') {

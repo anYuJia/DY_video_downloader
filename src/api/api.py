@@ -230,7 +230,14 @@ class DouyinAPI:
             if self.debug_mode:
                 print(f'\033[91m[API] JSON解析失败: {e}\033[0m')
             return {}, False
-            
+
+        # 检测验证码拦截
+        nil_info = json_response.get('search_nil_info', {})
+        if nil_info.get('search_nil_type') == 'verify_check':
+            if self.debug_mode:
+                print(f'\033[91m[API] 触发滑块验证！需要用户手动验证\033[0m')
+            return {'_need_verify': True}, False
+
         if json_response.get('status_code', 0) != 0:
             if self.debug_mode:
                 print(f'\033[91m[API] API返回错误: status_code={json_response.get("status_code")}, msg={json_response.get("status_msg", "")}\033[0m')
