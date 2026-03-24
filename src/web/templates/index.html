@@ -1712,22 +1712,17 @@
 
             socket.on('download_started', function (data) {
                 console.log('收到下载开始事件:', data);
-                let logMessage = '';
-                if (data.type === 'single_video') {
-                    logMessage = `开始下载单个作品: ${data.desc || data.aweme_id}`;
-                } else {
-                    logMessage = `开始下载: ${data.user || data.type || '未知任务'}`;
-                }
-                addLog(logMessage, 'info');
-                
-                // 获取任务名称
                 const taskId = data.task_id || 'default';
-                // 使用后端发送的display_name，如果没有则使用默认值
                 let taskName = data.display_name || data.desc || data.user || data.type || '下载任务';
-                
-                // 只有在下载单个视频时才显示进度条
+
                 if (data.type === 'single_video') {
+                    addLog(`开始下载: ${data.desc || data.aweme_id}`, 'info');
                     showProgress(taskId, taskName);
+                    showToast(`开始下载: ${taskName}`, 'info');
+                } else {
+                    addLog(`开始批量下载: ${data.user || '未知用户'}`, 'info');
+                    showProgress(taskId, data.user || taskName);
+                    showToast(`开始批量下载 ${data.user || ''} 的作品`, 'info');
                 }
                 updateStatus('running', '下载中');
             });
@@ -1796,50 +1791,53 @@
 
             socket.on('download_completed', function (data) {
                 console.log('收到下载完成事件:', data);
-                
+
                 const taskId = data.task_id || data.aweme_id || 'default';
                 let successMessage = '';
-                
+                let toastMessage = '';
+
                 if (data.aweme_id) {
-                    // 单个作品下载完成
-                    successMessage = `作品下载成功: ${data.message}`;
+                    successMessage = `作品下载成功: ${data.message || ''}`;
+                    toastMessage = `下载完成: ${(data.message || '').substring(0, 20)}`;
                     if (data.file_count) {
                         successMessage += ` (${data.file_count} 个文件)`;
                     }
+                } else if (data.total_videos !== undefined) {
+                    const downloaded = data.current_downloaded || 0;
+                    const total = data.total_videos || 0;
+                    successMessage = data.message || `批量下载完成: ${downloaded}/${total} 个作品`;
+                    toastMessage = `批量下载完成！共 ${downloaded} 个作品`;
                 } else {
-                    // 批量下载完成
-                    successMessage = data.message;
+                    successMessage = data.message || '下载完成';
+                    toastMessage = '下载完成';
                 }
-                
+
                 addLog(`✅ ${successMessage}`, 'success');
-                
-                // 更新任务状态
+
                 if (downloadTasks[taskId]) {
                     updateTaskStatus(taskId, 'completed', '下载完成');
-                    // 3秒后自动移除已完成的任务
-                    setTimeout(() => removeTask(taskId), 3000);
+                    setTimeout(() => removeTask(taskId), 5000);
                 }
-                
+
                 updateStatus('ready', '就绪');
-                showToast('下载完成！', 'success');
+                showToast(toastMessage, 'success');
                 scrollToBottom();
             });
 
             socket.on('download_failed', function (data) {
                 console.log('收到下载失败事件:', data);
-                
+
                 const taskId = data.task_id || data.aweme_id || 'default';
-                addLog(`下载失败: ${data.error}`, 'error');
-                
-                // 更新任务状态
+                const errorMsg = data.error || data.message || '未知错误';
+                addLog(`下载失败: ${errorMsg}`, 'error');
+
                 if (downloadTasks[taskId]) {
                     updateTaskStatus(taskId, 'failed', '下载失败');
-                    // 5秒后自动移除失败的任务
-                    setTimeout(() => removeTask(taskId), 5000);
+                    setTimeout(() => removeTask(taskId), 8000);
                 }
-                
+
                 updateStatus('error', '下载失败');
-                showToast(`下载失败: ${data.error}`, 'error');
+                showToast(`下载失败: ${errorMsg.substring(0, 50)}`, 'error');
                 scrollToBottom();
             });
 
