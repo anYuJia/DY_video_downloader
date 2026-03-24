@@ -2546,6 +2546,11 @@
                     displayVideos(data.videos, true);
                     document.getElementById('videoCount').textContent = `${allVideos.length} 个作品` + (_hasMoreVideos ? '（加载中...）' : '');
 
+                    // 用实际加载的数量更新用户详情中的作品数
+                    if (!_hasMoreVideos) {
+                        document.getElementById('userAwemeCount').textContent = formatNumber(allVideos.length);
+                    }
+
                     // 自动加载下一页
                     if (_hasMoreVideos) {
                         setTimeout(() => _loadNextPage(), 300);
@@ -2556,6 +2561,7 @@
                         document.getElementById('videoCount').textContent = '无作品';
                     } else {
                         document.getElementById('videoCount').textContent = `${allVideos.length} 个作品`;
+                        document.getElementById('userAwemeCount').textContent = formatNumber(allVideos.length);
                     }
                 }
             } catch (error) {
