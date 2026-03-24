@@ -147,12 +147,10 @@ class DouyinAPI:
                 headers['uifid'] = uifid
                 params['uifid'] = uifid
 
-            # 获取webid
+            # 获取webid（失败时不添加，避免无效值导致请求被拒）
             webid = await self._get_webid(headers)
             if webid:
                 params['webid'] = webid
-            else:
-                params['webid'] = "7393173430232106534"  # 默认值
 
             return params
         except Exception as e:
@@ -187,13 +185,14 @@ class DouyinAPI:
         random_str = ''.join(random.choices(charset, k=16))
         return f"verify_0{random_str}"
 
-    async def common_request(self, uri: str, params: dict, headers: dict, host: str = None) -> tuple[dict, bool]:
+    async def common_request(self, uri: str, params: dict, headers: dict, host: str = None, skip_sign: bool = False) -> tuple[dict, bool]:
         """
         请求 douyin
         :param uri: 请求路径
         :param params: 请求参数
         :param headers: 请求头
         :param host: 可选的自定义host
+        :param skip_sign: 跳过a_bogus签名（部分接口不需要）
         :return: 返回数据和是否成功
         """
         base_host = host or self.host
@@ -204,12 +203,14 @@ class DouyinAPI:
         merged_headers.update(headers)
         headers = merged_headers
         params = await self._deal_params(params, headers)
-        query = '&'.join([f'{k}={urllib.parse.quote(str(v))}' for k, v in params.items()])
-        call_name = 'sign_datail'
-        if 'reply' in uri:
-            call_name = 'sign_reply'
-        a_bogus = self.douyin_sign.call(call_name, query, headers["User-Agent"])
-        params["a_bogus"] = a_bogus
+
+        if not skip_sign:
+            query = '&'.join([f'{k}={urllib.parse.quote(str(v))}' for k, v in params.items()])
+            call_name = 'sign_datail'
+            if 'reply' in uri:
+                call_name = 'sign_reply'
+            a_bogus = self.douyin_sign.call(call_name, query, headers["User-Agent"])
+            params["a_bogus"] = a_bogus
 
         if self.debug_mode:
             print(f'\033[94m[API] 请求URL: {url}\033[0m')

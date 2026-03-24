@@ -614,15 +614,20 @@ class DouyinUserManager:
                 else:
                     print(f"\033[91m{error_msg}\033[0m")
 
+    # 点赞接口不需要签名
+    _FAVORITE_HEADERS = {'Referer': 'https://www.douyin.com/'}
+
     async def get_liked_videos(self, count=20):
-        """获取点赞视频列表，返回与parse_share_link相同的数据结构"""
+        """获取点赞视频列表，直接从favorite API提取完整数据"""
         try:
             params = {
                 "count": count,
                 "max_cursor": 0
             }
-            
-            resp, succ = await self.api.common_request('/aweme/v1/web/aweme/favorite/', params, {})
+
+            resp, succ = await self.api.common_request('/aweme/v1/web/aweme/favorite/', params,
+                                                     dict(self._FAVORITE_HEADERS),
+                                                     skip_sign=True)
             if not succ:
                 return []
 
@@ -633,14 +638,31 @@ class DouyinUserManager:
             video_list = []
             for post in posts:
                 aweme_id = post.get('aweme_id')
-                if aweme_id:
-                    # 使用get_video_detail获取完整的视频信息，保持与parse_share_link相同的数据结构
-                    video_detail = await self.get_video_detail(aweme_id)
-                    if video_detail:
-                        video_list.append(video_detail)
-                    # 添加短暂延迟避免请求过快
-                    await asyncio.sleep(0.1)
-                    
+                if not aweme_id:
+                    continue
+                media_type, media_urls = self.get_media_info(post)
+                cover_url = ""
+                if post.get('video') and post['video'].get('cover'):
+                    cover_url = post['video']['cover'].get('url_list', [''])[0]
+                elif post.get('images'):
+                    cover_url = post['images'][0].get('url_list', [''])[-1]
+                video_list.append({
+                    'aweme_id': aweme_id,
+                    'desc': post.get('desc', ''),
+                    'create_time': post.get('create_time', 0),
+                    'digg_count': post.get('statistics', {}).get('digg_count', 0),
+                    'comment_count': post.get('statistics', {}).get('comment_count', 0),
+                    'share_count': post.get('statistics', {}).get('share_count', 0),
+                    'cover_url': cover_url,
+                    'media_type': media_type,
+                    'media_urls': media_urls,
+                    'author': {
+                        'nickname': post.get('author', {}).get('nickname', ''),
+                        'sec_uid': post.get('author', {}).get('sec_uid', ''),
+                        'avatar_thumb': post.get('author', {}).get('avatar_thumb', {}).get('url_list', [''])[0] if post.get('author', {}).get('avatar_thumb') else ''
+                    }
+                })
+
             return video_list
         except Exception as e:
             if self.debug_mode:
@@ -656,7 +678,9 @@ class DouyinUserManager:
                 "count": count,
                 "max_cursor": 0
             }
-            resp, succ = await self.api.common_request('/aweme/v1/web/aweme/favorite/', params, {'cookie': self.cookie})
+            resp, succ = await self.api.common_request('/aweme/v1/web/aweme/favorite/', params,
+                                                     dict(self._FAVORITE_HEADERS),
+                                                     skip_sign=True)
             if not succ:
                 print("\033[91m获取点赞视频失败\033[0m")
                 return
@@ -694,7 +718,9 @@ class DouyinUserManager:
                 "max_cursor": 0
             }
             
-            resp, succ = await self.api.common_request('/aweme/v1/web/aweme/favorite/', params, {})
+            resp, succ = await self.api.common_request('/aweme/v1/web/aweme/favorite/', params,
+                                                     dict(self._FAVORITE_HEADERS),
+                                                     skip_sign=True)
             if not succ:
                 return []
 
@@ -708,23 +734,19 @@ class DouyinUserManager:
                 author = post.get('author', {})
                 sec_uid = author.get('sec_uid')
                 if sec_uid and sec_uid not in authors:
-                    # 获取完整的用户信息
-                    user_detail = await self.get_user_detail(sec_uid)
-                    # 使用与parse_share_link相同的数据结构
+                    # 直接从帖子数据提取作者信息（不再调get_user_detail）
                     authors[sec_uid] = {
-                        'nickname': user_detail.get('nickname', ''),
-                        'unique_id': user_detail.get('unique_id', ''),
-                        'follower_count': user_detail.get('follower_count', 0),
-                        'following_count': user_detail.get('following_count', 0),
-                        'total_favorited': user_detail.get('total_favorited', 0),
-                        'aweme_count': user_detail.get('aweme_count', 0),
-                        'signature': user_detail.get('signature', ''),
-                        'sec_uid': user_detail.get('sec_uid', ''),
-                        'avatar_thumb': user_detail.get('avatar_thumb', {}).get('url_list', [''])[0] if user_detail.get('avatar_thumb') else '',
-                        'avatar_larger': user_detail.get('avatar_larger', {}).get('url_list', [''])[0] if user_detail.get('avatar_larger') else ''
+                        'nickname': author.get('nickname', ''),
+                        'unique_id': author.get('unique_id', ''),
+                        'follower_count': author.get('follower_count', 0),
+                        'following_count': author.get('following_count', 0),
+                        'total_favorited': author.get('total_favorited', 0),
+                        'aweme_count': author.get('aweme_count', 0),
+                        'signature': author.get('signature', ''),
+                        'sec_uid': sec_uid,
+                        'avatar_thumb': author.get('avatar_thumb', {}).get('url_list', [''])[0] if author.get('avatar_thumb') else '',
+                        'avatar_larger': author.get('avatar_larger', {}).get('url_list', [''])[0] if author.get('avatar_larger') else ''
                     }
-                    # 添加短暂延迟避免请求过快
-                    await asyncio.sleep(0.5)
                     
             return list(authors.values())
         except Exception as e:
@@ -746,10 +768,10 @@ class DouyinUserManager:
                 "max_cursor": 0
             }
             
-            # 不再直接传递cookie，让API类处理cookie
             resp, succ = await self.api.common_request('/aweme/v1/web/aweme/favorite/',
                                                      params,
-                                                     {})
+                                                     dict(self._FAVORITE_HEADERS),
+                                                     skip_sign=True)
             if not succ:
                 print("\033[91m获取点赞视频失败\033[0m")
                 return
