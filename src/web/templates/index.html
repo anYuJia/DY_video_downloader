@@ -2437,24 +2437,41 @@
         function selectUser(secUid, nickname) {
             bootstrap.Modal.getInstance(document.getElementById('user-select-modal')).hide();
 
-            // 直接从缓存获取用户数据（搜索结果已包含所需信息）
+            // 先用缓存数据立即显示
             if (_cachedSearchUsers[secUid]) {
                 currentUser = _cachedSearchUsers[secUid];
                 showUserDetail(currentUser);
+
+                // 异步尝试获取完整详情来补充缺失字段
+                fetch('/api/user_detail', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sec_uid: secUid, nickname: nickname || '' })
+                })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.user) {
+                        // 合并：用详情数据补充搜索缓存中缺失的字段
+                        Object.assign(currentUser, data.user);
+                        showUserDetail(currentUser);
+                    }
+                    // 静默失败，不影响已显示的缓存数据
+                })
+                .catch(() => {});
                 return;
             }
 
-            // 回退：调用详情接口
+            // 无缓存：直接调详情接口
             fetch('/api/user_detail', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ sec_uid: secUid })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sec_uid: secUid, nickname: nickname || '' })
             })
                 .then(response => response.json())
                 .then(data => {
-                    if (data.success) {
+                    if (data.need_verify) {
+                        showVerifyDialog();
+                    } else if (data.success) {
                         currentUser = data.user;
                         showUserDetail(data.user);
                     } else {

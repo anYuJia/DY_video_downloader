@@ -66,12 +66,20 @@ class DouyinUserManager:
         params = {
             "publish_video_strategy_type": 2,
             "sec_user_id": user_id,
-            "personal_center_strategy": 1
+            "personal_center_strategy": 1,
+            "source": "channel_pc_web",
+            "profile_other_record_enable": 1,
+            "land_to": 1,
         }
-        # 不再直接传递cookie，让API类处理cookie
+        headers = {
+            "origin": "https://www.douyin.com",
+            "referer": "https://www.douyin.com/",
+            "sec-fetch-site": "same-site",
+        }
         resp, succ = await self.api.common_request('/aweme/v1/web/user/profile/other/',
                                                  params,
-                                                 {})
+                                                 headers,
+                                                 host='https://www-hj.douyin.com')
         return resp.get('user', {}) if succ else {}
 
     async def search_user(self, keyword: str) -> Optional[dict]:

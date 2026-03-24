@@ -189,17 +189,22 @@ class DouyinAPI:
         random_str = ''.join(random.choices(charset, k=16))
         return f"verify_0{random_str}"
 
-    async def common_request(self, uri: str, params: dict, headers: dict) -> tuple[dict, bool]:
+    async def common_request(self, uri: str, params: dict, headers: dict, host: str = None) -> tuple[dict, bool]:
         """
         请求 douyin
         :param uri: 请求路径
         :param params: 请求参数
         :param headers: 请求头
+        :param host: 可选的自定义host
         :return: 返回数据和是否成功
         """
-        url = f'{self.host}{uri}'
+        base_host = host or self.host
+        url = f'{base_host}{uri}'
         params.update(self.common_params)
-        headers.update(self.common_headers)
+        # 先应用通用头，再用自定义头覆盖
+        merged_headers = dict(self.common_headers)
+        merged_headers.update(headers)
+        headers = merged_headers
         params = await self._deal_params(params, headers)
         query = '&'.join([f'{k}={urllib.parse.quote(str(v))}' for k, v in params.items()])
         call_name = 'sign_datail'
