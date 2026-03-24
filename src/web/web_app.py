@@ -1,7 +1,7 @@
 from gevent import monkey
 monkey.patch_all()
 
-from flask import Flask, render_template, request, jsonify, send_file, session
+from flask import Flask, render_template, request, jsonify, send_file, session, Response
 from flask_socketio import SocketIO, emit
 import asyncio
 import threading
@@ -131,6 +131,61 @@ def set_config():
         return jsonify({'success': True, 'message': '配置保存成功'})
     except Exception as e:
         return jsonify({'success': False, 'message': f'配置保存失败: {str(e)}'}), 500
+
+@app.route('/api/media/proxy')
+def media_proxy():
+    """代理抖音媒体资源，添加必要的Referer和Cookie头"""
+    url = request.args.get('url', '')
+    if not url or 'douyin' not in url and 'douyinvod' not in url and 'douyinpic' not in url and 'byteimg' not in url:
+        return 'Invalid URL', 400
+
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+            'Referer': 'https://www.douyin.com/',
+            'Accept': '*/*',
+            'Accept-Encoding': 'identity;q=1, *;q=0',
+        }
+
+        if api and api.cookie:
+            headers['Cookie'] = api.cookie
+
+        # 转发Range请求（支持视频seek）
+        range_header = request.headers.get('Range')
+        if range_header:
+            headers['Range'] = range_header
+
+        resp = requests.get(url, headers=headers, stream=True, timeout=15)
+
+        # 构建响应头
+        resp_headers = {}
+        for key in ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges']:
+            if key in resp.headers:
+                resp_headers[key] = resp.headers[key]
+
+        # 如果没有Content-Type，根据URL推断
+        if 'Content-Type' not in resp_headers:
+            if '.mp4' in url or 'video' in url:
+                resp_headers['Content-Type'] = 'video/mp4'
+            elif '.jpg' in url or '.jpeg' in url:
+                resp_headers['Content-Type'] = 'image/jpeg'
+            elif '.png' in url:
+                resp_headers['Content-Type'] = 'image/png'
+            elif '.webp' in url:
+                resp_headers['Content-Type'] = 'image/webp'
+
+        resp_headers['Access-Control-Allow-Origin'] = '*'
+        resp_headers['Cache-Control'] = 'public, max-age=3600'
+
+        def generate():
+            for chunk in resp.iter_content(chunk_size=65536):
+                yield chunk
+
+        status_code = resp.status_code
+        return Response(generate(), status=status_code, headers=resp_headers)
+
+    except Exception as e:
+        return f'Proxy error: {str(e)}', 502
 
 @app.route('/api/search_user', methods=['POST'])
 def search_user():
@@ -679,29 +734,28 @@ def download_user_video():
             asyncio.set_event_loop(loop)
             try:
                 # 使用前端传来的nickname，不再调用get_user_detail
-                if not nickname:
-                    nickname = 'unknown'
+                _nickname = nickname if nickname else 'unknown'
                 
                 # 发送开始信号
                 socketio.emit('download_started', {
                     'task_id': task_id,
-                    'user': nickname,
+                    'user': _nickname,
                     'sec_uid': sec_uid
                 })
                 
                 # 获取用户视频列表以计算总数
                 posts = loop.run_until_complete(user_manager.get_user_videos(sec_uid, limit=200))
                 if not posts:
-                    raise Exception(f'未找到用户 {nickname} 的作品')
+                    raise Exception(f'未找到用户 {_nickname} 的作品')
                 
                 # 获取已下载记录
-                downloaded = user_manager.downloader._load_download_record(nickname)
+                downloaded = user_manager.downloader._load_download_record(_nickname)
                 new_posts = [post for post in posts if post['aweme_id'] not in downloaded]
                 
                 if not new_posts:
                     socketio.emit('download_completed', {
                         'task_id': task_id,
-                        'message': f'用户 {nickname} 没有新作品需要下载',
+                        'message': f'用户 {_nickname} 没有新作品需要下载',
                         'total_videos': len(posts),
                         'current_downloaded': 0,
                         'remaining': 0
@@ -730,7 +784,7 @@ def download_user_video():
                     else:
                         desc = desc.split()[0]  # 只取第一个词
                     
-                    name = f"{nickname}/{desc}"
+                    name = f"{_nickname}/{desc}"
                     aweme_id = post['aweme_id']
                     
                     # 发送当前下载进度 - 开始下载

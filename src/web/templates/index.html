@@ -700,6 +700,138 @@
             color: #fff !important;
             border-color: var(--accent) !important;
         }
+
+        /* ── IMMERSIVE PLAYER ── */
+        #immersive-player {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .ip-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.95);
+            backdrop-filter: blur(30px);
+        }
+        .ip-container {
+            position: relative;
+            width: 100%;
+            max-width: 560px;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+            border-radius: var(--radius-xl);
+            overflow: hidden;
+            background: #000;
+            box-shadow: 0 0 80px rgba(0, 0, 0, 0.8);
+        }
+        .ip-header {
+            display: flex;
+            align-items: center;
+            padding: 14px 18px;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(10px);
+            z-index: 2;
+        }
+        .ip-title {
+            flex: 1;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-right: 12px;
+        }
+        .ip-counter {
+            font-size: 0.78rem;
+            color: rgba(255,255,255,0.5);
+            margin-right: 16px;
+            white-space: nowrap;
+        }
+        .ip-close {
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: #fff;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .ip-close:hover { background: rgba(255,255,255,0.2); }
+        .ip-media {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background: #000;
+        }
+        .ip-media video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        .ip-media img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        .ip-error {
+            text-align: center;
+            color: rgba(255,255,255,0.5);
+            padding: 40px;
+        }
+        .ip-error i { font-size: 3rem; margin-bottom: 12px; display: block; }
+        .ip-controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 24px;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.6);
+        }
+        .ip-btn {
+            background: rgba(255,255,255,0.08);
+            border: none;
+            color: #fff;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 1.2rem;
+            transition: var(--transition);
+        }
+        .ip-btn:hover { background: rgba(255,255,255,0.15); }
+        .ip-play-btn {
+            width: 52px;
+            height: 52px;
+            font-size: 1.5rem;
+            background: var(--accent);
+        }
+        .ip-play-btn:hover { background: var(--accent-hover); }
+        .ip-progress-track {
+            height: 4px;
+            background: rgba(255,255,255,0.1);
+            cursor: pointer;
+        }
+        .ip-progress-bar {
+            height: 100%;
+            background: var(--accent);
+            width: 0%;
+            transition: width 0.1s linear;
+        }
     </style>
 </head>
 
@@ -2535,7 +2667,7 @@
                             <span class="badge bg-primary position-absolute top-0 end-0 m-2">${mediaType}</span>
                             ${duration ? `<span class="badge bg-dark position-absolute bottom-0 start-0 m-2">${duration}</span>` : ''}
                             <div class="video-select-overlay position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
-                                 style="display:${_selectMode ? 'flex' : 'none'} !important; background:rgba(0,0,0,0.3); cursor:pointer; z-index:5;"
+                                 style="display:none; background:rgba(0,0,0,0.3); cursor:pointer; z-index:5;"
                                  onclick="toggleVideoSelect('${video.aweme_id}', this)">
                                 <i class="bi bi-check-circle-fill" style="font-size:2rem; color:rgba(255,255,255,0.8);"></i>
                             </div>
@@ -3923,7 +4055,7 @@
 
             video.media_urls.forEach((media, index) => {
                 const mediaType = media.type || 'unknown';
-                const mediaUrl = media.url || '';
+                const mediaUrl = proxyUrl(media.url || '');
 
                 if (mediaType === 'video' || mediaType === 'live_photo') {
                     previewHtml += `
@@ -3934,7 +4066,6 @@
                             </div>
                             <video controls class="w-100" style="max-height: 300px; border-radius: 8px;">
                                 <source src="${mediaUrl}" type="video/mp4">
-                                您的浏览器不支持视频播放。
                             </video>
                         </div>
                     `;
@@ -3945,8 +4076,7 @@
                                 <span class="badge bg-success">图片</span>
                                 <small class="text-muted">媒体 ${index + 1}</small>
                             </div>
-                            <img src="${mediaUrl}" class="w-100" style="max-height: 300px; object-fit: contain; border-radius: 8px; cursor: pointer;" onclick="openImageModal('${mediaUrl}')" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                            <div class="alert alert-warning" style="display: none;">图片加载失败</div>
+                            <img src="${mediaUrl}" class="w-100" style="max-height: 300px; object-fit: contain; border-radius: 8px; cursor: pointer;" onerror="this.style.display='none';">
                         </div>
                     `;
                 } else {
@@ -4604,6 +4734,173 @@
             }
         }
 
+        // ═══════════════════════════════════════════
+        // IMMERSIVE MEDIA PLAYER (Douyin-style)
+        // ═══════════════════════════════════════════
+
+        function proxyUrl(url) {
+            if (!url) return '';
+            return '/api/media/proxy?url=' + encodeURIComponent(url);
+        }
+
+        let _playerItems = [];    // [{type, url, proxyUrl}]
+        let _playerIndex = 0;
+        let _playerTimer = null;
+        let _playerVideo = null;
+
+        function openImmersivePlayer(video) {
+            if (!video || !video.media_urls || video.media_urls.length === 0) {
+                showToast('没有可播放的媒体', 'warning');
+                return;
+            }
+
+            // Build media items
+            _playerItems = video.media_urls.map(m => ({
+                type: m.type || 'unknown',
+                url: m.url,
+                proxy: proxyUrl(m.url)
+            }));
+            _playerIndex = 0;
+
+            // Build player HTML
+            const overlay = document.createElement('div');
+            overlay.id = 'immersive-player';
+            overlay.innerHTML = `
+                <div class="ip-backdrop" onclick="closeImmersivePlayer()"></div>
+                <div class="ip-container">
+                    <div class="ip-header">
+                        <span class="ip-title">${escapeHtml(video.desc || '媒体播放')}</span>
+                        <span class="ip-counter" id="ip-counter">1 / ${_playerItems.length}</span>
+                        <button class="ip-close" onclick="closeImmersivePlayer()"><i class="bi bi-x-lg"></i></button>
+                    </div>
+                    <div class="ip-media" id="ip-media"></div>
+                    <div class="ip-controls">
+                        <button class="ip-btn" onclick="playerPrev()" id="ip-prev"><i class="bi bi-chevron-left"></i></button>
+                        <button class="ip-btn ip-play-btn" onclick="playerTogglePlay()" id="ip-play"><i class="bi bi-pause-fill"></i></button>
+                        <button class="ip-btn" onclick="playerNext()" id="ip-next"><i class="bi bi-chevron-right"></i></button>
+                    </div>
+                    <div class="ip-progress-track" onclick="playerSeek(event)">
+                        <div class="ip-progress-bar" id="ip-progress"></div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            document.body.style.overflow = 'hidden';
+
+            // ESC to close
+            document.addEventListener('keydown', _playerKeyHandler);
+
+            // Start playing
+            _renderPlayerItem();
+        }
+
+        function _playerKeyHandler(e) {
+            if (e.key === 'Escape') closeImmersivePlayer();
+            if (e.key === 'ArrowLeft') playerPrev();
+            if (e.key === 'ArrowRight') playerNext();
+            if (e.key === ' ') { e.preventDefault(); playerTogglePlay(); }
+        }
+
+        function closeImmersivePlayer() {
+            if (_playerTimer) clearInterval(_playerTimer);
+            if (_playerVideo) { _playerVideo.pause(); _playerVideo = null; }
+            const el = document.getElementById('immersive-player');
+            if (el) el.remove();
+            document.body.style.overflow = '';
+            document.removeEventListener('keydown', _playerKeyHandler);
+        }
+
+        function _renderPlayerItem() {
+            if (_playerTimer) clearInterval(_playerTimer);
+            const container = document.getElementById('ip-media');
+            const counter = document.getElementById('ip-counter');
+            const progress = document.getElementById('ip-progress');
+            const playBtn = document.getElementById('ip-play');
+            if (!container) return;
+
+            const item = _playerItems[_playerIndex];
+            counter.textContent = `${_playerIndex + 1} / ${_playerItems.length}`;
+            progress.style.width = '0%';
+
+            if (item.type === 'video' || item.type === 'live_photo') {
+                container.innerHTML = `<video id="ip-video" autoplay playsinline></video>`;
+                _playerVideo = document.getElementById('ip-video');
+                _playerVideo.src = item.proxy;
+                playBtn.innerHTML = '<i class="bi bi-pause-fill"></i>';
+
+                _playerVideo.ontimeupdate = () => {
+                    if (_playerVideo.duration) {
+                        progress.style.width = (_playerVideo.currentTime / _playerVideo.duration * 100) + '%';
+                    }
+                };
+                _playerVideo.onended = () => {
+                    if (_playerIndex < _playerItems.length - 1) {
+                        playerNext();
+                    } else {
+                        playBtn.innerHTML = '<i class="bi bi-play-fill"></i>';
+                    }
+                };
+                _playerVideo.onerror = () => {
+                    container.innerHTML = `<div class="ip-error"><i class="bi bi-exclamation-triangle"></i><p>视频加载失败</p><a href="${item.url}" target="_blank" class="btn btn-sm btn-outline-light mt-2">在新窗口打开</a></div>`;
+                };
+            } else if (item.type === 'image') {
+                container.innerHTML = `<img src="${item.proxy}" alt="图片" onerror="this.src='${item.url}'">`;
+                _playerVideo = null;
+                playBtn.innerHTML = '<i class="bi bi-play-fill"></i>';
+
+                // Auto-advance after 3 seconds
+                let elapsed = 0;
+                _playerTimer = setInterval(() => {
+                    elapsed += 50;
+                    progress.style.width = (elapsed / 3000 * 100) + '%';
+                    if (elapsed >= 3000) {
+                        if (_playerIndex < _playerItems.length - 1) {
+                            playerNext();
+                        } else {
+                            clearInterval(_playerTimer);
+                        }
+                    }
+                }, 50);
+            } else {
+                container.innerHTML = `<div class="ip-error"><p>不支持的媒体类型: ${item.type}</p></div>`;
+            }
+        }
+
+        function playerNext() {
+            if (_playerIndex < _playerItems.length - 1) {
+                _playerIndex++;
+                _renderPlayerItem();
+            }
+        }
+
+        function playerPrev() {
+            if (_playerIndex > 0) {
+                _playerIndex--;
+                _renderPlayerItem();
+            }
+        }
+
+        function playerTogglePlay() {
+            const playBtn = document.getElementById('ip-play');
+            if (_playerVideo) {
+                if (_playerVideo.paused) {
+                    _playerVideo.play();
+                    playBtn.innerHTML = '<i class="bi bi-pause-fill"></i>';
+                } else {
+                    _playerVideo.pause();
+                    playBtn.innerHTML = '<i class="bi bi-play-fill"></i>';
+                }
+            }
+        }
+
+        function playerSeek(e) {
+            if (!_playerVideo || !_playerVideo.duration) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pct = (e.clientX - rect.left) / rect.width;
+            _playerVideo.currentTime = pct * _playerVideo.duration;
+        }
+
+        // Override the old preview to use immersive player
         function setupMediaPreviewModal(video) {
             const modalTitle = document.getElementById('mediaPreviewModalTitle');
             const mediaPreviewContainer = document.getElementById('mediaPreviewContainer');
@@ -4664,25 +4961,18 @@
             }
         }
 
-        // 从列表预览媒体
+        // 从列表预览媒体 - 使用沉浸式播放器
         function previewMediaFromList(awemeId) {
-            // 优先从本地存储获取数据
             const storedVideo = VideoStorage.getVideo(awemeId);
             if (storedVideo && storedVideo.media_urls && storedVideo.media_urls.length > 0) {
-                setupMediaPreviewModal(storedVideo);
-                const modal = new bootstrap.Modal(document.getElementById('mediaPreviewModal'));
-                modal.show();
+                openImmersivePlayer(storedVideo);
                 return;
             }
 
-            // 如果本地存储没有，尝试从当前显示的视频列表中获取
-            // 这里需要一个全局变量来存储当前的视频列表
             if (window.currentVideos) {
                 const video = window.currentVideos.find(v => v.aweme_id === awemeId);
                 if (video && video.media_urls && video.media_urls.length > 0) {
-                    setupMediaPreviewModal(video);
-                    const modal = new bootstrap.Modal(document.getElementById('mediaPreviewModal'));
-                    modal.show();
+                    openImmersivePlayer(video);
                     return;
                 }
             }
