@@ -1455,6 +1455,10 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
     <script>
+        // Debug mode - set to false in production
+        const _DEBUG = false;
+        const _log = _DEBUG ? console.log.bind(console) : () => {};
+
         // 全局变量
         let socket;
         let currentTasks = {};
@@ -1485,7 +1489,7 @@
                     videos[awemeId] = videoData;
 
                     localStorage.setItem('dy_video_storage', JSON.stringify(videos));
-                    console.log(`视频 ${awemeId} 已存储到本地，媒体类型: ${videoData.media_analysis?.media_type || '未知'}，媒体数量: ${videoData.media_analysis?.media_count || 0}`);
+                    _log(`视频 ${awemeId} 已存储到本地，媒体类型: ${videoData.media_analysis?.media_type || '未知'}，媒体数量: ${videoData.media_analysis?.media_count || 0}`);
                     return true;
                 } catch (error) {
                     console.error('存储视频数据失败:', error);
@@ -1617,7 +1621,7 @@
                         successCount++;
                     }
                 });
-                console.log(`批量存储完成: ${successCount}/${videoList.length} 个视频`);
+                _log(`批量存储完成: ${successCount}/${videoList.length} 个视频`);
                 return successCount;
             },
 
@@ -1650,7 +1654,7 @@
                     if (videos[awemeId]) {
                         delete videos[awemeId];
                         localStorage.setItem('dy_video_storage', JSON.stringify(videos));
-                        console.log(`视频 ${awemeId} 已从存储中删除`);
+                        _log(`视频 ${awemeId} 已从存储中删除`);
                         return true;
                     }
                     return false;
@@ -1664,7 +1668,7 @@
             clearAll: function () {
                 try {
                     localStorage.removeItem('dy_video_storage');
-                    console.log('所有视频数据已清空');
+                    _log('所有视频数据已清空');
                     return true;
                 } catch (error) {
                     console.error('清空视频数据失败:', error);
@@ -1704,7 +1708,7 @@
         // WebSocket连接测试函数
         function testWebSocketConnection() {
             if (socket && socket.connected) {
-                console.log('WebSocket连接测试：发送心跳消息');
+                _log('WebSocket连接测试：发送心跳消息');
                 socket.emit('test_connection', { message: 'Hello from client', timestamp: new Date().toISOString() });
             }
         }
@@ -1727,7 +1731,7 @@
         }
 
         function setupEventListeners() {
-            console.log('开始设置事件监听器...');
+            _log('开始设置事件监听器...');
             
             // 配置相关
             document.getElementById('save-config-btn').addEventListener('click', saveConfig);
@@ -1748,19 +1752,19 @@
         const likedBtn = document.getElementById('download-liked-btn');
         const likedAuthorsBtn = document.getElementById('download-liked-authors-btn');
         
-        console.log('点赞视频按钮元素:', likedBtn);
-        console.log('点赞作者按钮元素:', likedAuthorsBtn);
+        _log('点赞视频按钮元素:', likedBtn);
+        _log('点赞作者按钮元素:', likedAuthorsBtn);
         
         if (likedBtn) {
             likedBtn.addEventListener('click', handleLikedVideosClick);
-            console.log('点赞视频按钮事件已绑定');
+            _log('点赞视频按钮事件已绑定');
         } else {
             console.error('未找到点赞视频按钮元素');
         }
         
         if (likedAuthorsBtn) {
             likedAuthorsBtn.addEventListener('click', handleLikedAuthorsClick);
-            console.log('点赞作者按钮事件已绑定');
+            _log('点赞作者按钮事件已绑定');
         } else {
             console.error('未找到点赞作者按钮元素');
         }
@@ -1800,7 +1804,7 @@
         }
 
         function setupSocketIO() {
-            console.log('开始设置WebSocket连接...');
+            _log('开始设置WebSocket连接...');
             
             // 添加更多连接选项，确保连接成功
             socket = io({
@@ -1814,7 +1818,7 @@
             });
 
             socket.on('connect', function () {
-                console.log('WebSocket连接成功，socket.id:', socket.id);
+                _log('WebSocket连接成功，socket.id:', socket.id);
                 updateStatus('ready', '已连接');
                 addLog('WebSocket连接成功');
                 
@@ -1829,7 +1833,7 @@
             });
 
             socket.on('disconnect', function (reason) {
-                console.log('WebSocket连接断开，原因:', reason);
+                _log('WebSocket连接断开，原因:', reason);
                 updateStatus('error', '连接断开');
                 addLog('WebSocket连接断开: ' + reason);
             });
@@ -1838,12 +1842,12 @@
             
             // 添加心跳消息处理
             socket.on('heartbeat', function(data) {
-                console.log('收到WebSocket心跳:', data);
+                _log('收到WebSocket心跳:', data);
                 // 不在日志中显示心跳，避免过多日志
             });
 
             socket.on('download_started', function (data) {
-                console.log('收到下载开始事件:', data);
+                _log('收到下载开始事件:', data);
                 const taskId = data.task_id || 'default';
                 let taskName = data.display_name || data.desc || data.user || data.type || '下载任务';
 
@@ -1861,14 +1865,14 @@
             
             // 添加广播消息处理
             socket.on('broadcast_message', function (data) {
-                console.log('收到广播消息:', data);
+                _log('收到广播消息:', data);
                 addLog(`收到服务器广播: ${data.message} (${data.time})`);
             });
 
             socket.on('download_progress', function (data) {
-                console.log('收到下载进度事件:', data);
-                console.log('desc字段:', data.desc);
-                console.log('display_name字段:', data.display_name);
+                _log('收到下载进度事件:', data);
+                _log('desc字段:', data.desc);
+                _log('display_name字段:', data.display_name);
                 
                 // 获取任务ID和名称
                 const taskId = data.task_id || data.aweme_id || 'default';
@@ -1901,7 +1905,7 @@
             });
 
             socket.on('download_log', function (data) {
-                console.log('收到下载日志事件:', data);
+                _log('收到下载日志事件:', data);
                 
                 // 过滤掉一些冗余的日志消息
                 const message = data.message || '';
@@ -1922,7 +1926,7 @@
             });
 
             socket.on('download_completed', function (data) {
-                console.log('收到下载完成事件:', data);
+                _log('收到下载完成事件:', data);
 
                 const taskId = data.task_id || data.aweme_id || 'default';
                 let successMessage = '';
@@ -1957,7 +1961,7 @@
             });
 
             socket.on('download_failed', function (data) {
-                console.log('收到下载失败事件:', data);
+                _log('收到下载失败事件:', data);
 
                 const taskId = data.task_id || data.aweme_id || 'default';
                 const errorMsg = data.error || data.message || '未知错误';
@@ -1975,13 +1979,13 @@
 
             // 新增的WebSocket事件监听器
             socket.on('download_info', function (data) {
-                console.log('收到下载信息:', data);
+                _log('收到下载信息:', data);
                 addLog(data.message, 'info');
                 scrollToBottom();
             });
 
             socket.on('download_error', function (data) {
-                console.log('收到下载错误:', data);
+                _log('收到下载错误:', data);
                 const taskId = data.task_id || data.aweme_id || 'default';
                 addLog(data.message, 'error');
                 
@@ -1995,14 +1999,14 @@
             });
 
             socket.on('download_success', function (data) {
-                console.log('收到下载成功:', data);
+                _log('收到下载成功:', data);
                 addLog(data.message, 'success');
                 scrollToBottom();
             });
             
             // 用户视频下载进度事件监听器
             socket.on('user_video_download_progress', function (data) {
-                console.log('收到用户视频下载进度:', data);
+                _log('收到用户视频下载进度:', data);
                 updateDownloadProgress(data);
                 
                 // 添加日志信息
@@ -2023,7 +2027,7 @@
             });
             
             socket.on('user_video_download_failed', function (data) {
-                console.log('收到用户视频下载失败:', data);
+                _log('收到用户视频下载失败:', data);
                 addLog(data.message, 'error');
                 
                 // 更新进度显示为失败状态
@@ -2136,9 +2140,11 @@
                 return;
             }
 
-            // 隐藏所有区域
-            hideAllSections();
+            const btn = document.getElementById('search-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
 
+            hideAllSections();
             updateStatus('running', '搜索中');
             addLog(`搜索用户: ${keyword}`);
 
@@ -2169,6 +2175,8 @@
                 showToast('搜索失败', 'error');
             } finally {
                 updateStatus('ready', '就绪');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-search"></i>';
             }
         }
 
@@ -2254,7 +2262,7 @@
             // 检查是否已经存在相同的任务ID，避免重复创建
             const existingElement = document.getElementById(`progress-${taskId}`);
             if (existingElement) {
-                console.log(`任务 ${taskId} 的进度条已存在，跳过创建`);
+                _log(`任务 ${taskId} 的进度条已存在，跳过创建`);
                 return;
             }
             
@@ -2272,7 +2280,7 @@
             
             const progressElement = document.createElement('div');
             progressElement.id = `progress-${taskId}`;
-            progressElement.className = 'border rounded p-2 mb-2 bg-white';
+            progressElement.className = 'border rounded p-2 mb-2';
             progressElement.innerHTML = `
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <h6 class="mb-0 small">${nickname}</h6>
@@ -2327,15 +2335,6 @@
         }
         
         // 更新活跃任务计数
-        function updateActiveTasksCount() {
-            const progressContainer = document.getElementById('progress-tasks-container');
-            const countElement = document.getElementById('active-tasks-count');
-            if (progressContainer && countElement) {
-                const taskCount = progressContainer.children.length;
-                countElement.textContent = taskCount;
-            }
-        }
-        
         // 更新下载进度
         function updateDownloadProgress(data) {
             const taskId = data.task_id;
@@ -2785,7 +2784,7 @@
 
         // 从视频列表下载单个视频
         function downloadVideoFromList(awemeId) {
-            console.log('开始下载视频:', awemeId);
+            _log('开始下载视频:', awemeId);
             addLog(`点击下载按钮，视频ID: ${awemeId}`);
             
             // 优先从本地存储获取完整的视频数据
@@ -2801,7 +2800,7 @@
                     raw_media_type: storedVideo.raw_media_type || storedVideo.media_type || 'video',
                     author_name: storedVideo.author ? storedVideo.author.nickname : '未知作者'
                 };
-                console.log('使用本地存储的视频数据:', finalVideoData);
+                _log('使用本地存储的视频数据:', finalVideoData);
                 addLog(`使用本地存储的完整视频数据: ${awemeId}`);
             } else {
                 // 从当前显示的视频列表中查找
@@ -2814,7 +2813,7 @@
                         raw_media_type: video.raw_media_type || video.media_type || 'video',
                         author_name: video.author ? video.author.nickname : '未知作者'
                     };
-                    console.log('使用当前列表中的视频数据:', finalVideoData);
+                    _log('使用当前列表中的视频数据:', finalVideoData);
                     addLog(`使用当前列表中的视频数据: ${awemeId}`);
                 } else {
                     showToast('找不到视频数据', 'error');
@@ -2829,7 +2828,7 @@
                 return;
             }
             
-            console.log('发送下载请求:', finalVideoData);
+            _log('发送下载请求:', finalVideoData);
             addLog(`发送下载请求: ${finalVideoData.desc} (${finalVideoData.media_urls.length}个媒体文件)`);
             
             fetch('/api/download_single_video', {
@@ -2840,11 +2839,11 @@
                 body: JSON.stringify(finalVideoData)
             })
             .then(response => {
-                console.log('下载请求响应状态:', response.status);
+                _log('下载请求响应状态:', response.status);
                 return response.json();
             })
             .then(data => {
-                console.log('下载请求响应数据:', data);
+                _log('下载请求响应数据:', data);
                 if (data.success) {
                     showToast('开始下载媒体', 'success');
                     addLog(`下载任务已启动: ${finalVideoData.desc} (任务ID: ${data.task_id || '未知'})`);
@@ -3027,7 +3026,7 @@
                 // 自动存储解析的视频数据到本地
                 if (video && video.aweme_id) {
                     if (VideoStorage.saveVideo(video)) {
-                        console.log(`解析的视频已存储到本地: ${video.aweme_id}`);
+                        _log(`解析的视频已存储到本地: ${video.aweme_id}`);
                         if (index === 0) addLog(`解析的视频已存储到本地: ${video.aweme_id}`);
                     }
                 }
@@ -3143,11 +3142,11 @@
                 let video = VideoStorage.getVideo(awemeId);
 
                 if (video) {
-                    console.log(`从本地存储加载视频详情: ${awemeId}`);
+                    _log(`从本地存储加载视频详情: ${awemeId}`);
                     addLog(`从本地存储加载视频详情: ${awemeId}`);
                 } else {
                     // 如果本地没有，则从API获取
-                    console.log(`从API获取视频详情: ${awemeId}`);
+                    _log(`从API获取视频详情: ${awemeId}`);
                     addLog(`从API获取视频详情: ${awemeId}`);
 
                     const response = await fetch('/api/video_detail', {
@@ -3164,7 +3163,7 @@
 
                         // 自动存储到本地
                         if (VideoStorage.saveVideo(video)) {
-                            console.log(`视频详情已存储到本地: ${awemeId}`);
+                            _log(`视频详情已存储到本地: ${awemeId}`);
                         }
                     } else {
                         showToast(result.message, 'error');
@@ -3347,14 +3346,14 @@
 
         async function downloadLikedVideos() {
             try {
-                console.log('点击了获取点赞视频按钮');
+                _log('点击了获取点赞视频按钮');
                 addLog('开始获取点赞视频...');
                 
                 // 隐藏其他区域
                 hideAllSections();
                 
                 const count = document.getElementById('liked-videos-count').value || 20;
-                console.log('请求参数:', { count: parseInt(count) });
+                _log('请求参数:', { count: parseInt(count) });
                 
                 const response = await fetch('/api/get_liked_videos', {
                     method: 'POST',
@@ -3364,9 +3363,9 @@
                     body: JSON.stringify({ count: parseInt(count) })
                 });
 
-                console.log('响应状态:', response.status);
+                _log('响应状态:', response.status);
                 const result = await response.json();
-                console.log('响应结果:', result);
+                _log('响应结果:', result);
                 
                 if (result.success) {
                     displayLikedVideos(result.data);
@@ -3390,14 +3389,14 @@
 
         async function downloadLikedAuthors() {
             try {
-                console.log('点击了获取点赞作者按钮');
+                _log('点击了获取点赞作者按钮');
                 addLog('开始获取点赞作者...');
                 
                 // 隐藏其他区域
                 hideAllSections();
                 
                 const count = document.getElementById('liked-authors-count').value || 20;
-                console.log('请求参数:', { count: parseInt(count) });
+                _log('请求参数:', { count: parseInt(count) });
                 
                 const response = await fetch('/api/get_liked_authors', {
                     method: 'POST',
@@ -3407,9 +3406,9 @@
                     body: JSON.stringify({ count: parseInt(count) })
                 });
 
-                console.log('响应状态:', response.status);
+                _log('响应状态:', response.status);
                 const result = await response.json();
-                console.log('响应结果:', result);
+                _log('响应结果:', result);
                 
                 if (result.success) {
                     displayLikedAuthors(result.data);
@@ -3890,7 +3889,7 @@
         let downloadTasks = {};
 
         function showProgress(taskId, taskName = '下载任务') {
-            console.log('显示下载进度，任务ID:', taskId);
+            _log('显示下载进度，任务ID:', taskId);
             
             // 创建新的任务进度条
             if (!downloadTasks[taskId]) {
@@ -3946,7 +3945,7 @@
         }
 
         function updateProgress(progress, completed, total, taskId = null) {
-            console.log('更新下载进度:', { progress, completed, total, taskId });
+            _log('更新下载进度:', { progress, completed, total, taskId });
             
             if (!taskId) {
                 // 兼容旧的单任务模式
@@ -4167,18 +4166,18 @@
         }
 
         function hideProgress() {
-            console.log('隐藏下载进度');
+            _log('隐藏下载进度');
             
             // 延迟3秒后隐藏进度条，让用户能看到完成状态
             setTimeout(() => {
                 document.getElementById('progress-container').classList.add('d-none');
                 document.getElementById('no-progress').classList.remove('d-none');
-                console.log('进度条已隐藏');
+                _log('进度条已隐藏');
             }, 3000);
         }
 
         function addLog(message, type = 'info') {
-            console.log('添加日志:', message, type);
+            _log('添加日志:', message, type);
             const logContainer = document.getElementById('log-container');
             const logEntry = document.createElement('div');
             logEntry.className = `log-entry log-${type} mb-1`;
@@ -4228,7 +4227,7 @@
         }
 
         function clearLog() {
-            console.log('清空日志');
+            _log('清空日志');
             const logContainer = document.getElementById('log-container');
             logContainer.innerHTML = '';
             addLog('日志已清空', 'info');
@@ -4320,7 +4319,7 @@
                     `混合: ${mediaStats.mixedCount}`;
 
                 addLog(logMessage);
-                console.log('媒体分析统计:', mediaStats);
+                _log('媒体分析统计:', mediaStats);
             } catch (error) {
                 console.error('刷新存储数据失败:', error);
                 showToast('刷新存储数据失败', 'error');
@@ -5087,7 +5086,7 @@
                     timestamp: Date.now()
                 };
                 localStorage.setItem(this.LIKED_VIDEOS_KEY, JSON.stringify(cacheData));
-                console.log(`已缓存 ${videos.length} 个点赞视频`);
+                _log(`已缓存 ${videos.length} 个点赞视频`);
             },
             
             // 保存点赞作者到缓存
@@ -5098,7 +5097,7 @@
                     timestamp: Date.now()
                 };
                 localStorage.setItem(this.LIKED_AUTHORS_KEY, JSON.stringify(cacheData));
-                console.log(`已缓存 ${authors.length} 个点赞作者`);
+                _log(`已缓存 ${authors.length} 个点赞作者`);
             },
             
             // 获取缓存的点赞视频
@@ -5107,7 +5106,7 @@
                     const cached = localStorage.getItem(this.LIKED_VIDEOS_KEY);
                     if (cached) {
                         const cacheData = JSON.parse(cached);
-                        console.log(`从缓存获取到 ${cacheData.data.length} 个点赞视频`);
+                        _log(`从缓存获取到 ${cacheData.data.length} 个点赞视频`);
                         return cacheData;
                     }
                 } catch (error) {
@@ -5122,7 +5121,7 @@
                     const cached = localStorage.getItem(this.LIKED_AUTHORS_KEY);
                     if (cached) {
                         const cacheData = JSON.parse(cached);
-                        console.log(`从缓存获取到 ${cacheData.data.length} 个点赞作者`);
+                        _log(`从缓存获取到 ${cacheData.data.length} 个点赞作者`);
                         return cacheData;
                     }
                 } catch (error) {
@@ -5135,7 +5134,7 @@
             clearAll: function() {
                 localStorage.removeItem(this.LIKED_VIDEOS_KEY);
                 localStorage.removeItem(this.LIKED_AUTHORS_KEY);
-                console.log('已清除所有点赞数据缓存');
+                _log('已清除所有点赞数据缓存');
             },
             
             // 检查缓存是否过期（可选功能，暂时不使用）
@@ -5151,7 +5150,7 @@
             
             // 如果当前正在显示点赞视频，则重新获取数据
             if (isCurrentlyDisplayed || LikedDataCache.currentDisplayType === 'videos') {
-                console.log('当前正在显示点赞视频，重新获取数据');
+                _log('当前正在显示点赞视频，重新获取数据');
                 await downloadLikedVideos();
                 return;
             }
@@ -5159,14 +5158,14 @@
             // 尝试从缓存获取数据
              const cachedData = LikedDataCache.getLikedVideos();
              if (cachedData && cachedData.data && cachedData.data.length > 0) {
-                 console.log('使用缓存的点赞视频数据');
+                 _log('使用缓存的点赞视频数据');
                  hideAllSections(true); // 传入true表示从缓存显示，不重置currentDisplayType
                  displayLikedVideos(cachedData.data);
                  LikedDataCache.currentDisplayType = 'videos';
                  showToast(`显示缓存的 ${cachedData.data.length} 个点赞视频`, 'info');
                  addLog(`显示缓存的 ${cachedData.data.length} 个点赞视频`);
              } else {
-                console.log('缓存中没有点赞视频数据，从服务器获取');
+                _log('缓存中没有点赞视频数据，从服务器获取');
                 await downloadLikedVideos();
             }
         }
@@ -5178,7 +5177,7 @@
             
             // 如果当前正在显示点赞作者，则重新获取数据
             if (isCurrentlyDisplayed || LikedDataCache.currentDisplayType === 'authors') {
-                console.log('当前正在显示点赞作者，重新获取数据');
+                _log('当前正在显示点赞作者，重新获取数据');
                 await downloadLikedAuthors();
                 return;
             }
@@ -5186,14 +5185,14 @@
             // 尝试从缓存获取数据
              const cachedData = LikedDataCache.getLikedAuthors();
              if (cachedData && cachedData.data && cachedData.data.length > 0) {
-                 console.log('使用缓存的点赞作者数据');
+                 _log('使用缓存的点赞作者数据');
                  hideAllSections(true); // 传入true表示从缓存显示，不重置currentDisplayType
                  displayLikedAuthors(cachedData.data);
                  LikedDataCache.currentDisplayType = 'authors';
                  showToast(`显示缓存的 ${cachedData.data.length} 个点赞作者`, 'info');
                  addLog(`显示缓存的 ${cachedData.data.length} 个点赞作者`);
              } else {
-                console.log('缓存中没有点赞作者数据，从服务器获取');
+                _log('缓存中没有点赞作者数据，从服务器获取');
                 await downloadLikedAuthors();
             }
         }

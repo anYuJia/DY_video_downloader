@@ -1,11 +1,20 @@
 import os
 import json
 import re
+import time
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from typing import List
 
 from src.config.config import Config
 from src.api.api import DouyinAPI
+
+# 带重试的 requests session
+_session = requests.Session()
+_retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
+_session.mount('https://', HTTPAdapter(max_retries=_retry))
+_session.mount('http://', HTTPAdapter(max_retries=_retry))
 
 class DouyinDownloader:
     """抖音下载器类"""
@@ -172,7 +181,7 @@ class DouyinDownloader:
                         })
                         
                     headers = self._get_download_headers()
-                    response = requests.get(url, headers=headers, stream=True)
+                    response = _session.get(url, headers=headers, stream=True, timeout=(10, 120))
                     response.raise_for_status()
                     
                     if self.debug_mode:
@@ -298,7 +307,7 @@ class DouyinDownloader:
                 return True  # 已下载视为成功
 
             headers = self._get_download_headers()
-            response = requests.get(url, headers=headers, stream=True)
+            response = _session.get(url, headers=headers, stream=True, timeout=(10, 120))
             response.raise_for_status()
             
             user_path = os.path.join(self.download_dir, user_dir)
@@ -350,7 +359,7 @@ class DouyinDownloader:
                 return True  # 已下载视为成功
                 
             headers = self._get_download_headers()
-            response = requests.get(url, headers=headers, stream=True)
+            response = _session.get(url, headers=headers, stream=True, timeout=(10, 120))
             response.raise_for_status()
             
             filename = self._sanitize_filename(filename)
@@ -405,7 +414,7 @@ class DouyinDownloader:
             if self.debug_mode:
                 print(f"\033[93m[Downloader] 开始发送视频下载请求\033[0m")
                 
-            response = requests.get(url, headers=headers, stream=True)
+            response = _session.get(url, headers=headers, stream=True, timeout=(10, 120))
             response.raise_for_status()
             
             if self.debug_mode:
@@ -458,7 +467,7 @@ class DouyinDownloader:
             if self.debug_mode:
                 print(f"\033[93m[Downloader] 开始发送图片下载请求\033[0m")
                 
-            response = requests.get(url, headers=headers, stream=True)
+            response = _session.get(url, headers=headers, stream=True, timeout=(10, 120))
             response.raise_for_status()
             
             if self.debug_mode:

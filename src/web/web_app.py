@@ -386,19 +386,6 @@ def get_liked_authors_api():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
-@app.route('/api/download_liked', methods=['POST'])
-def download_liked_videos_api():
-    """下载点赞视频"""
-    try:
-        # 在新的事件循环中运行异步任务
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(user_manager.download_liked_videos())
-        loop.close()
-        return jsonify({'success': True, 'message': '点赞视频下载任务已启动'})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
 @app.route('/api/user_videos', methods=['POST'])
 def get_user_videos():
     """获取用户视频列表（支持分页渐进加载）"""

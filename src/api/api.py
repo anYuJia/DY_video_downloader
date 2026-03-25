@@ -17,6 +17,8 @@ class DouyinAPI:
     def __init__(self, cookie: str):
         self.cookie = cookie
         self.host = 'https://www.douyin.com'
+        self._cached_webid = None
+        self._webid_time = 0
         
         # 检查是否启用调试模式
         self.debug_mode = os.environ.get('DEBUG_MODE', '').lower() in ('true', '1', 'yes')
@@ -81,13 +83,16 @@ class DouyinAPI:
         }
 
     async def _get_webid(self, headers: dict) -> str:
-        """获取webid"""
+        """获取webid（缓存10分钟）"""
+        import time
+        if self._cached_webid and (time.time() - self._webid_time) < 600:
+            return self._cached_webid
         try:
             url = 'https://www.douyin.com/?recommend=1'
             h = headers.copy()
             h['sec-fetch-dest'] = 'document'
             h['sec-fetch-mode'] = 'navigate'
-            h['accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            h['accept'] = 'text/html,application/xhtml+xml'
 
             response = requests.get(url, headers=h, timeout=10)
             if self.debug_mode:
@@ -107,6 +112,8 @@ class DouyinAPI:
                 match = re.search(pattern, response.text)
                 if match:
                     webid = match.group(1)
+                    self._cached_webid = webid
+                    self._webid_time = time.time()
                     if self.debug_mode:
                         print(f"\033[93m[API] 获取到webid: {webid}\033[0m")
                     return webid
