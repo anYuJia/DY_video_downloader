@@ -5209,17 +5209,20 @@
                 };
             }
 
-            // 必要的Cookie参数
+            // 核心必要参数（只检查最关键的）
             const requiredParams = [
                 'sessionid',
+            ];
+
+            // 推荐但非必须的参数
+            const recommendedParams = [
                 'ttwid',
-                'UIFID_TEMP',
-                'hevc_supported',
-                'odin_tt',
-                'passport_csrf_token'
+                'passport_csrf_token',
+                's_v_web_id'
             ];
 
             const missingParams = [];
+            const missingRecommended = [];
             const cookieLower = cookieString.toLowerCase();
 
             requiredParams.forEach(param => {
@@ -5228,19 +5231,32 @@
                 }
             });
 
-            if (missingParams.length === 0) {
+            recommendedParams.forEach(param => {
+                if (!cookieLower.includes(param.toLowerCase())) {
+                    missingRecommended.push(param);
+                }
+            });
+
+            if (missingParams.length > 0) {
+                return {
+                    isValid: false,
+                    status: 'invalid',
+                    message: 'Cookie缺少必要参数: ' + missingParams.join(', '),
+                    missingParams: missingParams
+                };
+            } else if (missingRecommended.length > 0) {
+                return {
+                    isValid: true,
+                    status: 'warning',
+                    message: 'Cookie可用，但建议补充: ' + missingRecommended.join(', '),
+                    missingParams: missingRecommended
+                };
+            } else {
                 return {
                     isValid: true,
                     status: 'valid',
                     message: 'Cookie格式正确',
                     missingParams: []
-                };
-            } else {
-                return {
-                    isValid: false,
-                    status: 'invalid',
-                    message: 'Cookie缺少必要参数',
-                    missingParams: missingParams
                 };
             }
         }
