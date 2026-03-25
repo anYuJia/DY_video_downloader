@@ -417,7 +417,7 @@ def get_user_videos():
                     'count': count
                 }
                 resp, succ = loop.run_until_complete(
-                    user_manager.api.common_request('/aweme/v1/web/aweme/post/', params, {})
+                    user_manager.api.common_request('/aweme/v1/web/aweme/post/', params, {}, skip_sign=True)
                 )
                 return resp, succ
             finally:

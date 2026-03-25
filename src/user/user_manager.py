@@ -45,7 +45,7 @@ class DouyinUserManager:
             # 不再直接传递cookie，让API类处理cookie
             resp, succ = await self.api.common_request('/aweme/v1/web/aweme/post/', 
                                                      params, 
-                                                     {})
+                                                     {}, skip_sign=True)
             if not succ:
                 break
                 
@@ -129,7 +129,7 @@ class DouyinUserManager:
             # 不再直接传递cookie，让API类处理cookie
             resp, succ = await self.api.common_request('/aweme/v1/web/discover/search/',
                                                      params,
-                                                     headers)
+                                                     headers, skip_sign=True)
                                                      
             if succ:
                 if resp.get('user_list'):
@@ -180,7 +180,8 @@ class DouyinUserManager:
 
         resp, succ = await self.api.common_request('/aweme/v1/web/discover/search/',
                                                  params,
-                                                 headers)
+                                                 headers,
+                                                 skip_sign=True)
         if not succ or not resp.get('user_list'):
             # 传递验证码信号
             if resp.get('_need_verify'):
@@ -276,7 +277,7 @@ class DouyinUserManager:
             
             resp, succ = await self.api.common_request('/aweme/v1/web/aweme/detail/',
                                                      params,
-                                                     {})
+                                                     {}, skip_sign=True)
             
             if not succ or not resp.get('aweme_detail'):
                 return None
