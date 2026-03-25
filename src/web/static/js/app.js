@@ -1148,7 +1148,7 @@ function displayVideos(videos, append) {
                     </div>
                     <span class="badge bg-primary position-absolute top-0 end-0 m-2">${mediaType}</span>
                     ${duration ? `<span class="badge bg-dark position-absolute bottom-0 start-0 m-2">${duration}</span>` : ''}
-                    <div class="video-select-overlay position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+                    <div class="video-select-overlay position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center"
                          style="display:none; background:rgba(0,0,0,0.3); cursor:pointer; z-index:5;"
                          onclick="toggleVideoSelect('${video.aweme_id}', this)">
                         <i class="bi bi-check-circle-fill" style="font-size:2rem; color:rgba(255,255,255,0.8);"></i>
