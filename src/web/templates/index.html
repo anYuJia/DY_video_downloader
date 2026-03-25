@@ -46,13 +46,17 @@
                         <button class="btn btn-success btn-sm" id="download-link-btn"><i class="bi bi-link-45deg"></i> 解析</button>
                     </div>
                 </div>
-                <button class="btn btn-sm btn-outline-primary" id="download-liked-btn">
-                    <i class="bi bi-heart-fill"></i> 点赞 <input type="number" id="liked-videos-count" value="20" min="1" max="100" class="count-input">
-                </button>
-                <button class="btn btn-sm btn-outline-secondary" id="download-liked-authors-btn">
-                    <i class="bi bi-people-fill"></i> 作者 <input type="number" id="liked-authors-count" value="20" min="1" max="100" class="count-input">
-                </button>
-                <button class="btn btn-sm btn-outline-info" id="storage-manage-btn">
+                <div class="tool-item-compact">
+                    <span class="tool-label"><i class="bi bi-heart-fill"></i> 点赞</span>
+                    <input type="number" class="form-control form-control-sm count-input" id="liked-videos-count" value="20" min="1" max="100">
+                    <button class="btn btn-sm btn-primary" id="download-liked-btn">获取</button>
+                </div>
+                <div class="tool-item-compact">
+                    <span class="tool-label"><i class="bi bi-people-fill"></i> 作者</span>
+                    <input type="number" class="form-control form-control-sm count-input" id="liked-authors-count" value="20" min="1" max="100">
+                    <button class="btn btn-sm btn-outline-primary" id="download-liked-authors-btn">获取</button>
+                </div>
+                <button class="btn btn-sm btn-outline-info" id="storage-manage-btn" title="本地存储">
                     <i class="bi bi-database"></i>
                 </button>
             </div>
