@@ -64,22 +64,15 @@ class DouyinUserManager:
     async def get_user_detail(self, user_id: str) -> dict:
         """获取用户详情"""
         params = {
-            "publish_video_strategy_type": 2,
             "sec_user_id": user_id,
             "personal_center_strategy": 1,
             "source": "channel_pc_web",
-            "profile_other_record_enable": 1,
-            "land_to": 1,
         }
         headers = {
-            "origin": "https://www.douyin.com",
-            "referer": "https://www.douyin.com/",
-            "sec-fetch-site": "same-site",
+            "Referer": "https://www.douyin.com/",
         }
         resp, succ = await self.api.common_request('/aweme/v1/web/user/profile/other/',
-                                                 params,
-                                                 headers,
-                                                 host='https://www-hj.douyin.com')
+                                                 params, headers, skip_sign=True)
         return resp.get('user', {}) if succ else {}
 
     async def search_user(self, keyword: str) -> Optional[dict]:
@@ -734,19 +727,35 @@ class DouyinUserManager:
                 author = post.get('author', {})
                 sec_uid = author.get('sec_uid')
                 if sec_uid and sec_uid not in authors:
-                    # 直接从帖子数据提取作者信息（不再调get_user_detail）
-                    authors[sec_uid] = {
-                        'nickname': author.get('nickname', ''),
-                        'unique_id': author.get('unique_id', ''),
-                        'follower_count': author.get('follower_count', 0),
-                        'following_count': author.get('following_count', 0),
-                        'total_favorited': author.get('total_favorited', 0),
-                        'aweme_count': author.get('aweme_count', 0),
-                        'signature': author.get('signature', ''),
-                        'sec_uid': sec_uid,
-                        'avatar_thumb': author.get('avatar_thumb', {}).get('url_list', [''])[0] if author.get('avatar_thumb') else '',
-                        'avatar_larger': author.get('avatar_larger', {}).get('url_list', [''])[0] if author.get('avatar_larger') else ''
-                    }
+                    # 获取完整的用户信息
+                    user_detail = await self.get_user_detail(sec_uid)
+                    if user_detail:
+                        authors[sec_uid] = {
+                            'nickname': user_detail.get('nickname', author.get('nickname', '')),
+                            'unique_id': user_detail.get('unique_id', ''),
+                            'follower_count': user_detail.get('follower_count', 0),
+                            'following_count': user_detail.get('following_count', 0),
+                            'total_favorited': user_detail.get('total_favorited', 0),
+                            'aweme_count': user_detail.get('aweme_count', 0),
+                            'signature': user_detail.get('signature', ''),
+                            'sec_uid': sec_uid,
+                            'avatar_thumb': user_detail.get('avatar_thumb', {}).get('url_list', [''])[0] if user_detail.get('avatar_thumb') else '',
+                            'avatar_larger': user_detail.get('avatar_larger', {}).get('url_list', [''])[0] if user_detail.get('avatar_larger') else ''
+                        }
+                    else:
+                        # 降级：用帖子里的基础信息
+                        authors[sec_uid] = {
+                            'nickname': author.get('nickname', ''),
+                            'unique_id': '',
+                            'follower_count': 0,
+                            'following_count': 0,
+                            'total_favorited': 0,
+                            'aweme_count': 0,
+                            'signature': '',
+                            'sec_uid': sec_uid,
+                            'avatar_thumb': author.get('avatar_thumb', {}).get('url_list', [''])[0] if author.get('avatar_thumb') else '',
+                        }
+                    await asyncio.sleep(0.2)  # 避免请求过快
                     
             return list(authors.values())
         except Exception as e:
