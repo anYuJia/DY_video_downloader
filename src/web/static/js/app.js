@@ -365,6 +365,11 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+function _hideEmptyState() {
+    const el = document.getElementById('emptyState');
+    if (el) el.style.display = 'none';
+}
+
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -950,6 +955,10 @@ async function selectUser(secUid, nickname) {
 // USER DETAIL
 // ═══════════════════════════════════════════════
 function showUserDetail(user) {
+    // Hide empty state
+    const emptyState = document.getElementById('emptyState');
+    if (emptyState) emptyState.style.display = 'none';
+
     const avatarUrl = user.avatar_larger || user.avatar_thumb || '/static/default-avatar.svg';
 
     document.getElementById('userAvatar').src = avatarUrl;
@@ -1460,6 +1469,7 @@ function showParseResults(videos) {
     });
 
     document.getElementById('linkParseResult').style.display = 'block';
+    _hideEmptyState();
 }
 
 function clearParseResult() {
@@ -1801,7 +1811,7 @@ function displayLikedVideos(videos) {
     });
 
     section.style.display = 'block';
-}
+    _hideEmptyState();}
 
 function displayLikedAuthors(authors) {
     const section = document.getElementById('likedAuthorsSection');
@@ -1859,7 +1869,7 @@ function displayLikedAuthors(authors) {
     });
 
     section.style.display = 'block';
-}
+    _hideEmptyState();}
 
 async function downloadAllLikedAuthors() {
     try {
@@ -2886,6 +2896,10 @@ function hideAllSections(fromCache) {
         const element = document.getElementById(sectionId);
         if (element) element.style.display = 'none';
     });
+
+    // Show empty state
+    const emptyState = document.getElementById('emptyState');
+    if (emptyState) emptyState.style.display = 'flex';
 
     const parsedVideosList = document.getElementById('parsedVideosList');
     if (parsedVideosList) parsedVideosList.innerHTML = '';

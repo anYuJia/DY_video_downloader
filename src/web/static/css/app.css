@@ -1258,3 +1258,84 @@ a:hover { color: var(--accent-hover); }
     width: 0%;
     transition: width 0.1s linear;
 }
+
+/* ── EMPTY STATE HERO ── */
+.empty-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - 200px);
+    text-align: center;
+    padding: 40px 20px;
+}
+
+.empty-hero-icon {
+    font-size: 4.5rem;
+    color: var(--accent);
+    margin-bottom: 24px;
+    opacity: 0.7;
+    filter: drop-shadow(0 0 40px var(--accent-glow));
+    animation: heroFloat 3s ease-in-out infinite;
+}
+
+@keyframes heroFloat {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+
+.empty-hero-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+    letter-spacing: -0.5px;
+}
+
+.empty-hero-desc {
+    color: var(--text-muted);
+    font-size: 0.92rem;
+    line-height: 1.7;
+    margin-bottom: 40px;
+    max-width: 400px;
+}
+
+.empty-hero-shortcuts {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.shortcut-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 100px;
+    padding: 20px 12px;
+    border-radius: var(--radius-lg);
+    background: var(--bg-card);
+    border: 1px solid var(--glass-border);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.shortcut-card:hover {
+    border-color: var(--accent);
+    background: var(--bg-card-hover);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 30px rgba(254, 44, 85, 0.1);
+}
+
+.shortcut-card i {
+    font-size: 1.4rem;
+    color: var(--accent);
+}
+
+.shortcut-card span {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}

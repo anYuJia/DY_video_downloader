@@ -67,6 +67,33 @@
     <main class="main-content">
         <div class="container-fluid px-4">
 
+            <!-- Empty State Hero (shown when nothing loaded) -->
+            <div id="emptyState" class="empty-hero">
+                <div class="empty-hero-icon">
+                    <i class="bi bi-play-circle"></i>
+                </div>
+                <h2 class="empty-hero-title">搜索用户，开始下载</h2>
+                <p class="empty-hero-desc">在上方搜索框输入用户昵称或抖音号<br>也可以直接粘贴视频链接到工具栏</p>
+                <div class="empty-hero-shortcuts">
+                    <div class="shortcut-card" onclick="document.getElementById('search-input').focus()">
+                        <i class="bi bi-search"></i>
+                        <span>搜索用户</span>
+                    </div>
+                    <div class="shortcut-card" onclick="document.getElementById('link-input').focus()">
+                        <i class="bi bi-link-45deg"></i>
+                        <span>粘贴链接</span>
+                    </div>
+                    <div class="shortcut-card" onclick="document.getElementById('download-liked-btn').click()">
+                        <i class="bi bi-heart"></i>
+                        <span>点赞视频</span>
+                    </div>
+                    <div class="shortcut-card" onclick="document.getElementById('settings-toggle').click()">
+                        <i class="bi bi-gear"></i>
+                        <span>设置Cookie</span>
+                    </div>
+                </div>
+            </div>
+
             <!-- Link parse results (hidden by default) -->
             <div id="linkParseResult" class="mb-3" style="display: none;">
                 <div class="card border-success">
