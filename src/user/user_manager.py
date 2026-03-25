@@ -379,8 +379,25 @@ class DouyinUserManager:
                 
             aweme_id = aweme_id_match.group(1)
             print(f"提取的视频ID: {aweme_id}")
-            # 使用已有的 get_video_detail 方法获取详情
-            return await self.get_video_detail(aweme_id)
+            # 尝试获取完整详情
+            detail = await self.get_video_detail(aweme_id)
+            if detail:
+                return detail
+
+            # get_video_detail 失败时，返回基本信息
+            return {
+                'aweme_id': aweme_id,
+                'desc': f'视频 {aweme_id}',
+                'create_time': 0,
+                'digg_count': 0,
+                'comment_count': 0,
+                'share_count': 0,
+                'cover_url': '',
+                'media_type': 'unknown',
+                'media_urls': [],
+                'author': {'nickname': '', 'sec_uid': '', 'avatar_thumb': ''},
+                '_incomplete': True,  # 标记为不完整数据
+            }
             
         except Exception as e:
             if self.debug_mode:
