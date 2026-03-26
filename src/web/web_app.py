@@ -771,7 +771,7 @@ def download_user_video():
                 })
                 
                 # 获取用户视频列表以计算总数
-                posts = loop.run_until_complete(user_manager.get_user_videos(sec_uid, limit=200))
+                posts = loop.run_until_complete(user_manager.get_user_videos(sec_uid, limit=1000))
                 if not posts:
                     raise Exception(f'未找到用户 {_nickname} 的作品')
                 

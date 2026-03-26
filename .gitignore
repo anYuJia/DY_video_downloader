@@ -122,3 +122,6 @@ __pycache__/
 data/
 *.json.bak
 get_media_info.json
+
+
+node_modules/
