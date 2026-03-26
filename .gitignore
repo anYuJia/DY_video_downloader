@@ -125,3 +125,5 @@ get_media_info.json
 
 
 node_modules/
+# Browser Persistent Context
+data/.browser_profile/

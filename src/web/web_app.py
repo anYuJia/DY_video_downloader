@@ -1298,6 +1298,127 @@ def handle_test_connection(data):
     # 同时广播一条消息给所有客户端
     socketio.emit('broadcast_message', {'message': '服务器广播测试消息', 'time': datetime.now().strftime('%H:%M:%S')})
 
+# ═══════════════════════════════════════════════
+# COOKIE 浏览器登录
+# ═══════════════════════════════════════════════
+_cookie_login_proc = None  # 当前正在运行的 cookie 登录子进程
+
+@app.route('/api/cookie/browser_login', methods=['POST'])
+def cookie_browser_login():
+    """启动 Playwright 浏览器让用户登录抖音，自动提取 Cookie"""
+    global _cookie_login_proc
+    
+    if _cookie_login_proc and _cookie_login_proc.poll() is None:
+        return jsonify({'success': False, 'message': '浏览器登录已在进行中'}), 409
+    
+    data = request.json or {}
+    timeout = data.get('timeout', 300)
+    browser_type = data.get('browser', 'chrome')
+    
+    def run_cookie_grab():
+        global _cookie_login_proc, api, downloader, user_manager
+        import subprocess
+        
+        worker_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'api', 'cookie_grabber.py')
+        python_exe = sys.executable
+        
+        req_data = json.dumps({"timeout": timeout, "browser": browser_type})
+        
+        try:
+            _cookie_login_proc = subprocess.Popen(
+                [python_exe, worker_path],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            
+            # 写入参数并关闭 stdin
+            _cookie_login_proc.stdin.write(req_data)
+            _cookie_login_proc.stdin.close()
+            
+            # 实时读取 stderr 获取状态更新
+            for line in _cookie_login_proc.stderr:
+                line = line.strip()
+                if '[cookie_grabber]' in line:
+                    try:
+                        json_str = line.split('[cookie_grabber] ', 1)[1]
+                        status_data = json.loads(json_str)
+                        socketio.emit('cookie_login_status', {
+                            'event': status_data.get('event', ''),
+                            'message': status_data.get('message', ''),
+                        })
+                    except (json.JSONDecodeError, IndexError):
+                        pass
+            
+            # 等待进程结束获取结果
+            _cookie_login_proc.wait()
+            stdout = _cookie_login_proc.stdout.read()
+            
+            try:
+                result = json.loads(stdout)
+            except json.JSONDecodeError:
+                result = {"success": False, "error": "无法解析返回结果"}
+            
+            if result.get("success") and result.get("cookie"):
+                cookie = result["cookie"]
+                Config.COOKIE = cookie
+                Config.save_config(Config.COOKIE, Config.BASE_DIR)
+                init_app()
+                
+                socketio.emit('cookie_login_status', {
+                    'event': 'success',
+                    'message': 'Cookie 获取成功！已自动保存。',
+                    'cookie': cookie,
+                })
+                logger.info("通过浏览器登录成功获取 Cookie")
+            else:
+                error_msg = result.get("error", "未知错误")
+                socketio.emit('cookie_login_status', {
+                    'event': 'failed',
+                    'message': f'获取 Cookie 失败: {error_msg}',
+                })
+                logger.warning(f"浏览器登录获取 Cookie 失败: {error_msg}")
+                
+        except Exception as e:
+            logger.error(f"Cookie 浏览器登录异常: {str(e)}")
+            socketio.emit('cookie_login_status', {
+                'event': 'error',
+                'message': f'发生错误: {str(e)}',
+            })
+        finally:
+            _cookie_login_proc = None
+    
+    thread = threading.Thread(target=run_cookie_grab, daemon=True)
+    thread.start()
+    
+    return jsonify({'success': True, 'message': '浏览器登录已启动，请在弹出的浏览器中登录抖音'})
+
+@app.route('/api/cookie/browser_login/cancel', methods=['POST'])
+def cookie_browser_login_cancel():
+    """取消正在进行的浏览器登录"""
+    global _cookie_login_proc
+    
+    if _cookie_login_proc and _cookie_login_proc.poll() is None:
+        try:
+            _cookie_login_proc.terminate()
+            _cookie_login_proc.wait(timeout=5)
+        except Exception:
+            try:
+                _cookie_login_proc.kill()
+            except Exception:
+                pass
+        _cookie_login_proc = None
+        
+        socketio.emit('cookie_login_status', {
+            'event': 'cancelled',
+            'message': '浏览器登录已取消',
+        })
+        return jsonify({'success': True, 'message': '已取消浏览器登录'})
+    
+    return jsonify({'success': False, 'message': '没有正在进行的浏览器登录'})
+
+
 # 添加一个定时发送心跳的函数
 def send_heartbeat():
     """定时发送心跳消息"""

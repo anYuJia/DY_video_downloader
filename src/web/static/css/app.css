@@ -1337,3 +1337,195 @@ a:hover { color: var(--accent-hover); }
     color: var(--text-secondary);
     font-weight: 500;
 }
+
+/* ═══════════════════════════════════════
+   COOKIE SETUP MODAL
+   ═══════════════════════════════════════ */
+.cookie-setup-modal .modal-header {
+    padding: 20px 24px 16px;
+}
+
+.cookie-modal-header-content {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.cookie-modal-icon {
+    font-size: 1.8rem;
+    color: var(--accent);
+    filter: drop-shadow(0 0 12px var(--accent-glow));
+}
+
+.cookie-modal-subtitle {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.cookie-tab-nav {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-md);
+    padding: 4px;
+    border: 1px solid var(--glass-border);
+}
+
+.cookie-tab-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 10px 16px;
+    border-radius: calc(var(--radius-md) - 2px);
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.cookie-tab-btn:hover {
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.cookie-tab-btn.active {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 2px 12px rgba(254, 44, 85, 0.3);
+}
+
+.cookie-tab-panel {
+    display: none;
+    animation: fadeIn 0.25s ease;
+}
+
+.cookie-tab-panel.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.cookie-manual-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    background: rgba(124, 92, 252, 0.06);
+    border: 1px solid rgba(124, 92, 252, 0.15);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    line-height: 1.5;
+}
+
+.cookie-manual-hint i {
+    color: var(--info);
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+.cookie-textarea {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.cookie-browser-selector {
+    margin-bottom: 16px;
+}
+
+.cookie-browser-selector .form-label {
+    margin-bottom: 6px;
+}
+
+.cookie-browser-selector .form-select {
+    font-size: 0.85rem;
+}
+
+.cookie-browser-desc {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 20px;
+}
+
+.cookie-browser-step {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.step-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 0.8rem;
+    box-shadow: 0 2px 10px rgba(254, 44, 85, 0.25);
+}
+
+.cookie-browser-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 16px;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    transition: var(--transition);
+}
+
+.cookie-browser-status.status-success {
+    border-color: rgba(0, 214, 143, 0.4);
+    background: rgba(0, 214, 143, 0.06);
+    color: var(--success);
+}
+
+.cookie-browser-status.status-error {
+    border-color: rgba(255, 71, 87, 0.4);
+    background: rgba(255, 71, 87, 0.06);
+    color: var(--danger);
+}
+
+.cookie-browser-status-icon {
+    flex-shrink: 0;
+}
+
+.cookie-browser-status-icon .spinner-border {
+    width: 18px;
+    height: 18px;
+    border-width: 2px;
+    color: var(--accent);
+}
+
+.cookie-browser-actions {
+    display: flex;
+    flex-direction: column;
+}
+

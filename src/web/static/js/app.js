@@ -724,6 +724,12 @@ function setupSocketIO() {
         showToast(data.message, 'error');
         scrollToBottom();
     });
+
+    // Cookie browser login status
+    socket.on('cookie_login_status', function (data) {
+        _log('收到Cookie登录状态:', data);
+        handleCookieLoginStatus(data);
+    });
 }
 
 // ═══════════════════════════════════════════════
@@ -772,6 +778,8 @@ async function loadConfig() {
             updateStatus('ready', '已配置');
         } else {
             updateStatus('error', '需要配置Cookie');
+            // 自动弹出 Cookie 配置弹窗
+            setTimeout(() => showCookieSetupModal(), 500);
         }
     } catch (error) {
         console.error('加载配置失败:', error);
@@ -3045,6 +3053,214 @@ function setupCookieValidation() {
             updateCookieValidationUI(validation);
         }, 100);
     });
+}
+
+// ═══════════════════════════════════════════════
+// COOKIE SETUP MODAL
+// ═══════════════════════════════════════════════
+let _cookieSetupModal = null;
+let _browserLoginActive = false;
+
+function showCookieSetupModal() {
+    const modalEl = document.getElementById('cookieSetupModal');
+    if (!modalEl) return;
+    if (!_cookieSetupModal) {
+        _cookieSetupModal = new bootstrap.Modal(modalEl);
+    }
+    // 同步 Cookie 输入框
+    const mainCookie = document.getElementById('cookie-input');
+    const modalCookie = document.getElementById('cookie-modal-input');
+    if (mainCookie && modalCookie) {
+        modalCookie.value = mainCookie.value;
+    }
+    _cookieSetupModal.show();
+}
+
+function switchCookieTab(tab) {
+    // Update tab buttons
+    document.querySelectorAll('.cookie-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    // Update panels
+    document.querySelectorAll('.cookie-tab-panel').forEach(panel => {
+        panel.classList.remove('active');
+    });
+    const targetPanel = document.getElementById('cookie-tab-' + tab);
+    if (targetPanel) targetPanel.classList.add('active');
+}
+
+function saveCookieFromModal() {
+    const cookieValue = document.getElementById('cookie-modal-input').value.trim();
+    const validation = validateCookie(cookieValue);
+
+    // Update validation UI in modal
+    const statusContainer = document.getElementById('cookie-modal-validation');
+    const statusIcon = document.getElementById('cookie-modal-status-icon');
+    const statusText = document.getElementById('cookie-modal-status-text');
+
+    if (!validation.isValid && validation.status !== 'empty') {
+        statusContainer.style.display = 'block';
+        statusIcon.className = 'bi bi-exclamation-triangle-fill text-danger me-1';
+        statusText.className = 'text-danger';
+        statusText.textContent = validation.message;
+        return;
+    }
+
+    if (validation.status === 'empty') {
+        statusContainer.style.display = 'block';
+        statusIcon.className = 'bi bi-exclamation-triangle-fill text-warning me-1';
+        statusText.className = 'text-warning';
+        statusText.textContent = '请输入 Cookie';
+        return;
+    }
+
+    // Save via API
+    fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            cookie: cookieValue,
+            download_dir: document.getElementById('download-dir-input').value
+        })
+    }).then(response => response.json()).then(data => {
+        if (data.success) {
+            showToast('Cookie 保存成功！', 'success');
+            updateStatus('ready', '已配置');
+            // Sync to settings drawer
+            document.getElementById('cookie-input').value = cookieValue;
+            // Close modal
+            if (_cookieSetupModal) _cookieSetupModal.hide();
+        } else {
+            showToast('保存失败: ' + (data.message || ''), 'error');
+        }
+    }).catch(error => {
+        showToast('保存失败: ' + error.message, 'error');
+    });
+}
+
+function startBrowserLogin() {
+    if (_browserLoginActive) return;
+    _browserLoginActive = true;
+
+    const startBtn = document.getElementById('cookie-browser-start-btn');
+    const cancelBtn = document.getElementById('cookie-browser-cancel-btn');
+    const statusEl = document.getElementById('cookie-browser-status');
+    const statusText = document.getElementById('cookie-browser-status-text');
+    const spinner = document.getElementById('cookie-browser-spinner');
+    const resultIcon = document.getElementById('cookie-browser-result-icon');
+
+    startBtn.disabled = true;
+    startBtn.innerHTML = '<div class="spinner-border spinner-border-sm me-2" role="status"></div> 正在启动浏览器...';
+    cancelBtn.style.display = 'block';
+    statusEl.style.display = 'flex';
+    statusEl.className = 'cookie-browser-status';
+    spinner.style.display = 'block';
+    resultIcon.style.display = 'none';
+    statusText.textContent = '正在启动浏览器...';
+
+    fetch('/api/cookie/browser_login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            timeout: 300,
+            browser: document.getElementById('cookie-browser-type').value || 'chrome'
+        })
+    }).then(response => response.json()).then(data => {
+        if (!data.success) {
+            resetBrowserLoginUI();
+            showToast(data.message || '启动失败', 'error');
+        }
+    }).catch(error => {
+        resetBrowserLoginUI();
+        showToast('启动失败: ' + error.message, 'error');
+    });
+}
+
+function cancelBrowserLogin() {
+    fetch('/api/cookie/browser_login/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    }).then(response => response.json()).then(data => {
+        resetBrowserLoginUI();
+        showToast(data.message || '已取消', 'info');
+    }).catch(() => {
+        resetBrowserLoginUI();
+    });
+}
+
+function resetBrowserLoginUI() {
+    _browserLoginActive = false;
+    const startBtn = document.getElementById('cookie-browser-start-btn');
+    const cancelBtn = document.getElementById('cookie-browser-cancel-btn');
+
+    if (startBtn) {
+        startBtn.disabled = false;
+        startBtn.innerHTML = '<i class="bi bi-box-arrow-up-right"></i> 打开浏览器登录';
+    }
+    if (cancelBtn) cancelBtn.style.display = 'none';
+}
+
+function handleCookieLoginStatus(data) {
+    const statusEl = document.getElementById('cookie-browser-status');
+    const statusText = document.getElementById('cookie-browser-status-text');
+    const spinner = document.getElementById('cookie-browser-spinner');
+    const resultIcon = document.getElementById('cookie-browser-result-icon');
+
+    if (!statusEl) return;
+    statusEl.style.display = 'flex';
+    statusText.textContent = data.message || '';
+
+    switch (data.event) {
+        case 'success':
+            statusEl.className = 'cookie-browser-status status-success';
+            spinner.style.display = 'none';
+            resultIcon.style.display = 'block';
+            resultIcon.className = 'bi bi-check-circle-fill text-success';
+            resetBrowserLoginUI();
+            // Update cookie in settings drawer and main config
+            if (data.cookie) {
+                document.getElementById('cookie-input').value = data.cookie;
+            }
+            updateStatus('ready', '已配置');
+            showToast('Cookie 获取成功！', 'success');
+            // Close modal after short delay
+            setTimeout(() => {
+                if (_cookieSetupModal) _cookieSetupModal.hide();
+            }, 1500);
+            break;
+
+        case 'failed':
+        case 'error':
+            statusEl.className = 'cookie-browser-status status-error';
+            spinner.style.display = 'none';
+            resultIcon.style.display = 'block';
+            resultIcon.className = 'bi bi-x-circle-fill text-danger';
+            resetBrowserLoginUI();
+            break;
+
+        case 'cancelled':
+            statusEl.className = 'cookie-browser-status status-error';
+            spinner.style.display = 'none';
+            resultIcon.style.display = 'block';
+            resultIcon.className = 'bi bi-dash-circle-fill text-warning';
+            resetBrowserLoginUI();
+            break;
+
+        case 'timeout':
+            statusEl.className = 'cookie-browser-status status-error';
+            spinner.style.display = 'none';
+            resultIcon.style.display = 'block';
+            resultIcon.className = 'bi bi-clock-fill text-warning';
+            resetBrowserLoginUI();
+            break;
+
+        default:
+            // Progress updates (waiting, page_loaded, etc.)
+            statusEl.className = 'cookie-browser-status';
+            spinner.style.display = 'block';
+            resultIcon.style.display = 'none';
+            break;
+    }
 }
 
 // ═══════════════════════════════════════════════

@@ -566,6 +566,94 @@
         </div>
     </div>
 
+    <!-- Cookie Setup Modal -->
+    <div class="modal fade" id="cookieSetupModal" tabindex="-1" aria-labelledby="cookieSetupModalLabel" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content cookie-setup-modal">
+                <div class="modal-header">
+                    <div class="cookie-modal-header-content">
+                        <i class="bi bi-shield-lock-fill cookie-modal-icon"></i>
+                        <div>
+                            <h5 class="modal-title" id="cookieSetupModalLabel">配置 Cookie</h5>
+                            <p class="cookie-modal-subtitle">需要配置抖音 Cookie 才能使用全部功能</p>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" id="cookieModalCloseBtn"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Tab navigation -->
+                    <div class="cookie-tab-nav">
+                        <button class="cookie-tab-btn active" data-tab="manual" onclick="switchCookieTab('manual')">
+                            <i class="bi bi-clipboard-plus"></i> 手动填入
+                        </button>
+                        <button class="cookie-tab-btn" data-tab="browser" onclick="switchCookieTab('browser')">
+                            <i class="bi bi-globe2"></i> 浏览器登录
+                        </button>
+                    </div>
+
+                    <!-- Manual tab -->
+                    <div class="cookie-tab-panel active" id="cookie-tab-manual">
+                        <div class="cookie-manual-hint">
+                            <i class="bi bi-info-circle"></i>
+                            从浏览器开发者工具复制抖音的 Cookie 并粘贴到下方
+                        </div>
+                        <textarea class="form-control cookie-textarea" id="cookie-modal-input" rows="6" placeholder="粘贴抖音 Cookie..."></textarea>
+                        <div id="cookie-modal-validation" class="mt-2" style="display:none;">
+                            <div class="d-flex align-items-center">
+                                <i id="cookie-modal-status-icon" class="bi me-1"></i>
+                                <small id="cookie-modal-status-text"></small>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary w-100 mt-3" id="cookie-modal-save-btn" onclick="saveCookieFromModal()">
+                            <i class="bi bi-check-lg"></i> 保存 Cookie
+                        </button>
+                    </div>
+
+                    <!-- Browser login tab -->
+                    <div class="cookie-tab-panel" id="cookie-tab-browser">
+                        <div class="cookie-browser-selector">
+                            <label class="form-label">选择浏览器</label>
+                            <select class="form-select" id="cookie-browser-type">
+                                <option value="chrome" selected>Google Chrome</option>
+                                <option value="edge">Microsoft Edge</option>
+                                <option value="chromium">Chromium（内置）</option>
+                            </select>
+                        </div>
+                        <div class="cookie-browser-desc">
+                            <div class="cookie-browser-step">
+                                <span class="step-number">1</span>
+                                <span>点击下方按钮，系统将打开一个浏览器窗口</span>
+                            </div>
+                            <div class="cookie-browser-step">
+                                <span class="step-number">2</span>
+                                <span>在弹出的浏览器中登录你的抖音账号</span>
+                            </div>
+                            <div class="cookie-browser-step">
+                                <span class="step-number">3</span>
+                                <span>登录成功后，Cookie 将被自动提取并保存</span>
+                            </div>
+                        </div>
+                        <div id="cookie-browser-status" class="cookie-browser-status" style="display:none;">
+                            <div class="cookie-browser-status-icon">
+                                <div class="spinner-border spinner-border-sm" role="status" id="cookie-browser-spinner"></div>
+                                <i class="bi" id="cookie-browser-result-icon" style="display:none;"></i>
+                            </div>
+                            <span id="cookie-browser-status-text">等待中...</span>
+                        </div>
+                        <div class="cookie-browser-actions">
+                            <button class="btn btn-primary w-100" id="cookie-browser-start-btn" onclick="startBrowserLogin()">
+                                <i class="bi bi-box-arrow-up-right"></i> 打开浏览器登录
+                            </button>
+                            <button class="btn btn-outline-danger w-100 mt-2" id="cookie-browser-cancel-btn" onclick="cancelBrowserLogin()" style="display:none;">
+                                <i class="bi bi-x-circle"></i> 取消
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
