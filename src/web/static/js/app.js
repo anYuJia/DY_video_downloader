@@ -424,6 +424,9 @@ function setupEventListeners() {
         if (e.key === 'Enter') downloadFromLink();
     });
 
+    // Back button — returns to empty/home state
+    document.getElementById('back-btn').addEventListener('click', goBackToHome);
+
     // Liked buttons
     const likedBtn = document.getElementById('download-liked-btn');
     const likedAuthorsBtn = document.getElementById('download-liked-authors-btn');
@@ -954,10 +957,33 @@ async function selectUser(secUid, nickname) {
 // ═══════════════════════════════════════════════
 // USER DETAIL
 // ═══════════════════════════════════════════════
+function goBackToHome() {
+    // Hide all content sections
+    const sections = ['userDetailSection', 'userVideosSection', 'likedVideosSection', 'likedAuthorsSection', 'linkParseResult'];
+    sections.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+
+    // Show empty state
+    const emptyState = document.getElementById('emptyState');
+    if (emptyState) emptyState.style.display = '';
+
+    // Hide back button
+    document.getElementById('back-btn').style.display = 'none';
+
+    // Clear state
+    currentUser = null;
+    allVideos = [];
+}
+
 function showUserDetail(user) {
     // Hide empty state
     const emptyState = document.getElementById('emptyState');
     if (emptyState) emptyState.style.display = 'none';
+
+    // Show back button
+    document.getElementById('back-btn').style.display = 'flex';
 
     const avatarUrl = user.avatar_larger || user.avatar_thumb || '/static/default-avatar.svg';
 
@@ -1469,6 +1495,7 @@ function showParseResults(videos) {
     });
 
     document.getElementById('linkParseResult').style.display = 'block';
+    document.getElementById('back-btn').style.display = 'flex';
     _hideEmptyState();
 }
 

@@ -34,8 +34,8 @@
     --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.4);
     --shadow-glow: 0 0 40px var(--accent-glow);
 
-    --navbar-h: 56px;
-    --toolbar-h: 46px;
+    --navbar-h: 54px;
+    --toolbar-h: 0px;
     --bottombar-h: 42px;
     --bottombar-expanded: 320px;
     --drawer-w: 340px;
@@ -69,7 +69,7 @@ body::before {
 }
 
 /* ═══════════════════════════════════════
-   NAVBAR — fixed top, search inline
+   NAVBAR — single unified top bar
    ═══════════════════════════════════════ */
 .navbar {
     position: fixed;
@@ -89,13 +89,13 @@ body::before {
 .navbar .container-fluid {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 10px;
 }
 
 .navbar-brand {
     font-family: 'Outfit', sans-serif;
     font-weight: 700;
-    font-size: 1.2rem;
+    font-size: 1.1rem;
     letter-spacing: -0.5px;
     background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
     -webkit-background-clip: text;
@@ -115,21 +115,23 @@ body::before {
 
 .nav-search {
     flex: 1;
-    max-width: 400px;
+    max-width: 320px;
+    min-width: 160px;
 }
 
 .nav-search .input-group {
-    height: 34px;
+    height: 36px;
 }
 
 .nav-search .form-control {
-    height: 34px;
-    font-size: 0.85rem;
+    height: 36px;
+    font-size: 0.9rem;
 }
 
 .nav-search .btn {
-    height: 34px;
-    padding: 0 12px;
+    height: 36px;
+    padding: 0 14px;
+    font-size: 0.9rem;
 }
 
 .nav-actions {
@@ -150,15 +152,15 @@ body::before {
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid var(--glass-border);
     color: var(--text-secondary);
-    width: 34px;
-    height: 34px;
+    width: 36px;
+    height: 36px;
     border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     transition: var(--transition);
-    font-size: 1rem;
+    font-size: 1.05rem;
     padding: 0;
 }
 
@@ -168,55 +170,60 @@ body::before {
     border-color: var(--glass-border-hover);
 }
 
+/* Back button */
+.btn-back {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--glass-border);
+    color: var(--text-secondary);
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition);
+    font-size: 1.1rem;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.btn-back:hover {
+    background: rgba(254, 44, 85, 0.15);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* Vertical divider between navbar sections */
+.nav-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--glass-border);
+    flex-shrink: 0;
+}
+
 /* ═══════════════════════════════════════
-   TOOL BAR — compact strip below navbar
+   TOOL ITEMS — inline in navbar
    ═══════════════════════════════════════ */
-.tool-bar {
-    position: fixed;
-    top: var(--navbar-h);
-    left: 0;
-    right: 0;
-    height: var(--toolbar-h);
-    background: rgba(14, 14, 21, 0.92);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border-bottom: 1px solid var(--glass-border);
-    z-index: 1040;
-    display: flex;
-    align-items: center;
-}
-
-.tool-bar .container-fluid {
-    display: flex;
-    align-items: center;
-}
-
-.tool-group {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: nowrap;
-    width: 100%;
-}
 
 .tool-item {
-    flex: 0 1 380px;
-    min-width: 220px;
+    flex: 0 1 300px;
+    min-width: 180px;
 }
 
 .tool-item .input-group {
-    height: 32px;
+    height: 36px;
 }
 
 .tool-item .form-control {
-    height: 32px;
-    font-size: 0.82rem;
+    height: 36px;
+    font-size: 0.88rem;
 }
 
 .tool-item .btn {
-    height: 32px;
-    padding: 0 10px;
-    font-size: 0.8rem;
+    height: 36px;
+    padding: 0 12px;
+    font-size: 0.85rem;
 }
 
 .count-input {
@@ -245,7 +252,7 @@ body::before {
     border-radius: 8px;
     border: 1px solid var(--glass-border);
     background: var(--bg-card);
-    height: 34px;
+    height: 36px;
 }
 
 .tool-item-compact .tool-label {
@@ -282,7 +289,7 @@ body::before {
 .main-content {
     position: relative;
     z-index: 1;
-    padding-top: calc(var(--navbar-h) + var(--toolbar-h) + 20px);
+    padding-top: calc(var(--navbar-h) + 20px);
     padding-bottom: calc(var(--bottombar-h) + 20px);
     min-height: 100vh;
 }
@@ -1094,24 +1101,15 @@ a:hover { color: var(--accent-hover); }
     .author-card { height: 180px !important; }
     .video-cover-container { height: 220px; }
 
-    .nav-search { max-width: 200px; }
+    .nav-search { max-width: 160px; min-width: 100px; }
 
-    .tool-bar {
-        height: auto;
-        min-height: var(--toolbar-h);
-    }
-    .tool-group {
-        flex-wrap: wrap;
-        gap: 6px;
-        padding: 6px 0;
-    }
-    .tool-item {
-        flex: 1 1 100%;
-        min-width: 0;
-    }
+    /* On mobile, hide some toolbar items to save space */
+    .tool-item-compact { display: none !important; }
+    .nav-divider { display: none; }
+    .tool-item { flex: 0 1 200px; min-width: 120px; }
 
     .main-content {
-        padding-top: calc(var(--navbar-h) + var(--toolbar-h) + 60px);
+        padding-top: calc(var(--navbar-h) + 20px);
     }
 
     .settings-drawer {
