@@ -115,7 +115,7 @@ class DouyinDownloader:
             
         return headers
         
-    def download_media_group(self, urls: List[dict], name: str, aweme_id: str = None, socketio=None, task_id=None) -> bool:
+    def download_media_group(self, urls: List[dict], name: str, aweme_id: str = None, socketio=None, task_id=None, cancel_event=None) -> bool:
         """下载一组媒体文件（图片、视频或Live Photo）
         Args:
             urls: [{'url': 'https://example.com/file.mp4', 'type': 'video'|'image'|'live_photo'}]
@@ -123,6 +123,7 @@ class DouyinDownloader:
             aweme_id: 作品ID，用于记录下载历史
             socketio: WebSocket对象，用于发送进度更新
             task_id: WebSocket任务ID，用于发送进度更新
+            cancel_event: 可选的取消事件，用于中断下载
         Returns:
             bool: 是否全部下载成功
         """
@@ -133,13 +134,18 @@ class DouyinDownloader:
                 print(f"\033[93m[Downloader] 开始下载媒体组: {name}, 共{len(urls)}个文件\033[0m")
                 if aweme_id:
                     print(f"\033[93m[Downloader] 作品ID: {aweme_id}\033[0m")
-                
+
+            # 检查取消信号
+            if cancel_event and cancel_event.is_set():
+                print(f"\033[93m媒体组下载被取消（开始前）：{name}\033[0m")
+                return False
+
             user_dir, filename = name.split('/', 1)
             filename = self._sanitize_filename(filename)
-            
+
             if self.debug_mode:
                 print(f"\033[93m[Downloader] 用户目录: {user_dir}, 文件名: {filename}\033[0m")
-            
+
             # 只有当提供了aweme_id时才检查下载记录
             if aweme_id and aweme_id in self._load_download_record(user_dir):
                 if self.debug_mode:
@@ -149,11 +155,23 @@ class DouyinDownloader:
 
             # 下载所有文件
             success = True
+            downloaded_files = []  # 记录已下载的文件，用于取消时清理
+
             for i, url_info in enumerate(urls):
+                # 检查取消信号
+                if cancel_event and cancel_event.is_set():
+                    print(f"\033[93m媒体组下载被取消（下载中），清理已下载文件：{name}\033[0m")
+                    # 清理已下载的文件
+                    for filepath in downloaded_files:
+                        if os.path.exists(filepath):
+                            os.remove(filepath)
+                            print(f"\033[93m已删除：{filepath}\033[0m")
+                    return False
+
                 try:
                     url = url_info['url']
                     file_type = url_info['type']  # 'video', 'image', 'live_photo'
-                    
+
                     if self.debug_mode:
                         print(f"\033[93m[Downloader] 开始下载第 {i+1}/{len(urls)} 个文件: {url}\033[0m")
                         print(f"\033[93m[Downloader] 文件类型: {file_type}\033[0m")
@@ -203,9 +221,9 @@ class DouyinDownloader:
                         extension = "mp4"
                     else:  # image
                         extension = "jpg"
-                    
+
                     filepath = os.path.join(user_path, f"{filename_with_index}.{extension}")
-                    
+
                     # 如果文件已存在，添加时间戳避免覆盖
                     if os.path.exists(filepath):
                         import time
@@ -214,19 +232,34 @@ class DouyinDownloader:
                         filepath = os.path.join(user_path, f"{filename_with_index}.{extension}")
                         if self.debug_mode:
                             print(f"\033[93m[Downloader] 文件已存在，使用新名称: {filepath}\033[0m")
-                    
+
                     if self.debug_mode:
                         print(f"\033[93m[Downloader] 保存文件路径: {filepath}\033[0m")
-                    
+
+                    # 记录已下载的文件路径，用于取消时清理
+                    downloaded_files.append(filepath)
+
                     with open(filepath, "wb") as f:
                         total_size = 0
                         for chunk in response.iter_content(chunk_size=Config.CHUNK_SIZE):
+                            # 检查取消信号
+                            if cancel_event and cancel_event.is_set():
+                                print(f"\033[93m下载被取消，删除部分文件：{filepath}\033[0m")
+                                f.close()
+                                # 删除未完成的文件
+                                if os.path.exists(filepath):
+                                    os.remove(filepath)
+                                # 清理之前下载的文件
+                                for fp in downloaded_files:
+                                    if os.path.exists(fp):
+                                        os.remove(fp)
+                                return False
                             if chunk:
                                 f.write(chunk)
                                 total_size += len(chunk)
                                 if self.debug_mode and total_size % (Config.CHUNK_SIZE * 10) == 0:
                                     print(f"\033[93m[Downloader] 已下载: {total_size/1024:.2f} KB\033[0m")
-                    
+
                     if self.debug_mode:
                         print(f"\033[92m[Downloader] 文件下载完成: {filepath}, 大小: {os.path.getsize(filepath)/1024:.2f} KB\033[0m")
                     
@@ -290,15 +323,20 @@ class DouyinDownloader:
 
 
 
-    def download_video(self, url: str, name: str, aweme_id: str) -> bool:
+    def download_video(self, url: str, name: str, aweme_id: str, cancel_event=None) -> bool:
         """下载视频
+        Args:
+            url: 视频URL
+            name: 用户名/文件名
+            aweme_id: 作品ID
+            cancel_event: 可选的取消事件，用于中断下载
         Returns:
             bool: 下载是否成功
         """
         try:
             user_dir, filename = name.split('/', 1)
             filename = self._sanitize_filename(filename)
-            
+
             # 检查是否已下载
             if aweme_id in self._load_download_record(user_dir):
                 if self.debug_mode:
@@ -306,20 +344,33 @@ class DouyinDownloader:
                 print(f"\033[93m作品已下载，跳过：{user_dir}/{filename}\033[0m")
                 return True  # 已下载视为成功
 
+            # 检查取消信号
+            if cancel_event and cancel_event.is_set():
+                print(f"\033[93m下载被取消（开始下载前）：{user_dir}/{filename}\033[0m")
+                return False
+
             headers = self._get_download_headers()
             response = _session.get(url, headers=headers, stream=True, timeout=(10, 120))
             response.raise_for_status()
-            
+
             user_path = os.path.join(self.download_dir, user_dir)
             os.makedirs(user_path, exist_ok=True)
             filepath = os.path.join(user_path, f"{filename}.mp4")
-            
+
             if self.debug_mode:
                 print(f"\033[93m[Downloader] 开始下载视频: {filepath}\033[0m")
-            
+
             with open(filepath, "wb") as f:
                 total_size = 0
                 for chunk in response.iter_content(chunk_size=Config.CHUNK_SIZE):
+                    # 检查取消信号
+                    if cancel_event and cancel_event.is_set():
+                        print(f"\033[93m下载被取消，删除部分文件：{filepath}\033[0m")
+                        f.close()
+                        # 删除未完成的文件
+                        if os.path.exists(filepath):
+                            os.remove(filepath)
+                        return False
                     if chunk:
                         f.write(chunk)
                         total_size += len(chunk)

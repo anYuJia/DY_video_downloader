@@ -24,13 +24,19 @@ class DouyinUserManager:
             downloader_type = "Standard"
             print(f"\033[94m[UserManager] 调试模式已启用，使用 {downloader_type} 下载器\033[0m")
         
-    async def get_user_videos(self, user_id: str, offset: int = 0, limit: int = 10) -> List[dict]:
-        """获取用户视频列表"""
+    async def get_user_videos(self, user_id: str, offset: int = 0, limit: int = 1000, on_batch=None) -> List[dict]:
+        """获取用户视频列表
+        Args:
+            user_id: 用户的sec_uid
+            offset: 偏移量 (内部通过max_cursor控制，offset用于控制返回数量)
+            limit: 最大获取数量
+            on_batch: 每获取一页数据时的回调函数，接收当前页的视频列表
+        """
         videos = []
         max_cursor = 0
         has_more = True
         
-        while has_more and len(videos) < offset + limit:
+        while has_more and len(videos) < limit:
             params = {
                 "publish_video_strategy_type": 2,
                 "max_cursor": max_cursor,
@@ -48,18 +54,16 @@ class DouyinUserManager:
                                                      {}, skip_sign=True)
             if not succ:
                 break
+            
+            batch = resp.get('aweme_list', [])
+            if on_batch and batch:
+                on_batch(batch)
                 
-            videos.extend(resp.get('aweme_list', []))
+            videos.extend(batch)
             max_cursor = resp.get('max_cursor', 0)
             has_more = resp.get('has_more', 0) == 1
-            #try:
-            #    with open('user_zuopin.json', 'w', encoding='utf-8') as f:
-            #        json.dump(resp, f, ensure_ascii=False, indent=2)
-            #    print("\033[92m作品数据已保存到 user_zuopin.json\033[0m")
-            #except Exception as e:
-            #    print(f"\033[91m保存作品数据失败：{str(e)}\033[0m")
             
-        return videos
+        return videos[:limit]
 
     async def get_user_detail(self, user_id: str) -> dict:
         """获取用户详情"""
@@ -144,6 +148,9 @@ class DouyinUserManager:
                     else:
                         print(f"\033[91m搜索成功但未找到用户，响应: {resp}\033[0m")
             else:
+                # 传递验证码信号
+                if resp.get('_need_verify'):
+                    return {'_need_verify': True}
                 if self.debug_mode:
                     print(f"\033[91m[UserManager] 搜索失败\033[0m")
                 else:

@@ -15,8 +15,8 @@
     <!-- Unified top bar -->
     <nav class="navbar">
         <div class="container-fluid px-3">
-            <button class="btn-back" id="back-btn" title="返回" style="display:none;">
-                <i class="bi bi-arrow-left"></i>
+            <button class="btn-back" id="back-btn" title="返回主页" style="display:none;">
+                <i class="bi bi-arrow-left"></i> <span class="d-none d-md-inline">返回主页</span>
             </button>
             <a class="navbar-brand" href="#">
                 <i class="bi bi-play-circle-fill"></i> DY
@@ -45,16 +45,16 @@
                 <input type="number" class="form-control form-control-sm count-input" id="liked-authors-count" value="20" min="1" max="100">
                 <button class="btn btn-sm btn-outline-primary" id="download-liked-authors-btn">获取</button>
             </div>
-            <button class="btn-icon" id="storage-manage-btn" title="本地存储">
-                <i class="bi bi-database"></i>
+            <button class="btn-icon btn-icon-text" id="storage-manage-btn" title="本地数据">
+                <i class="bi bi-database"></i> <span class="d-none d-md-inline">本地数据</span>
             </button>
             <div class="nav-actions">
                 <span class="status-badge">
                     <span id="status-indicator" class="status-indicator status-ready"></span>
                     <span id="status-text">就绪</span>
                 </span>
-                <button class="btn-icon" id="settings-toggle" title="设置">
-                    <i class="bi bi-gear"></i>
+                <button class="btn-icon btn-icon-text" id="settings-toggle" title="系统设置">
+                    <i class="bi bi-gear"></i> <span class="d-none d-md-inline">系统设置</span>
                 </button>
             </div>
         </div>
@@ -171,6 +171,9 @@
                             <button onclick="downloadUserVideos()" class="btn btn-light btn-sm">
                                 <i class="bi bi-download"></i> 下载全部
                             </button>
+                            <button onclick="goBackToHome()" class="btn btn-outline-light btn-sm ms-2">
+                                <i class="bi bi-x-lg"></i> 关闭
+                            </button>
                         </div>
                     </div>
                     <div class="card-body py-2">
@@ -188,6 +191,9 @@
                             <span id="likedVideoCount" class="badge bg-light text-dark me-2">0 个视频</span>
                             <button onclick="downloadAllLikedVideos()" class="btn btn-light btn-sm">
                                 <i class="bi bi-download"></i> 下载全部
+                            </button>
+                            <button onclick="goBackToHome()" class="btn btn-outline-light btn-sm ms-2">
+                                <i class="bi bi-x-lg"></i> 关闭
                             </button>
                         </div>
                     </div>
@@ -207,6 +213,9 @@
                                 <i class="bi bi-download"></i> 顺序下载全部作者视频
                             </button>
                             <span id="likedAuthorCount" class="badge bg-light text-dark me-2">0 个作者</span>
+                            <button onclick="goBackToHome()" class="btn btn-outline-light btn-sm">
+                                <i class="bi bi-x-lg"></i> 关闭
+                            </button>
                         </div>
                     </div>
                     <div class="card-body py-2">
@@ -225,6 +234,23 @@
             <button class="btn-icon" id="settings-close"><i class="bi bi-x-lg"></i></button>
         </div>
         <div class="drawer-body">
+            <div class="mb-4">
+                <label class="form-label d-flex justify-content-between">
+                    <span><i class="bi bi-palette"></i> 外观主题</span>
+                    <span id="theme-status-text" class="text-muted small">自动匹配</span>
+                </label>
+                <div class="btn-group w-100" role="group" id="theme-toggle-group">
+                    <input type="radio" class="btn-check" name="theme-radio" id="theme-light" autocomplete="off" value="light">
+                    <label class="btn btn-outline-secondary btn-sm" for="theme-light"><i class="bi bi-sun me-1"></i>亮色</label>
+
+                    <input type="radio" class="btn-check" name="theme-radio" id="theme-dark" autocomplete="off" value="dark">
+                    <label class="btn btn-outline-secondary btn-sm" for="theme-dark"><i class="bi bi-moon me-1"></i>暗色</label>
+
+                    <input type="radio" class="btn-check" name="theme-radio" id="theme-auto" autocomplete="off" value="auto" checked>
+                    <label class="btn btn-outline-secondary btn-sm" for="theme-auto"><i class="bi bi-display me-1"></i>系统</label>
+                </div>
+            </div>
+            
             <div class="mb-3">
                 <div class="d-flex justify-content-between align-items-center">
                     <label class="form-label">Cookie</label>

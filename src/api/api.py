@@ -242,9 +242,10 @@ class DouyinAPI:
                 print(f'\033[91m[API] JSON解析失败: {e}\033[0m')
             return {}, False
 
-        # 检测验证码拦截
+        # 检测验证码拦截 - 只有当user_list也为空时才认为需要验证
         nil_info = json_response.get('search_nil_info', {})
-        if nil_info.get('search_nil_type') == 'verify_check':
+        user_list = json_response.get('user_list', [])
+        if nil_info.get('search_nil_type') == 'verify_check' and len(user_list) == 0:
             if self.debug_mode:
                 print(f'\033[91m[API] 触发滑块验证！需要用户手动验证\033[0m')
             return {'_need_verify': True}, False

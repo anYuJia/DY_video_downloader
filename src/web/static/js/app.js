@@ -23,6 +23,28 @@ let _loadCursor = 0;
 let _hasMoreVideos = true;
 let _selectMode = false;
 let _selectedVideos = new Set();
+let isHomeView = true; // Tracks if the user is currently on the home/search page
+
+// Utility for setting button loading state
+function setButtonLoading(btnId, isLoading, loadingText = '加载中...') {
+    const btn = document.getElementById(btnId.replace('#', '')) || document.querySelector(btnId);
+    if (!btn) return;
+    
+    if (isLoading) {
+        if (btn.dataset.isLoading === 'true') return;
+        btn.dataset.originalHtml = btn.innerHTML;
+        btn.dataset.isLoading = 'true';
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> ${loadingText}`;
+    } else {
+        if (btn.dataset.isLoading !== 'true') return;
+        btn.disabled = false;
+        btn.dataset.isLoading = 'false';
+        if (btn.dataset.originalHtml) {
+            btn.innerHTML = btn.dataset.originalHtml;
+        }
+    }
+}
 
 // Search cache
 let _cachedSearchUsers = {};
@@ -395,12 +417,55 @@ function getMediaTypeDisplay(mediaType) {
 // INITIALIZATION
 // ═══════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', function () {
+    initTheme();
     initializeApp();
     setupEventListeners();
     setupSocketIO();
     loadConfig();
     setupCookieValidation();
 });
+
+function initTheme() {
+    const savedTheme = localStorage.getItem('dy_theme') || 'auto';
+    applyTheme(savedTheme);
+    
+    const radio = document.getElementById(`theme-${savedTheme}`);
+    if (radio) radio.checked = true;
+
+    document.querySelectorAll('input[name="theme-radio"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                applyTheme(e.target.value);
+                localStorage.setItem('dy_theme', e.target.value);
+            }
+        });
+    });
+
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', e => {
+        if (localStorage.getItem('dy_theme') === 'auto') {
+            applyTheme('auto');
+        }
+    });
+}
+
+function applyTheme(themeValue) {
+    const statusText = document.getElementById('theme-status-text');
+    let actualTheme = themeValue;
+
+    if (themeValue === 'auto') {
+        const isLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+        actualTheme = isLight ? 'light' : 'dark';
+        if (statusText) statusText.textContent = isLight ? '自动匹配 (亮色)' : '自动匹配 (暗色)';
+    } else {
+        if (statusText) statusText.textContent = themeValue === 'light' ? '始终为亮色' : '始终为暗色';
+    }
+
+    if (actualTheme === 'light') {
+        document.documentElement.dataset.theme = 'light';
+    } else {
+        document.documentElement.removeAttribute('data-theme');
+    }
+}
 
 function initializeApp() {
     addLog('Web界面已加载', 'info');
@@ -983,6 +1048,7 @@ function goBackToHome() {
     // Clear state
     currentUser = null;
     allVideos = [];
+    isHomeView = true; // User returned home, silence background errors
 }
 
 function showUserDetail(user) {
@@ -1359,7 +1425,8 @@ function downloadUserVideos(secUidOverride) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             sec_uid: secUid || currentUser.sec_uid,
-            nickname: nickname || ''
+            nickname: nickname || '',
+            aweme_count: currentUser ? currentUser.aweme_count : 0
         })
     })
     .then(response => response.json())
@@ -1383,7 +1450,11 @@ async function downloadUser(secUid, nickname) {
         const response = await fetch('/api/download_user_video', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sec_uid: secUid, nickname: nickname || '' })
+            body: JSON.stringify({ 
+                sec_uid: secUid, 
+                nickname: nickname || '',
+                aweme_count: (currentUser && currentUser.sec_uid === secUid) ? currentUser.aweme_count : 0
+            })
         });
 
         const result = await response.json();
@@ -1416,6 +1487,7 @@ async function downloadFromLink() {
 
     updateStatus('running', '解析中');
     addLog(`解析链接: ${link}`);
+    setButtonLoading('download-link-btn', true, '解析中');
 
     try {
         const response = await fetch('/api/parse_link', {
@@ -1426,6 +1498,7 @@ async function downloadFromLink() {
 
         const result = await response.json();
         if (result.success) {
+            isHomeView = false;
             hideAllSections();
 
             if (result.user && result.type === 'link_parse') {
@@ -1445,12 +1518,15 @@ async function downloadFromLink() {
                 showToast('解析成功但未获取到视频信息', 'warning');
             }
         } else {
+            if (isHomeView) return;
             showToast(result.message || '解析失败', 'error');
         }
     } catch (error) {
+        if (isHomeView) return;
         showToast('解析失败', 'error');
     } finally {
         updateStatus('ready', '就绪');
+        setButtonLoading('download-link-btn', false);
     }
 }
 
@@ -1726,7 +1802,7 @@ async function downloadVideoFromDetail() {
 // ═══════════════════════════════════════════════
 async function downloadLikedVideos() {
     try {
-        hideAllSections();
+        setButtonLoading('download-liked-btn', true, '获取中');
         const count = document.getElementById('liked-videos-count').value || 20;
 
         const response = await fetch('/api/get_liked_videos', {
@@ -1737,23 +1813,29 @@ async function downloadLikedVideos() {
 
         const result = await response.json();
         if (result.success) {
+            isHomeView = false;
+            hideAllSections();
             displayLikedVideos(result.data);
             LikedDataCache.saveLikedVideos(result.data, result.data.length);
             LikedDataCache.currentDisplayType = 'videos';
             showToast(`获取到 ${result.data.length} 个点赞视频`, 'success');
             addLog(`获取到 ${result.data.length} 个点赞视频`);
         } else {
+            if (isHomeView) return;
             showToast(result.message, 'error');
         }
     } catch (error) {
+        if (isHomeView) return;
         console.error('获取点赞视频错误:', error);
         showToast('获取点赞视频失败', 'error');
+    } finally {
+        setButtonLoading('download-liked-btn', false);
     }
 }
 
 async function downloadLikedAuthors() {
     try {
-        hideAllSections();
+        setButtonLoading('download-liked-authors-btn', true, '获取中');
         const count = document.getElementById('liked-authors-count').value || 20;
 
         const response = await fetch('/api/get_liked_authors', {
@@ -1764,17 +1846,23 @@ async function downloadLikedAuthors() {
 
         const result = await response.json();
         if (result.success) {
+            isHomeView = false;
+            hideAllSections();
             displayLikedAuthors(result.data);
             LikedDataCache.saveLikedAuthors(result.data, result.data.length);
             LikedDataCache.currentDisplayType = 'authors';
             showToast(`获取到 ${result.data.length} 个点赞作者`, 'success');
             addLog(`获取到 ${result.data.length} 个点赞作者`);
         } else {
+            if (isHomeView) return;
             showToast(result.message, 'error');
         }
     } catch (error) {
+        if (isHomeView) return;
         console.error('获取点赞作者错误:', error);
         showToast('获取点赞作者失败', 'error');
+    } finally {
+        setButtonLoading('download-liked-authors-btn', false);
     }
 }
 
@@ -2178,8 +2266,15 @@ function showProgress(taskId, taskName) {
             startTime: new Date()
         };
 
-        createTaskProgressElement(taskId, taskName);
+        // 使用全局面板而不是单独的任务面板
+        createDownloadProgressElement(taskId, taskName);
         updateActiveTasksCount();
+    } else {
+        // 如果任务已存在，更新全局面板的任务名称
+        const panel = document.getElementById('global-download-panel');
+        if (panel) {
+            document.getElementById('panel-nickname').textContent = taskName;
+        }
     }
 
     const noProgress = document.getElementById('no-progress');
@@ -2228,9 +2323,23 @@ function createTaskProgressElement(taskId, taskName) {
     container.appendChild(taskElement);
 }
 
+// 全局下载面板状态
+let globalDownloadPanel = {
+    taskId: null,
+    nickname: null,
+    isPaused: false
+};
+
 function createDownloadProgressElement(taskId, nickname) {
-    const existingElement = document.getElementById(`progress-${taskId}`);
-    if (existingElement) return;
+    // 检查是否已经存在全局下载面板，如果存在则更新任务信息
+    const existingPanel = document.getElementById('global-download-panel');
+    if (existingPanel) {
+        // 更新现有面板的任务信息
+        globalDownloadPanel.taskId = taskId;
+        globalDownloadPanel.nickname = nickname;
+        document.getElementById('panel-nickname').textContent = nickname;
+        return;
+    }
 
     const noProgress = document.getElementById('no-progress');
     if (noProgress) noProgress.style.display = 'none';
@@ -2238,38 +2347,68 @@ function createDownloadProgressElement(taskId, nickname) {
     const progressContainer = document.getElementById('progress-tasks-container');
     if (!progressContainer) return;
 
+    // 设置全局面板状态
+    globalDownloadPanel.taskId = taskId;
+    globalDownloadPanel.nickname = nickname;
+    globalDownloadPanel.isPaused = false;
+
     const progressElement = document.createElement('div');
-    progressElement.id = `progress-${taskId}`;
-    progressElement.className = 'border rounded p-2 mb-2';
+    progressElement.id = 'global-download-panel';
+    progressElement.className = 'progress-task-item border rounded p-3 mb-2';
     progressElement.innerHTML = `
-        <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="mb-0 small">${nickname}</h6>
-            <button class="btn btn-sm btn-outline-secondary" onclick="removeProgressElement('${taskId}')" style="padding: 1px 4px; font-size: 0.7rem;">
-                <i class="bi bi-x"></i>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="mb-0" id="panel-nickname">${nickname}</h6>
+            <button class="btn btn-sm btn-outline-secondary" onclick="closeDownloadPanel()" title="结束并关闭">
+                <i class="bi bi-x-lg"></i>
             </button>
         </div>
-        <div class="progress mb-2" style="height: 6px;">
-            <div class="progress-bar" id="progress-bar-${taskId}" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
-        </div>
-        <div class="row text-center small">
-            <div class="col-4">
-                <span class="text-muted">总数</span>
-                <div class="fw-bold" id="total-${taskId}">-</div>
+
+        <!-- 总进度 -->
+        <div class="mb-2">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <small class="text-muted">总进度</small>
+                <small class="text-muted" id="overall-progress-text">0%</small>
             </div>
-            <div class="col-4">
-                <span class="text-muted">已下载</span>
-                <div class="fw-bold text-success" id="downloaded-${taskId}">-</div>
+            <div class="progress" style="height: 8px;">
+                <div class="progress-bar bg-primary" id="overall-progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
             </div>
-            <div class="col-4">
-                <span class="text-muted">剩余</span>
-                <div class="fw-bold text-warning" id="remaining-${taskId}">-</div>
+            <div class="d-flex justify-content-between mt-1">
+                <small class="text-muted" id="overall-downloaded">0/0</small>
+                <small class="text-muted" id="overall-status">准备中...</small>
             </div>
         </div>
-        <div class="mt-1">
-            <small class="text-muted" id="status-${taskId}">准备开始...</small>
+
+        <!-- 当前作品进度 -->
+        <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <small class="text-muted">当前作品</small>
+                <small class="text-muted" id="current-progress-text">0%</small>
+            </div>
+            <div class="progress" style="height: 8px;">
+                <div class="progress-bar bg-info" id="current-progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+            </div>
+            <div class="d-flex justify-content-between mt-1">
+                <small class="text-muted" id="current-status">等待中...</small>
+                <small class="text-muted" id="current-speed">速度: --</small>
+            </div>
+        </div>
+
+        <!-- 控制按钮 -->
+        <div class="d-flex justify-content-between align-items-center">
+            <div class="btn-group">
+                <button class="btn btn-sm btn-outline-primary" id="pause-btn" onclick="togglePause()">
+                    <i class="bi bi-pause-fill"></i> 暂停
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="closeDownloadPanel()">
+                    <i class="bi bi-stop-fill"></i> 结束
+                </button>
+            </div>
+            <small class="text-muted" id="elapsed-time">用时: 0s</small>
         </div>
     `;
 
+    // 清空之前的进度任务，只保留新的全局面板
+    progressContainer.innerHTML = '';
     progressContainer.appendChild(progressElement);
 
     // Auto-expand bottom bar
@@ -2279,6 +2418,37 @@ function createDownloadProgressElement(taskId, nickname) {
     }
 
     updateActiveTasksCount();
+}
+
+function closeDownloadPanel() {
+    if (globalDownloadPanel.taskId) {
+        cancelDownloadTask(globalDownloadPanel.taskId);
+    }
+    // 移除全局面板
+    const panel = document.getElementById('global-download-panel');
+    if (panel) {
+        panel.remove();
+    }
+    // 显示空状态
+    const noProgress = document.getElementById('no-progress');
+    if (noProgress) noProgress.style.display = 'block';
+    // 重置全局状态
+    globalDownloadPanel = { taskId: null, nickname: null, isPaused: false };
+    updateActiveTasksCount();
+}
+
+function togglePause() {
+    globalDownloadPanel.isPaused = !globalDownloadPanel.isPaused;
+    const pauseBtn = document.getElementById('pause-btn');
+    if (globalDownloadPanel.isPaused) {
+        pauseBtn.innerHTML = '<i class="bi bi-play-fill"></i> 继续';
+        pauseBtn.classList.remove('btn-outline-primary');
+        pauseBtn.classList.add('btn-outline-success');
+    } else {
+        pauseBtn.innerHTML = '<i class="bi bi-pause-fill"></i> 暂停';
+        pauseBtn.classList.remove('btn-outline-success');
+        pauseBtn.classList.add('btn-outline-primary');
+    }
 }
 
 function removeProgressElement(taskId) {
@@ -2300,6 +2470,12 @@ function updateDownloadProgress(dataOrProgress, processedOrCompleted, totalOrUnd
     // 1. updateDownloadProgress(data) — from socket event (data is an object)
     // 2. updateDownloadProgress(progress, processed, total, batchTaskId) — from batch download
 
+    // 更新全局面板的元素（如果存在）
+    const overallProgressBar = document.getElementById('overall-progress-bar');
+    const overallProgressText = document.getElementById('overall-progress-text');
+    const overallDownloaded = document.getElementById('overall-downloaded');
+    const overallStatus = document.getElementById('overall-status');
+
     if (typeof dataOrProgress === 'object' && dataOrProgress !== null) {
         const data = dataOrProgress;
         const taskId = data.task_id;
@@ -2314,11 +2490,28 @@ function updateDownloadProgress(dataOrProgress, processedOrCompleted, totalOrUnd
         if (remainingElement && data.remaining !== undefined) remainingElement.textContent = data.remaining;
         if (statusElement && data.message) statusElement.textContent = data.message;
 
+        // 更新全局面板
+        if (data.total_videos !== undefined && overallDownloaded) {
+            overallDownloaded.textContent = `${data.current_downloaded || 0}/${data.total_videos}`;
+        }
+        if (data.message && overallStatus) {
+            overallStatus.textContent = data.message;
+        }
         if (progressBar) {
             const percentage = data.overall_progress || 0;
             progressBar.style.width = `${percentage}%`;
             progressBar.setAttribute('aria-valuenow', percentage);
             progressBar.className = percentage === 100 ? 'progress-bar bg-success' : 'progress-bar bg-primary';
+        }
+        // 更新总进度条
+        if (overallProgressBar) {
+            const percentage = data.overall_progress || 0;
+            overallProgressBar.style.width = `${percentage}%`;
+            overallProgressBar.setAttribute('aria-valuenow', percentage);
+            overallProgressBar.className = percentage === 100 ? 'progress-bar bg-success' : 'progress-bar bg-primary';
+        }
+        if (overallProgressText) {
+            overallProgressText.textContent = `${data.overall_progress || 0}%`;
         }
     } else {
         // Numeric signature
@@ -2386,6 +2579,36 @@ function updateProgress(progress, completed, total, taskId) {
         const speed = task.completed / elapsed;
         progressSpeed.textContent = `速度: ${speed.toFixed(1)}/s`;
     }
+
+    // 更新全局面板的当前作品进度
+    const currentProgressBar = document.getElementById('current-progress-bar');
+    const currentProgressText = document.getElementById('current-progress-text');
+    const currentStatus = document.getElementById('current-status');
+    const currentSpeedEl = document.getElementById('current-speed');
+    const elapsedTime = document.getElementById('elapsed-time');
+
+    if (currentProgressBar) {
+        currentProgressBar.style.width = `${task.progress}%`;
+        currentProgressBar.setAttribute('aria-valuenow', task.progress);
+        if (task.progress >= 100) currentProgressBar.className = 'progress-bar bg-success';
+        else if (task.progress >= 50) currentProgressBar.className = 'progress-bar bg-info';
+        else currentProgressBar.className = 'progress-bar bg-info';
+    }
+    if (currentProgressText) {
+        currentProgressText.textContent = `${Math.round(task.progress)}%`;
+    }
+    if (currentStatus) {
+        currentStatus.textContent = `${task.completed}/${task.total}`;
+    }
+    if (currentSpeedEl && task.completed > 0) {
+        const elapsed = (new Date() - task.startTime) / 1000;
+        const speed = task.completed / elapsed;
+        currentSpeedEl.textContent = `速度: ${speed.toFixed(1)}/s`;
+    }
+    if (elapsedTime && task.startTime) {
+        const elapsed = Math.floor((new Date() - task.startTime) / 1000);
+        elapsedTime.textContent = `用时: ${elapsed}s`;
+    }
 }
 
 function updateTaskStatus(taskId, status, message) {
@@ -2421,15 +2644,106 @@ function updateTaskStatus(taskId, status, message) {
 
 function cancelTask(taskId) {
     if (confirm('确定要取消这个下载任务吗？')) {
+        // 通知后端取消
+        fetch('/api/cancel_download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_id: taskId })
+        }).then(res => res.json()).then(data => {
+            console.log('Cancellation result:', data);
+        }).catch(err => console.error('Cancel error:', err));
+
         updateTaskStatus(taskId, 'cancelled', '已取消');
         addLog(`任务已取消: ${downloadTasks[taskId]?.name || taskId}`, 'warning');
         setTimeout(() => removeTask(taskId), 500);
     }
 }
 
+async function cancelDownloadTask(taskId) {
+    // 渐进式下载任务的取消
+    // 先找到任务元素，更新状态为"正在取消..."
+    const progressElement = document.getElementById(`progress-${taskId}`);
+    if (progressElement) {
+        const statusElement = progressElement.querySelector('.task-status');
+        const actionButtons = progressElement.querySelector('.task-actions');
+        if (statusElement) statusElement.textContent = '正在取消...';
+        if (actionButtons) actionButtons.innerHTML = '<span class="text-muted small">等待停止...</span>';
+    }
+
+    try {
+        const response = await fetch('/api/cancel_download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_id: taskId })
+        });
+        const result = await response.json();
+        console.log('Download cancellation requested:', result);
+
+        // 等待一小段时间让后端处理取消
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // 移除UI元素
+        removeProgressElement(taskId);
+        addLog(`下载任务已取消: ${taskId}`, 'warning');
+    } catch (e) {
+        console.error('Failed to request cancellation:', e);
+        // 即使出错也移除UI
+        removeProgressElement(taskId);
+    }
+}
+
+function removeProgressElement(taskId) {
+    // 检查是否是全局面板的任务
+    if (globalDownloadPanel.taskId === taskId) {
+        const globalElement = document.getElementById('global-download-panel');
+        if (globalElement) {
+            globalElement.style.opacity = '0';
+            globalElement.style.transform = 'translateX(20px)';
+            globalElement.style.transition = 'all 0.3s ease';
+            setTimeout(() => {
+                globalElement.remove();
+                globalDownloadPanel = { taskId: null, nickname: null, isPaused: false };
+                checkEmptyTasks();
+            }, 300);
+        }
+        return;
+    }
+
+    const element = document.getElementById(`progress-${taskId}`);
+    if (element) {
+        element.style.opacity = '0';
+        element.style.transform = 'translateX(20px)';
+        element.style.transition = 'all 0.3s ease';
+        setTimeout(() => {
+            element.remove();
+            checkEmptyTasks();
+        }, 300);
+    }
+}
+
+function checkEmptyTasks() {
+    const container = document.getElementById('progress-tasks-container');
+    const noProgress = document.getElementById('no-progress');
+    if (container && container.children.length === 0 && noProgress) {
+        noProgress.style.display = 'block';
+    }
+}
+
 function removeTask(taskId) {
     const taskElement = document.getElementById(`task-${taskId}`);
     if (taskElement) taskElement.remove();
+
+    // 如果是全局下载任务，也移除全局面板
+    if (globalDownloadPanel.taskId === taskId) {
+        const globalPanel = document.getElementById('global-download-panel');
+        if (globalPanel) {
+            globalPanel.remove();
+        }
+        const noProgress = document.getElementById('no-progress');
+        if (noProgress) noProgress.style.display = 'block';
+        globalDownloadPanel = { taskId: null, nickname: null, isPaused: false };
+    }
+
     delete downloadTasks[taskId];
     updateActiveTasksCount();
 
@@ -2959,16 +3273,32 @@ async function apiFetch(url, options) {
 }
 
 function showVerifyDialog() {
-    const verifyWin = window.open('https://www.douyin.com/', 'douyin_verify', 'width=1100,height=750,scrollbars=yes');
-    showToast('需要滑块验证，请在弹出窗口中完成验证后重试', 'warning');
-    addLog('触发滑块验证，请在弹出窗口中完成后重新搜索', 'warning');
+    showToast('正在打开验证浏览器...', 'info');
+    addLog('触发滑块验证，正在使用已存储的Cookie打开浏览器...', 'warning');
 
-    const checkClosed = setInterval(() => {
-        if (verifyWin && verifyWin.closed) {
-            clearInterval(checkClosed);
-            showToast('验证窗口已关闭，请重新搜索', 'info');
+    // 调用后端API，使用已存储的Cookie打开浏览器
+    fetch('/api/open_verify_browser', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast('请在浏览器中完成验证，然后重新搜索', 'info');
+            addLog('浏览器已打开，请在浏览器中完成验证后重新搜索', 'info');
+        } else {
+            // 如果后端打开失败，尝试直接打开
+            const verifyWin = window.open('https://www.douyin.com/', 'douyin_verify', 'width=1100,height=750,scrollbars=yes');
+            showToast('需要滑块验证，请在弹出窗口中完成验证后重试', 'warning');
+            addLog('触发滑块验证，请在弹出窗口中完成后重新搜索', 'warning');
         }
-    }, 500);
+    })
+    .catch(err => {
+        console.error('打开验证浏览器失败:', err);
+        // 回退到直接打开
+        const verifyWin = window.open('https://www.douyin.com/', 'douyin_verify', 'width=1100,height=750,scrollbars=yes');
+        showToast('需要滑块验证，请在弹出窗口中完成验证后重试', 'warning');
+    });
 }
 
 // ═══════════════════════════════════════════════

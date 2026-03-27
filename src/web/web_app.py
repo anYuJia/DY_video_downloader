@@ -47,7 +47,27 @@ socketio = SocketIO(
 api = None
 downloader = None
 user_manager = None
-download_tasks = {}
+download_tasks = {} # 用于存储任务状态和元数据（同步Dict）
+active_tasks = {} # 用于存储活跃的 asyncio.Future 和 asyncio.Event
+
+# 全局 Loop 处理
+_global_loop = None
+_loop_thread = None
+
+def get_or_create_loop():
+    global _global_loop, _loop_thread
+    if _global_loop is None:
+        _global_loop = asyncio.new_event_loop()
+        _loop_thread = threading.Thread(target=_global_loop.run_forever, daemon=True)
+        _loop_thread.start()
+        logger.info("Global asyncio loop started in background thread")
+    return _global_loop
+
+def run_async(coro):
+    """在全局循环中运行异步任务并等待结果"""
+    loop = get_or_create_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    return future.result()
 
 class WebDownloadProgress:
     """Web下载进度回调"""
@@ -99,6 +119,10 @@ def init_app():
         
         # 传递socketio对象给用户管理器
         user_manager = DouyinUserManager(api, downloader, socketio=socketio,cookie=cookie)
+        
+        # 启动全局 Loop
+        get_or_create_loop()
+        
         logger.info("Web应用初始化完成")
     except Exception as e:
         logger.error(f"Web应用初始化失败: {str(e)}")
@@ -232,17 +256,8 @@ def search_user():
         if not user_manager:
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
         
-        # 在新线程中运行异步任务
-        def run_search():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                result = loop.run_until_complete(user_manager.search_user(keyword))
-                return result
-            finally:
-                loop.close()
-        
-        users = run_search()
+        # 使用全局 run_async 运行异步任务
+        users = run_async(user_manager.search_user(keyword))
 
         if users is None:
             return jsonify({'success': False, 'message': '未找到用户'})
@@ -304,17 +319,8 @@ def get_user_detail():
         if not user_manager:
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
         
-        # 在新线程中运行异步任务
-        def run_get_detail():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                result = loop.run_until_complete(user_manager.get_user_detail(sec_uid))
-                return result
-            finally:
-                loop.close()
-        
-        user_detail = run_get_detail()
+        # 使用全局 run_async 运行异步任务
+        user_detail = run_async(user_manager.get_user_detail(sec_uid))
         
         if not user_detail:
             return jsonify({'success': False, 'message': '获取用户详情失败'})
@@ -346,10 +352,7 @@ def get_liked_videos_api():
         count = data.get('count', 20)
         if not user_manager:
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        videos = loop.run_until_complete(user_manager.get_liked_videos(count))
-        loop.close()
+        videos = run_async(user_manager.get_liked_videos(count))
         if not videos:
             return jsonify({'success': False, 'message': '获取点赞视频失败。该接口需要登录态，请确认Cookie有效且包含完整的登录信息。如果Cookie已过期请重新获取。'})
         return jsonify({
@@ -370,10 +373,7 @@ def get_liked_authors_api():
         if not user_manager:
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        authors = loop.run_until_complete(user_manager.get_liked_authors(count))
-        loop.close()
+        authors = run_async(user_manager.get_liked_authors(count))
 
         if not authors:
             return jsonify({'success': False, 'message': '获取点赞作者失败。该接口需要登录态，请确认Cookie有效且包含完整的登录信息。'})
@@ -402,26 +402,20 @@ def get_user_videos():
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
 
         def run_get_page():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                params = {
-                    "publish_video_strategy_type": 2,
-                    "max_cursor": cursor,
-                    "sec_user_id": sec_uid,
-                    "locate_query": False,
-                    'show_live_replay_strategy': 1,
-                    'need_time_list': 0,
-                    'time_list_query': 0,
-                    'whale_cut_token': '',
-                    'count': count
-                }
-                resp, succ = loop.run_until_complete(
-                    user_manager.api.common_request('/aweme/v1/web/aweme/post/', params, {}, skip_sign=True)
-                )
-                return resp, succ
-            finally:
-                loop.close()
+            params = {
+                "publish_video_strategy_type": 2,
+                "max_cursor": cursor,
+                "sec_user_id": sec_uid,
+                "locate_query": False,
+                'show_live_replay_strategy': 1,
+                'need_time_list': 0,
+                'time_list_query': 0,
+                'whale_cut_token': '',
+                'count': count
+            }
+            return run_async(
+                user_manager.api.common_request('/aweme/v1/web/aweme/post/', params, {}, skip_sign=True)
+            )
 
         resp, succ = run_get_page()
 
@@ -507,9 +501,8 @@ def download_single_video():
 
         task_id = str(uuid.uuid4())
 
-        def run_download():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        # 在全局 Loop 中运行下载任务
+        async def do_single_download():
             try:
                 logger.debug(f" 开始下载任务: {task_id}")
                 logger.debug(f" 作品ID: {aweme_id}")
@@ -650,87 +643,15 @@ def download_single_video():
                 logger.error(f" {error_msg}")
                 socketio.emit('download_failed', {'task_id': task_id, 'error': error_msg})
             finally:
-                loop.close()
+                pass
 
-        thread = threading.Thread(target=run_download, daemon=True)
-        thread.start()
+        loop = get_or_create_loop()
+        asyncio.run_coroutine_threadsafe(do_single_download(), loop)
 
         return jsonify({'success': True, 'task_id': task_id, 'message': '下载任务已启动'})
 
     except Exception as e:
         return jsonify({'success': False, 'message': f'下载启动失败: {str(e)}'}), 500
-
-@app.route('/api/download_user', methods=['POST'])
-def download_user():
-    """下载用户视频"""
-    logger.debug("Received download_user request")
-    try:
-        data = request.json
-        user_info = data.get('user_info')
-        logger.debug(f"user_info: {user_info}")
-        if not user_info:
-            return jsonify({'success': False, 'message': '用户信息不完整'}), 400
-        
-        if not user_manager:
-            return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
-        
-        # 生成任务ID
-        task_id = str(uuid.uuid4())
-        download_tasks[task_id] = {
-            'status': 'running',
-            'user': user_info.get('nickname', ''),
-            'start_time': datetime.now()
-        }
-        # 在新线程中运行下载任务
-        def run_download():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                # 创建进度回调
-                progress_callback = WebDownloadProgress(task_id, socketio)
-                
-                # 发送开始信号
-                socketio.emit('download_started', {
-                    'task_id': task_id,
-                    'user': user_info.get('nickname', '')
-                })
-                
-                # 执行下载
-                logger.debug("开始下载")
-                loop.run_until_complete(user_manager.download_user_videos(user_info,True,True))
-                
-                # 更新任务状态
-                download_tasks[task_id]['status'] = 'completed'
-                download_tasks[task_id]['end_time'] = datetime.now()
-                
-                socketio.emit('download_completed', {
-                    'task_id': task_id,
-                    'message': f'用户 {user_info.get("nickname", "")} 的视频下载完成'
-                })
-                
-            except Exception as e:
-                download_tasks[task_id]['status'] = 'failed'
-                download_tasks[task_id]['error'] = str(e)
-                download_tasks[task_id]['end_time'] = datetime.now()
-                
-                socketio.emit('download_failed', {
-                    'task_id': task_id,
-                    'error': str(e)
-                })
-            finally:
-                loop.close()
-        
-        thread = threading.Thread(target=run_download, daemon=True)
-        thread.start()
-        
-        return jsonify({
-            'success': True,
-            'task_id': task_id,
-            'message': '下载任务已开始'
-        })
-    
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'下载失败: {str(e)}'}), 500
 
 @app.route('/api/download_user_video', methods=['POST'])
 def download_user_video():
@@ -740,6 +661,7 @@ def download_user_video():
         data = request.json
         sec_uid = data.get('sec_uid')
         nickname = data.get('nickname', '')  # 前端传来，跳过详情接口
+        aweme_count = int(data.get('aweme_count', 0)) # 获取作品总数
 
         if not sec_uid:
             return jsonify({'success': False, 'message': 'sec_uid参数不能为空'}), 400
@@ -749,16 +671,10 @@ def download_user_video():
         
         # 生成任务ID
         task_id = str(uuid.uuid4())
-        download_tasks[task_id] = {
-            'status': 'running',
-            'sec_uid': sec_uid,
-            'start_time': datetime.now()
-        }
+        cancel_event = asyncio.Event()
         
-        # 在新线程中运行下载任务
-        def run_download():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        # 在全局 Loop 中运行异步下载协程
+        async def do_download_task():
             try:
                 # 使用前端传来的nickname，不再调用get_user_detail
                 _nickname = nickname if nickname else 'unknown'
@@ -770,177 +686,173 @@ def download_user_video():
                     'sec_uid': sec_uid
                 })
                 
-                # 获取用户视频列表以计算总数
-                posts = loop.run_until_complete(user_manager.get_user_videos(sec_uid, limit=1000))
-                if not posts:
-                    raise Exception(f'未找到用户 {_nickname} 的作品')
-                
                 # 获取已下载记录
                 downloaded = user_manager.downloader._load_download_record(_nickname)
-                new_posts = [post for post in posts if post['aweme_id'] not in downloaded]
                 
-                if not new_posts:
-                    socketio.emit('download_completed', {
-                        'task_id': task_id,
-                        'message': f'用户 {_nickname} 没有新作品需要下载',
-                        'total_videos': len(posts),
-                        'current_downloaded': 0,
-                        'remaining': 0
-                    })
-                    return
+                # 增量下载队列
+                download_queue = asyncio.Queue()
+                fetching_done = asyncio.Event()
+                total_discovered = [0]
+                total_processed = [0] # 包含已跳过的
+                total_videos = aweme_count # 初始总量
                 
-                total_videos = len(new_posts)
-                
-                # 发送总数信息
-                socketio.emit('download_info', {
-                    'task_id': task_id,
-                    'total_videos': total_videos,
-                    'current_downloaded': 0,
-                    'remaining': total_videos,
-                    'message': f'找到 {total_videos} 个新作品，开始下载'
-                })
-                
-                # 逐个下载视频并发送进度
-                for i, post in enumerate(new_posts, 1):
-                    media_type, urls = user_manager._get_media_info(post)
-                    
-                    # 处理空描述的情况
-                    desc = post.get('desc', '').strip()
-                    if not desc:
-                        desc = f"无标题_{post['aweme_id']}"
-                    else:
-                        desc = desc.split()[0]  # 只取第一个词
-                    
-                    name = f"{_nickname}/{desc}"
-                    aweme_id = post['aweme_id']
-                    
-                    # 发送当前下载进度 - 开始下载
-                    overall_progress = int(((i - 1) / total_videos) * 100)
-                    socketio.emit('user_video_download_progress', {
+                # 发送初始总量信息
+                if total_videos > 0:
+                    socketio.emit('download_info', {
                         'task_id': task_id,
                         'total_videos': total_videos,
-                        'current_downloaded': i - 1,
-                        'remaining': total_videos - i + 1,
-                        'overall_progress': overall_progress,
-                        'current_video': {
-                            'title': desc,
-                            'status': 'starting'
-                        },
-                        'message': f'正在下载第 {i}/{total_videos} 个作品: {desc}',
-                        'type': 'progress'
+                        'current_downloaded': 0,
+                        'remaining': total_videos,
+                        'message': f'准备开始下载，共发现 {total_videos} 个作品'
                     })
-                    
-                    # 下载当前视频
-                    try:
-                        if not urls:
+
+                def on_batch(batch):
+                    if cancel_event.is_set():
+                        return
+                    for post in batch:
+                        if post['aweme_id'] in downloaded:
+                            total_processed[0] += 1
+                            # 发送跳过进度更新
+                            overall_progress = int((total_processed[0] / max(total_videos, total_processed[0], 1)) * 100)
                             socketio.emit('user_video_download_progress', {
                                 'task_id': task_id,
-                                'current_video': {
-                                    'title': desc,
-                                    'aweme_id': aweme_id,
-                                    'progress': 0,
-                                    'status': 'error'
-                                },
-                                'message': f'无法获取媒体URL: {desc}',
-                                'type': 'error'
+                                'total_videos': max(total_videos, total_processed[0]),
+                                'current_downloaded': total_processed[0],
+                                'remaining': max(total_videos - total_processed[0], 0),
+                                'overall_progress': overall_progress,
+                                'message': f'跳过已下载: {post.get("desc", post["aweme_id"])[:10]}...',
+                                'type': 'progress'
                             })
+                        else:
+                            download_queue.put_nowait(post)
+                            total_discovered[0] += 1
+                    
+                    # 更新总量感
+                    current_total = max(total_videos, total_processed[0] + download_queue.qsize())
+                    socketio.emit('download_info', {
+                        'task_id': task_id,
+                        'total_videos': current_total,
+                        'current_downloaded': total_processed[0],
+                        'remaining': current_total - total_processed[0],
+                        'message': f'正在抓取作品列表... 已发现 {total_discovered[0]} 个新作品'
+                    })
+
+                async def downloader_consumer():
+                    while not (fetching_done.is_set() and download_queue.empty()):
+                        if cancel_event.is_set():
+                            logger.info(f"Task {task_id} consumer cancelled")
+                            break
+                        try:
+                            # 等待队列中的新作品
+                            post = await asyncio.wait_for(download_queue.get(), timeout=1.0)
+                        except asyncio.TimeoutError:
                             continue
+                            
+                        total_processed[0] += 1
+                        idx = total_processed[0]
                         
-                        # 发送下载中进度 - 简化信息
-                        overall_progress = int(((i - 0.5) / total_videos) * 100)
+                        media_type, urls = user_manager._get_media_info(post)
+                        desc = post.get('desc', '').strip()
+                        if not desc:
+                            desc = f"无标题_{post['aweme_id']}"
+                        else:
+                            desc = desc.split()[0][:15]
+                        
+                        name = f"{_nickname}/{desc}"
+                        aweme_id = post['aweme_id']
+                        
+                        # 发送进度预览
                         socketio.emit('user_video_download_progress', {
                             'task_id': task_id,
-                            'total_videos': total_videos,
-                            'current_downloaded': i - 1,
-                            'remaining': total_videos - i + 1,
-                            'overall_progress': overall_progress,
+                            'total_videos': max(total_videos, total_processed[0] + download_queue.qsize()),
+                            'current_downloaded': idx - 1,
+                            'remaining': max(total_videos, total_processed[0] + download_queue.qsize()) - idx + 1,
+                            'message': f'正在下载: {desc}',
                             'type': 'progress'
                         })
                         
-                        success = False
-                        if media_type == 'mixed':
-                            # 分别下载Live Photo和普通图片
-                            live_urls = [{'url': url, 'type': 'live_photo'} for t, url in urls if t == 'live_photo']
-                            img_urls = [{'url': url, 'type': 'image'} for t, url in urls if t == 'image']
+                        # 执行下载
+                        try:
+                            if not urls:
+                                continue
                             
-                            success = True
-                            if live_urls:
-                                success &= user_manager.downloader.download_media_group(live_urls, name, None)
-                            if img_urls:
-                                success &= user_manager.downloader.download_media_group(img_urls, name, None)
-                        elif media_type in ['live_photo', 'image']:
-                            formatted_urls = [{'url': url, 'type': media_type} for url in urls]
-                            success = user_manager.downloader.download_media_group(formatted_urls, name, aweme_id)
-                        elif media_type == 'video':
-                            success = user_manager.downloader.download_video(urls[0], name, aweme_id)
-                        
-                        if success:
-                            user_manager.downloader._save_download_record(nickname, aweme_id)
-                            # 发送单个作品下载完成
-                            overall_progress = int((i / total_videos) * 100)
-                            socketio.emit('user_video_download_progress', {
-                                'task_id': task_id,
-                                'total_videos': total_videos,
-                                'current_downloaded': i,
-                                'remaining': total_videos - i,
-                                'overall_progress': overall_progress,
-                                'message': f'作品 {desc} 下载完成 ({i}/{total_videos})',
-                                'type': 'success'
-                            })
-                        else:
-                            socketio.emit('user_video_download_progress', {
-                                'task_id': task_id,
-                                'current_video': {
-                                    'title': desc,
-                                    'aweme_id': aweme_id,
-                                    'progress': 0,
-                                    'status': 'failed'
-                                },
-                                'message': f'作品 {desc} 下载失败',
-                                'type': 'error'
-                            })
-                    
-                    except Exception as video_error:
+                            success = False
+                            if media_type == 'video':
+                                success = user_manager.downloader.download_video(urls[0], name, aweme_id)
+                            else:
+                                formatted_urls = [{'url': url, 'type': media_type if media_type != 'mixed' else t} for t, url in (urls if isinstance(urls[0], tuple) else [(media_type, u) for u in urls])]
+                                success = user_manager.downloader.download_media_group(formatted_urls, name, aweme_id, socketio, task_id)
+                                
+                            if success:
+                                socketio.emit('download_success', {'task_id': task_id, 'message': f'作品 {desc} 下载完成'})
+                        except Exception as e:
+                            logger.error(f"Download error for {aweme_id}: {e}")
+                            
+                        # 更新总进度
+                        overall_progress = int((idx / max(total_videos, total_processed[0], 1)) * 100)
                         socketio.emit('user_video_download_progress', {
                             'task_id': task_id,
-                            'current_video': {
-                                'title': desc,
-                                'aweme_id': aweme_id,
-                                'progress': 0,
-                                'status': 'error'
-                            },
-                            'message': f'下载作品 {desc} 时出错: {str(video_error)}',
-                            'type': 'error'
+                            'total_videos': max(total_videos, total_processed[0] + download_queue.qsize()),
+                            'current_downloaded': idx,
+                            'remaining': max(total_videos, total_processed[0] + download_queue.qsize()) - idx,
+                            'overall_progress': overall_progress,
+                            'message': f'完成处理: {desc}',
+                            'type': 'progress'
                         })
+
+                # 获取视频抓取任务（需要能响应取消）
+                fetch_coro = user_manager.get_user_videos(sec_uid, limit=1000, on_batch=on_batch)
+                fetch_task = asyncio.create_task(fetch_coro)
+                consume_task = asyncio.create_task(downloader_consumer())
                 
-                # 更新任务状态
-                download_tasks[task_id]['status'] = 'completed'
-                download_tasks[task_id]['end_time'] = datetime.now()
+                # 循环检查取消
+                while not fetch_task.done():
+                    if cancel_event.is_set():
+                        fetch_task.cancel()
+                        break
+                    await asyncio.sleep(0.5)
                 
-                # 发送完成信号
-                socketio.emit('download_completed', {
-                    'task_id': task_id,
-                    'total_videos': total_videos,
-                    'current_downloaded': total_videos,
-                    'remaining': 0,
-                    'message': f'用户 {nickname} 的所有视频下载完成'
-                })
+                fetching_done.set()
+                await consume_task
                 
+                if cancel_event.is_set():
+                    download_tasks[task_id]['status'] = 'cancelled'
+                    socketio.emit('download_cancelled', {'task_id': task_id, 'message': '下载任务已取消'})
+                else:
+                    download_tasks[task_id]['status'] = 'completed'
+                    download_tasks[task_id]['end_time'] = datetime.now()
+                    socketio.emit('download_completed', {
+                        'task_id': task_id,
+                        'message': f'用户 {_nickname} 的作品全部处理完成',
+                        'total_videos': max(total_videos, total_processed[0]),
+                        'current_downloaded': total_processed[0],
+                        'remaining': 0
+                    })
+            except asyncio.CancelledError:
+                download_tasks[task_id]['status'] = 'cancelled'
+                socketio.emit('download_cancelled', {'task_id': task_id, 'message': '下载任务已取消'})
             except Exception as e:
+                logger.error(f"Task {task_id} error: {e}")
                 download_tasks[task_id]['status'] = 'failed'
-                download_tasks[task_id]['error'] = str(e)
-                download_tasks[task_id]['end_time'] = datetime.now()
-                
-                socketio.emit('download_failed', {
-                    'task_id': task_id,
-                    'error': str(e),
-                    'message': f'下载失败: {str(e)}'
-                })
+                socketio.emit('download_failed', {'task_id': task_id, 'message': f'任务出错: {str(e)}'})
             finally:
-                loop.close()
+                if task_id in active_tasks:
+                    del active_tasks[task_id]
+
+        # 启动任务
+        loop = get_or_create_loop()
+        future = asyncio.run_coroutine_threadsafe(do_download_task(), loop)
         
-        thread = threading.Thread(target=run_download, daemon=True)
-        thread.start()
+        # 记录任务
+        download_tasks[task_id] = {
+            'status': 'running',
+            'sec_uid': sec_uid,
+            'start_time': datetime.now()
+        }
+        active_tasks[task_id] = {
+            "future": future,
+            "event": cancel_event
+        }
         
         return jsonify({
             'success': True,
@@ -950,6 +862,27 @@ def download_user_video():
     
     except Exception as e:
         return jsonify({'success': False, 'message': f'下载失败: {str(e)}'}), 500
+
+@app.route('/api/cancel_download', methods=['POST'])
+def cancel_download():
+    """按任务ID取消下载"""
+    data = request.json
+    task_id = data.get('task_id')
+    logger.info(f"Request to cancel task: {task_id}")
+    
+    if task_id in active_tasks:
+        info = active_tasks[task_id]
+        # 设置取消事件
+        info["event"].set()
+        # 取消 Future (这会尝试在循环中抛出 CancelledError)
+        info["future"].cancel()
+        return jsonify({'success': True, 'message': '正在取消任务...'})
+    
+    if task_id in download_tasks:
+        download_tasks[task_id]['status'] = 'cancelled'
+        return jsonify({'success': True, 'message': '任务已标记为取消'})
+        
+    return jsonify({'success': False, 'message': '未找到活跃任务'})
 
 @app.route('/api/download_liked', methods=['POST'])
 def download_liked():
@@ -969,17 +902,15 @@ def download_liked():
             'start_time': datetime.now()
         }
         
-        # 在新线程中运行下载任务
-        def run_download():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        # 在全局 Loop 中运行异步下载协程
+        async def do_download_liked():
             try:
                 socketio.emit('download_started', {
                     'task_id': task_id,
                     'type': 'liked_videos'
                 })
                 
-                loop.run_until_complete(user_manager.download_liked_videos())
+                await user_manager.download_liked_videos()
                 
                 download_tasks[task_id]['status'] = 'completed'
                 download_tasks[task_id]['end_time'] = datetime.now()
@@ -988,21 +919,13 @@ def download_liked():
                     'task_id': task_id,
                     'message': '点赞视频下载完成'
                 })
-                
             except Exception as e:
+                logger.error(f"Download liked error: {e}")
                 download_tasks[task_id]['status'] = 'failed'
-                download_tasks[task_id]['error'] = str(e)
-                download_tasks[task_id]['end_time'] = datetime.now()
-                
-                socketio.emit('download_failed', {
-                    'task_id': task_id,
-                    'error': str(e)
-                })
-            finally:
-                loop.close()
-        
-        thread = threading.Thread(target=run_download, daemon=True)
-        thread.start()
+                socketio.emit('download_failed', {'task_id': task_id, 'message': f'任务出错: {str(e)}'})
+
+        loop = get_or_create_loop()
+        asyncio.run_coroutine_threadsafe(do_download_liked(), loop)
         
         return jsonify({
             'success': True,
@@ -1026,19 +949,7 @@ def get_video_detail():
         if not user_manager:
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
         
-        def run_get_detail():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                result = loop.run_until_complete(user_manager.get_video_detail(aweme_id))
-                return result
-            except Exception as e:
-                logger.error(f" get_video_detail异常: {str(e)}")
-                return None
-            finally:
-                loop.close()
-        
-        video_detail = run_get_detail()
+        video_detail = run_async(user_manager.get_video_detail(aweme_id))
         
         if video_detail:
             # 使用与get_user_videos相同的逻辑提取媒体信息
@@ -1140,19 +1051,17 @@ def parse_link():
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
         
         def run_parse_link():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                # 解析链接获取视频信息
-                video_info = loop.run_until_complete(user_manager.parse_share_link(link))
-                if not video_info:
-                    return None, None
-                
-                # 获取作者的详细信息
-                author_sec_uid = video_info.get('author', {}).get('sec_uid', '')
-                user_detail = None
-                if author_sec_uid:
-                    user_detail = loop.run_until_complete(user_manager.get_user_detail(author_sec_uid))
+            # 解析链接获取视频信息
+            video_info = run_async(user_manager.parse_share_link(link))
+            if not video_info:
+                return None, None
+            
+            # 获取作者的详细信息
+            author_sec_uid = video_info.get('author', {}).get('sec_uid', '')
+            user_detail = None
+            if author_sec_uid:
+                user_detail = run_async(user_manager.get_user_detail(author_sec_uid))
+                if user_detail:
                     user_detail = {
                         'nickname': user_detail.get('nickname', ''),
                         'unique_id': user_detail.get('unique_id', ''),
@@ -1165,12 +1074,7 @@ def parse_link():
                         'avatar_thumb': user_detail.get('avatar_thumb', {}).get('url_list', [''])[0] if user_detail.get('avatar_thumb') else '',
                         'avatar_larger': user_detail.get('avatar_larger', {}).get('url_list', [''])[0] if user_detail.get('avatar_larger') else ''
                     }
-                return video_info, user_detail
-            except Exception as e:
-                logger.error(f" parse_link异常: {str(e)}")
-                return None, None
-            finally:
-                loop.close()
+            return video_info, user_detail
         
         video_info, user_detail = run_parse_link()
         
@@ -1226,17 +1130,15 @@ def download_liked_authors():
             'start_time': datetime.now()
         }
         
-        # 在新线程中运行下载任务
-        def run_download():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        # 在全局 Loop 中运行异步下载协程
+        async def do_download_liked_authors():
             try:
                 socketio.emit('download_started', {
                     'task_id': task_id,
                     'type': 'liked_authors'
                 })
                 
-                loop.run_until_complete(user_manager.download_liked_authors())
+                await user_manager.download_liked_authors()
                 
                 download_tasks[task_id]['status'] = 'completed'
                 download_tasks[task_id]['end_time'] = datetime.now()
@@ -1245,21 +1147,13 @@ def download_liked_authors():
                     'task_id': task_id,
                     'message': '点赞作者作品下载完成'
                 })
-                
             except Exception as e:
+                logger.error(f"Download liked authors error: {e}")
                 download_tasks[task_id]['status'] = 'failed'
-                download_tasks[task_id]['error'] = str(e)
-                download_tasks[task_id]['end_time'] = datetime.now()
-                
-                socketio.emit('download_failed', {
-                    'task_id': task_id,
-                    'error': str(e)
-                })
-            finally:
-                loop.close()
-        
-        thread = threading.Thread(target=run_download, daemon=True)
-        thread.start()
+                socketio.emit('download_failed', {'task_id': task_id, 'message': f'任务出错: {str(e)}'})
+
+        loop = get_or_create_loop()
+        asyncio.run_coroutine_threadsafe(do_download_liked_authors(), loop)
         
         return jsonify({
             'success': True,

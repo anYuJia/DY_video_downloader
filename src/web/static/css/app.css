@@ -41,6 +41,19 @@
     --drawer-w: 340px;
 }
 
+[data-theme="light"] {
+    --bg-primary: #f5f5f7;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f0f0f2;
+    --bg-card: rgba(255, 255, 255, 0.8);
+    --bg-card-hover: rgba(255, 255, 255, 1);
+    --glass-border: rgba(0, 0, 0, 0.08);
+    --glass-border-hover: rgba(0, 0, 0, 0.15);
+    --text-primary: #1d1d1f;
+    --text-secondary: #86868b;
+    --text-muted: #a1a1a6;
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -68,6 +81,12 @@ body::before {
     z-index: 0;
 }
 
+[data-theme="light"] body::before {
+    background: radial-gradient(ellipse at 20% 50%, rgba(254, 44, 85, 0.03) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(37, 244, 238, 0.02) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 80%, rgba(124, 92, 252, 0.02) 0%, transparent 50%);
+}
+
 /* ═══════════════════════════════════════
    NAVBAR — single unified top bar
    ═══════════════════════════════════════ */
@@ -84,6 +103,10 @@ body::before {
     z-index: 1050;
     display: flex;
     align-items: center;
+}
+
+[data-theme="light"] .navbar {
+    background: rgba(245, 245, 247, 0.88) !important;
 }
 
 .navbar .container-fluid {
@@ -146,6 +169,10 @@ body::before {
     align-items: center;
     font-size: 0.82rem;
     color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--glass-border);
+    padding: 6px 12px;
+    border-radius: 20px;
 }
 
 .btn-icon {
@@ -170,28 +197,45 @@ body::before {
     border-color: var(--glass-border-hover);
 }
 
+.btn-icon-text {
+    width: auto;
+    padding: 0 14px;
+    gap: 8px;
+}
+
+.btn-icon-text span {
+    font-size: 0.82rem;
+    font-weight: 500;
+}
+
 /* Back button */
 .btn-back {
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid var(--glass-border);
     color: var(--text-secondary);
-    width: 36px;
-    height: 36px;
-    border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     transition: var(--transition);
-    font-size: 1.1rem;
-    padding: 0;
-    flex-shrink: 0;
+    font-size: 0.95rem;
+    padding: 0 14px;
+    gap: 8px;
+    width: auto;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    margin-right: 12px;
 }
 
 .btn-back:hover {
     background: rgba(254, 44, 85, 0.15);
     color: var(--accent);
     border-color: var(--accent);
+}
+
+.btn-back span {
+    font-size: 0.85rem;
+    font-weight: 500;
 }
 
 /* Vertical divider between navbar sections */
@@ -440,6 +484,19 @@ body::before {
     background: rgba(255, 255, 255, 0.06);
 }
 
+[data-theme="light"] .tab-btn.active {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.bottom-bar {
+    background: rgba(8, 8, 13, 0.95);
+    border-top: 1px solid var(--glass-border);
+}
+
+[data-theme="light"] .bottom-bar {
+    background: rgba(245, 245, 247, 0.95);
+}
+
 .bottom-bar-body {
     flex: 1;
     overflow: hidden;
@@ -480,6 +537,23 @@ body::before {
     color: var(--text-muted);
     font-size: 0.85rem;
     padding: 24px;
+}
+
+.progress-task-item {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: var(--glass-border) !important;
+}
+
+[data-theme="light"] .progress-task-item {
+    background: rgba(0, 0, 0, 0.02);
+}
+
+.mini-progress {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="light"] .mini-progress {
+    background: rgba(0, 0, 0, 0.05);
 }
 
 /* ═══════════════════════════════════════
@@ -541,6 +615,24 @@ body::before {
     color: var(--text-primary);
 }
 .card-header .text-white { color: var(--text-primary) !important; }
+
+/* Card header buttons - ensure visibility on hover */
+.card-header .btn-light,
+.card-header .btn-outline-light {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: var(--text-primary);
+    transition: var(--transition);
+}
+
+.card-header .btn-light:hover,
+.card-header .btn-outline-light:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    box-shadow: 0 4px 16px rgba(254, 44, 85, 0.4);
+    transform: translateY(-1px);
+}
 
 /* ═══════════════════════════════════════
    BUTTONS
@@ -651,6 +743,17 @@ body::before {
 }
 .btn-outline-danger:hover {
     background: var(--danger);
+    color: #fff;
+}
+
+.btn-outline-light {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text-primary);
+}
+.btn-outline-light:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.25);
     color: #fff;
 }
 
@@ -976,6 +1079,7 @@ textarea.form-control { resize: vertical; }
 .modal-body { padding: 24px; color: var(--text-primary); }
 .modal-footer { border-top: 1px solid var(--glass-border); padding: 16px 24px; }
 .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
+[data-theme="light"] .btn-close { filter: none; }
 
 /* ═══════════════════════════════════════
    TOAST
