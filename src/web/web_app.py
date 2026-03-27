@@ -243,6 +243,56 @@ iframe{flex:1;border:none;width:100%}
 <iframe src="https://www.douyin.com/"></iframe>
 </body></html>'''
 
+@app.route('/api/open_verify_browser', methods=['POST'])
+def open_verify_browser():
+    """使用已存储的Cookie打开浏览器窗口，让用户完成验证"""
+    import subprocess
+    from playwright.sync_api import sync_playwright
+
+    cookie = Config.COOKIE
+    if not cookie:
+        return jsonify({'success': False, 'message': '未找到存储的Cookie'}), 400
+
+    try:
+        def open_browser_with_cookie():
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=False, channel='chromium')
+                context = browser.new_context(
+                    viewport={"width": 1280, "height": 800},
+                )
+
+                # 解析并设置Cookie
+                if cookie:
+                    cookies = []
+                    for item in cookie.split(';'):
+                        if '=' in item:
+                            key, value = item.strip().split('=', 1)
+                            cookies.append({
+                                "name": key,
+                                "value": value,
+                                "domain": ".douyin.com",
+                                "path": "/"
+                            })
+                    context.add_cookies(cookies)
+
+                page = context.new_page()
+                # 打开抖音首页，页面会使用已设置的Cookie自动登录
+                page.goto("https://www.douyin.com/", wait_until="domcontentloaded", timeout=30000)
+                # 保持浏览器打开
+                input("请在浏览器中完成验证，完成后按回车键关闭此窗口...")
+
+                browser.close()
+
+        # 在新线程中运行浏览器
+        browser_thread = threading.Thread(target=open_browser_with_cookie, daemon=True)
+        browser_thread.start()
+
+        return jsonify({'success': True, 'message': '已打开浏览器，请在浏览器中完成验证'})
+
+    except Exception as e:
+        logger.error(f"打开验证浏览器失败: {str(e)}")
+        return jsonify({'success': False, 'message': f'打开浏览器失败: {str(e)}'}), 500
+
 @app.route('/api/search_user', methods=['POST'])
 def search_user():
     """搜索用户"""
@@ -672,6 +722,7 @@ def download_user_video():
         # 生成任务ID
         task_id = str(uuid.uuid4())
         cancel_event = asyncio.Event()
+        pause_event = asyncio.Event()  # 暂停事件，默认不暂停
         
         # 在全局 Loop 中运行异步下载协程
         async def do_download_task():
@@ -739,15 +790,40 @@ def download_user_video():
 
                 async def downloader_consumer():
                     while not (fetching_done.is_set() and download_queue.empty()):
+                        # 检查取消
                         if cancel_event.is_set():
                             logger.info(f"Task {task_id} consumer cancelled")
+                            # 清空队列
+                            while not download_queue.empty():
+                                try:
+                                    download_queue.get_nowait()
+                                except:
+                                    break
                             break
+
+                        # 检查暂停 - 如果暂停事件被设置，则等待恢复
+                        if pause_event.is_set():
+                            # 发送暂停状态
+                            socketio.emit('user_video_download_progress', {
+                                'task_id': task_id,
+                                'message': '已暂停',
+                                'type': 'info'
+                            })
+                            # 等待 pause_event 被清除（恢复）
+                            while pause_event.is_set() and not cancel_event.is_set():
+                                await asyncio.sleep(0.5)
+
                         try:
                             # 等待队列中的新作品
                             post = await asyncio.wait_for(download_queue.get(), timeout=1.0)
                         except asyncio.TimeoutError:
                             continue
-                            
+
+                        # 检查取消信号（开始下载前）
+                        if cancel_event.is_set():
+                            logger.info(f"Task {task_id} cancelled before download")
+                            break
+
                         total_processed[0] += 1
                         idx = total_processed[0]
                         
@@ -775,16 +851,21 @@ def download_user_video():
                         try:
                             if not urls:
                                 continue
-                            
+
                             success = False
                             if media_type == 'video':
-                                success = user_manager.downloader.download_video(urls[0], name, aweme_id)
+                                success = user_manager.downloader.download_video(urls[0], name, aweme_id, cancel_event)
                             else:
                                 formatted_urls = [{'url': url, 'type': media_type if media_type != 'mixed' else t} for t, url in (urls if isinstance(urls[0], tuple) else [(media_type, u) for u in urls])]
-                                success = user_manager.downloader.download_media_group(formatted_urls, name, aweme_id, socketio, task_id)
-                                
+                                success = user_manager.downloader.download_media_group(formatted_urls, name, aweme_id, socketio, task_id, cancel_event)
+
                             if success:
                                 socketio.emit('download_success', {'task_id': task_id, 'message': f'作品 {desc} 下载完成'})
+
+                            # 检查取消状态
+                            if cancel_event.is_set():
+                                logger.info(f"下载被用户取消: {task_id}")
+                                break
                         except Exception as e:
                             logger.error(f"Download error for {aweme_id}: {e}")
                             
@@ -851,7 +932,8 @@ def download_user_video():
         }
         active_tasks[task_id] = {
             "future": future,
-            "event": cancel_event
+            "event": cancel_event,
+            "pause_event": pause_event
         }
         
         return jsonify({
@@ -882,6 +964,40 @@ def cancel_download():
         download_tasks[task_id]['status'] = 'cancelled'
         return jsonify({'success': True, 'message': '任务已标记为取消'})
         
+    return jsonify({'success': False, 'message': '未找到活跃任务'})
+
+@app.route('/api/pause_download', methods=['POST'])
+def pause_download():
+    """按任务ID暂停下载"""
+    data = request.json
+    task_id = data.get('task_id')
+    logger.info(f"Request to pause task: {task_id}")
+
+    if task_id in active_tasks:
+        info = active_tasks[task_id]
+        if 'pause_event' in info:
+            info['pause_event'].set()  # 设置暂停事件
+            return jsonify({'success': True, 'message': '任务已暂停'})
+        else:
+            return jsonify({'success': False, 'message': '该任务不支持暂停'})
+
+    return jsonify({'success': False, 'message': '未找到活跃任务'})
+
+@app.route('/api/resume_download', methods=['POST'])
+def resume_download():
+    """按任务ID恢复下载"""
+    data = request.json
+    task_id = data.get('task_id')
+    logger.info(f"Request to resume task: {task_id}")
+
+    if task_id in active_tasks:
+        info = active_tasks[task_id]
+        if 'pause_event' in info:
+            info['pause_event'].clear()  # 清除暂停事件
+            return jsonify({'success': True, 'message': '任务已恢复'})
+        else:
+            return jsonify({'success': False, 'message': '该任务不支持恢复'})
+
     return jsonify({'success': False, 'message': '未找到活跃任务'})
 
 @app.route('/api/download_liked', methods=['POST'])
