@@ -1,259 +1,135 @@
 <div align="center">
 
-# 🎵 DY Video Downloader
+# 🎥 DY Video Downloader Enterprise
 
-**一个功能强大的抖音视频下载器**
+**新一代智能化、高性能的抖音多媒体资源抓取与管理平台**
 
-[![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#)
-[![Web Interface](https://img.shields.io/badge/Web%20Interface-✓-brightgreen.svg)](#)
-[![Downloads](https://img.shields.io/badge/Downloads-Video%20%7C%20Image%20%7C%20Live%20Photo-orange.svg)](#)
+[![Python 3.7+](https://img.shields.io/badge/Python-3.7+-blue.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![License MIT](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg?style=for-the-badge)]()
+[![Web Interface](https://img.shields.io/badge/Web%20Interface-Modern-brightgreen.svg?style=for-the-badge)]()
 
-[功能特点](#-功能特点) • [快速开始](#-快速开始) • [配置说明](#-配置说明) • [使用方法](#-使用方法) • [项目结构](#-项目结构)
+[功能概览](#-功能概览) • [快速体验](#-快速体验) • [系统配置](#-系统配置) • [操作指南](#-操作指南) • [常见问题](#-常见问题)
 
 </div>
 
+<br/>
+
+**DY Video Downloader** 专为需要快速、稳定、海量获取抖音平台资源的创作者和数字营销人员打造。它突破了传统的命令行限制，提供了现代化且极具交互性的 Web 控制台，基于高效的异步架构与智能指纹校验机制，为您提供企业级的数据同步与数字资产管理体验。
+
 ---
 
-## 📖 简介
+## ✨ 核心优势
 
-DY Video Downloader 是一个专为抖音平台设计的多媒体下载工具。它提供了现代化的 Web 界面，支持批量下载用户作品、点赞视频等功能，并具备智能去重、断点续传等高级特性。
+我们通过底层架构优化与交互层重新设计，为您提供了一整套“零配置开箱即用”的高级特性：
 
-## ✨ 功能特点
+| 🎯 智能资源检索 | 🚀 极致下载性能 |
+| :--- | :--- |
+| **多维度解析**: 支持用户昵称、抖音号、个人主页链接全景检索。 <br> **动态抓取**: 自动处理滑块与反爬机制，深度挖掘目标作品数据。 <br> **全品类支持**: 无缝适配常规视频、图文合集、甚至 Live Photo 格式。 | **高并发引擎**: 底层采用 AsyncIO，释放网络吞吐极限，跑满带宽。 <br> **断点续传**: 智能分片与网络异常恢复，无惧数GB量级巨型任务。 <br> **精准去重**: 引入指纹对比与本地哈希缓存，同一视频绝不二次下载。 |
 
-### 🎯 核心功能
-- **多种搜索方式**: 支持昵称、抖音号、主页链接三种搜索方式
-- **批量下载**: 一键下载用户的所有视频作品
-- **点赞下载**: 下载自己点赞的视频和点赞作者的全部作品
-- **多媒体支持**: 支持视频、图片、Live Photo 等多种格式
+| 🌐 现代化可视面板 | 💼 企业级存储策略 |
+| :--- | :--- |
+| **全双工通信**: WebSocket 毫秒级任务状态推流，掌控每一个分片下载进度。<br> **响应式交互**: 桌面/平板自适应，支持拖拽识别、一键多选操作。 | **分级归档**: 根据目标博主建立多级独立目录，作品按时间戳/名称规范化存放。<br> **统一任务管理**: 控制台内嵌完整任务生命周期管理（暂停/恢复/终止/重试）。 |
 
-### 🚀 高级特性
-- **智能去重**: 自动跳过已下载的内容，避免重复下载
-- **分类存储**: 按用户自动创建文件夹，井然有序
-- **异步下载**: 高效的异步下载机制，提升下载速度
-- **断点续传**: 支持下载中断后继续下载
-- **进度监控**: 实时显示下载进度和状态
+---
 
-### 🌐 Web 界面
-- **现代化设计**: 响应式界面，支持多设备访问
-- **实时通信**: WebSocket 实时更新下载状态
-- **拖拽支持**: 支持拖拽和粘贴链接
-- **任务管理**: 完整的下载任务管理系统
+## 📸 终端预览
 
-## 🛠 环境要求
+直观的沉浸式管理界面，大幅降低您的学习成本。
 
-- **Python**: 3.7 或更高版本
-- **操作系统**: Windows / macOS / Linux
-- **浏览器**: Chrome / Firefox / Safari / Edge
-- **Node.js**: 用于执行JavaScript签名算法（可选，内置PyExecJS）
+> **控制台大盘 (Dashboard)**
+> 
+> 提供全局的数据掌控，包含实时的连接状态、目标用户解析入口与当前配置纵览。
+![主界面](img/index.png)
 
-## 🚀 快速开始
+> **深度检索与画像分析**
+> 
+> 输入博主链接，一键获取包含隐藏无水印作品在内的全量投稿列表。
+![用户搜索](img/get_user.png)
 
-### 1️⃣ 克隆项目
+> **全景下载监控中心**
+> 
+> 下载进程可视化分析，当前实时网速、预计剩余时间、异常日志一目了然。
+![下载监控](img/downloading.png)
 
+---
+
+## 🚀 快速体验
+
+本系统基于轻量级部署方案，1分钟即可完成环境初始化并拉起相关微服务。
+
+### 1. 部署运行环境
+建议使用虚拟环境以实现依赖隔离。
 ```bash
+# 克隆仓库
 git clone https://github.com/anYuJia/DY_video_downloader.git
 cd DY_video_downloader
-```
 
-### 2️⃣ 安装依赖
+# 创建并激活虚拟环境 (可选)
+python3 -m venv .venv
+source .venv/bin/activate  # macOS/Linux
+# .venv\Scripts\activate   # Windows
 
-```bash
+# 安装核心依赖矩阵
 pip install -r requirements.txt
 ```
 
-### 3️⃣ 配置应用
-
-编辑项目根目录的 `config.json` 文件：
-
-```json
-{
-  "cookie": "your_douyin_cookie_here",
-  "base_dir": "./douyin_download"
-}
-```
-
-### 4️⃣ 启动应用
+### 2. 启动后台守护进程
+环境准备就绪后，直接启动服务，系统会自动生成默认依赖与配置。
 
 ```bash
 python main.py
 ```
 
-### 5️⃣ 访问 Web 界面
-
-在浏览器中打开：**http://localhost:5001**
-
-> 💡 首次运行会启动配置向导，按照提示完成配置即可。
-
-## ⚙️ 配置说明
-
-### 📝 配置文件详解
-
-项目支持通过 `config.json` 文件进行详细配置：
-
-```json
-{
-  "cookie": "",                    // 抖音Cookie（必填）
-  "base_dir": "./douyin_download"  // 下载目录
-}
-```
-
-**Cookie 示例：**
-```
-ttwid=1%7C...; passport_csrf_token=...; d_ticket=...; ...
-```
-
-## 📸 界面预览
-
-### 🏠 主界面
-![主界面](img/index.png)
-
-### 👤 用户搜索
-![用户搜索](img/get_user.png)
-
-### 💖 点赞视频
-![点赞视频](img/get_liked_videos.png)
-
-### 👥 点赞作者
-![点赞作者](img/get_liked_author.png)
-
-### 📥 下载进度
-![下载进度](img/downloading.png)
-
-## 📋 使用方法
-
-本工具采用 **Web 界面操作**，无需复杂的命令行操作，简单易用。
-
-### 🔍 搜索用户
-
-在 Web 界面中支持三种搜索方式：
-
-| 搜索方式 | 示例 | 说明 |
-|---------|------|------|
-| 用户昵称 | `何柚可` | 输入用户的显示昵称 |
-| 抖音号 | `snbb0616` | 输入用户的抖音号 |
-| 主页链接 | `https://www.douyin.com/user/...` | 完整的用户主页URL |
-
-### 📥 下载操作
-
-通过 Web 界面进行下载操作：
-
-- **批量选择**: 在界面中勾选要下载的作品
-- **一键下载**: 点击下载按钮开始批量下载
-- **实时监控**: 在界面中查看下载进度和状态
-- **任务管理**: 可以暂停、恢复或取消下载任务
-
-### 💖 点赞功能
-
-- **下载点赞视频**: 下载您在抖音上点赞过的视频
-- **下载点赞作者作品**: 下载您点赞过的视频作者的所有作品
-
-## 📁 项目结构
-
-```
-DY_video_downloader/
-├── 📄 main.py                 # 程序入口
-├── 📄 launcher.py             # 启动器
-├── 📄 requirements.txt        # 依赖列表
-├── 📄 config.json            # 配置文件
-├── 📄 setup.py               # 安装脚本
-├── 📄 __init__.py            # 包初始化
-├── 📁 src/                   # 源代码
-│   ├── 📁 api/               # API 模块
-│   │   ├── 📄 __init__.py
-│   │   └── 📄 api.py         # 抖音 API 实现
-│   ├── 📁 config/            # 配置模块
-│   │   ├── 📄 __init__.py
-│   │   └── 📄 config.py      # 配置管理
-│   ├── 📁 downloader/        # 下载模块
-│   │   ├── 📄 __init__.py
-│   │   └── 📄 downloader.py  # 下载器实现
-│   ├── 📁 user/              # 用户模块
-│   │   ├── 📄 __init__.py
-│   │   └── 📄 user_manager.py # 用户管理
-│   └── 📁 web/               # Web 界面
-│       ├── 📄 __init__.py
-│       ├── 📄 web_app.py     # Flask 应用
-│       ├── 📁 static/        # 静态资源
-│       └── 📁 templates/     # HTML 模板
-├── 📁 lib/                   # 第三方库
-│   └── 📁 js/
-│       └── 📄 douyin.js      # 签名生成脚本
-├── 📁 img/                   # 项目截图
-└── 📁 douyin_download/       # 下载文件存储目录
-```
-
-## 🔧 技术栈
-
-- **后端**: Python 3.7+, Flask, AsyncIO
-- **前端**: HTML5, CSS3, JavaScript, WebSocket
-- **网络**: Requests, AioHTTP
-- **JavaScript执行**: PyExecJS
-- **实时通信**: python-socketio
-- **数据处理**: JSON, Base64
-
-## 📊 功能支持
-
-| 功能 | 支持格式 | 状态 |
-|------|----------|------|
-| 视频下载 | MP4 | ✅ |
-| 图片下载 | JPG, PNG | ✅ |
-| Live Photo | MP4 | ✅ |
-| 批量下载 | 所有格式 | ✅ |
-| 断点续传 | 所有格式 | ✅ |
-| 异步下载 | 所有格式 | ✅ |
-| 智能去重 | 所有格式 | ✅ |
-| 进度监控 | 实时显示 | ✅ |
-
-## 🔧 常见问题
-
-### Q: Cookie 失效怎么办？
-A: 重新登录抖音网页版，按照上述步骤重新获取 Cookie 并更新配置文件。
-
-### Q: 下载速度慢怎么办？
-A: 可以调整 `config.json` 中的 `chunk_size` 参数，或检查网络连接。
-
-### Q: 无法访问 Web 界面？
-A: 检查端口是否被占用，默认端口为5001。如需修改端口，可以通过环境变量PORT设置。
-
-### Q: 下载的文件在哪里？
-A: 默认在项目目录的 `douyin_download` 文件夹中，可通过配置文件修改。
-
-## ⚠️ 注意事项
-
-- 🔒 请遵守抖音的使用规则，不要滥用下载功能
-- 📝 请不要对他人的作品进行未经授权的复制或修改
-- 💼 请不要将下载的作品用于商业目的
-- 🔄 建议定期更新 Cookie 以确保功能正常
-- ⚡ 下载采用异步机制，但为保护服务器，不支持高并发下载
-- 🛡️ 请确保在安全的网络环境中使用，保护个人隐私
-
-## 🤝 贡献指南
-
-欢迎提交 Issue 和 Pull Request！
-
-1. Fork 本项目
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 打开 Pull Request
-
-## 📄 许可证
-
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
-
-## ⚖️ 免责声明
-
-本工具仅用于学习和研究目的，请在合法合规的范围内使用。作者不对因使用本工具而导致的任何法律问题承担责任。
+### 3. 访问可视控制台并自动化配置
+> 🎉 **启动成功！** 浏览器打开 [http://localhost:5001](http://localhost:5001)，系统首屏将自动引导您完成身份验证和 Cookie 抓取，**无需您手动编辑任何本地配置文件**。
 
 ---
 
+## ⚙️ 系统配置
+
+尽管系统具备极高的自动化体验，但高级用户依然可以通过修改运行后在根目录生成的 `config.json` 来深度定制本地运行参数：
+
+| 参数名称 | 规格及说明 | 默认值 |
+| :--- | :--- | :--- |
+| `cookie` | 授权身份识别码。**系统会在通过 Web UI 登录时自动接管并填充此项，一般情况下无需手动干预。** | `""` |
+| `base_dir` | 媒体资源落盘基础路径，支持相对/绝对路径 | `"./douyin_download"` |
+| `chunk_size` | TCP流下载分片阈值 (Bytes)，提升或降低此值可均衡内存占用与IO性能 | `1048576` (1MB) |
+
+---
+
+## 🎯 操作指南
+
+**批量获取主播历史作品**
+1. 访问左侧导航栏的 **作品检索** 选项页。
+2. 支持传入三种格式的目标定位符：`抖音昵称 (e.g. 罗永浩)`、`抖音号 (e.g. luoyonghao)` 或 `用户主页完整URL`。
+3. 引擎将自动爬取该用户所有数据，您可通过前端复选框进行精准过滤，然后点击“添加至下载队列”。
+
+---
+
+## 🔧 常见排错指示 (Troubleshooting)
+
+- **Q: 检索用户时频发失败 / 提示“签名异常”？**
+  - **A**: 通常是传入配置的 Cookie 已失效或风控过期。请回到网页版重新执行扫码验证，并使用最新 Cookie 覆盖重启。
+- **Q: 日志显示无法启动 Web Socket，下载进度卡置为 0%？**
+  - **A**: 确认 5001 端口是否被其他进程（如 MacOS 原生控制中心服务）抢占。您可尝试修改 `main.py` 底部端口配置重新映射。
+- **Q: 系统可以无界面在 Linux 服务器跑吗？**
+  - **A**: 完全可以，本系统 Web UI 前后端完全解耦，服务端完全基于 Python 原生库编写，适合部署在 CentOS/Ubuntu 等无桌面系统，通过外网 IP + 端口远程访问控制台即可。
+
+---
+
+## ⚖️ 合规与免责声明
+
+本数字工具的发布与分享仅用于学术探索与技术交流。
+1. 请勿突破目标平台的风控速率进行恶意高频请求；
+2. 抓取的本地化媒体内容严禁用于二次分发、包装或商业盈利；
+3. **因滥用本项目所致的账号封禁、法务纠纷等一切后果，项目的贡献者不承担任何连带责任。**
+
+<br/>
 <div align="center">
-
-**如果这个项目对您有帮助，请给它一个 ⭐️**
-
-[报告问题](../../issues) • [功能请求](../../issues) • [贡献代码](../../pulls)
-
+  如果 <b>DY Video Downloader</b> 为您的工作流带来了效率提升，请不要吝啬您的 ⭐ <b>Star</b>。
+  <br><br>
+  
+  [提出缺陷（Issues）](../../issues) • [发起新特性（PR）](../../pulls)
 </div>
 
