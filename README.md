@@ -56,10 +56,17 @@
 
 ## 🚀 快速体验
 
-本系统基于轻量级部署方案，1分钟即可完成环境初始化并拉起相关微服务。
+我们为您提供了 **独立运行包** 与 **源码部署** 两种方式。
 
-### 1. 部署运行环境
-建议使用虚拟环境以实现依赖隔离。
+### A. 零配置免环境使用 (推荐)
+如果您不想配置 Python 环境，可以直接在 GitHub Releases 下载对应平台的发布包：
+
+👉 **[下载最新 MacOS ARM64 运行包 (v1.0.0)](../../releases/latest)**
+
+解压并运行 `douyin_downloader` 即可。
+
+### B. 开发者源码部署
+如果您是开发者或需要自定义，请使用：
 ```bash
 # 克隆仓库
 git clone https://github.com/anYuJia/DY_video_downloader.git
