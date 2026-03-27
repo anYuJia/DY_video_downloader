@@ -32,3 +32,7 @@ gevent-websocket>=0.10.1  # WebSocket协议支持
 # 测试工具
 pytest>=7.0.0
 pytest-asyncio>=0.18.0
+
+# Playwright 浏览器自动化（用于自动获取Cookie）
+playwright>=1.40.0
+playwright-stealth>=1.0.6
