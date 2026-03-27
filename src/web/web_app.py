@@ -21,7 +21,7 @@ logger = logging.getLogger('web_app')
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.config.config import Config
+from src.config.config import Config, get_resource_path
 from src.api.api import DouyinAPI
 from src.downloader.downloader import DouyinDownloader
 from src.user.user_manager import DouyinUserManager
@@ -30,7 +30,7 @@ from src.user.user_manager import DouyinUserManager
 ENHANCED_DOWNLOADER_AVAILABLE = False
 EnhancedDouyinDownloader = None
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder=get_resource_path('src/web/templates'), static_folder=get_resource_path('src/web/static'))
 app.config['SECRET_KEY'] = 'douyin_downloader_secret_key'
 # 修改SocketIO初始化，添加更多选项
 socketio = SocketIO(
@@ -1329,18 +1329,27 @@ def cookie_browser_login():
         global _cookie_login_proc, api, downloader, user_manager
         import subprocess
         
-        worker_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'api', 'cookie_grabber.py')
-        python_exe = sys.executable
+        from src.config.config import IS_FROZEN
+        
+        env = os.environ.copy()
+        env['RUN_WORKER'] = 'cookie_grabber'
+        
+        if IS_FROZEN:
+            cmd = [sys.executable]  # 执行打包后的文件自身，通过环境变量进入分发器
+        else:
+            worker_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'api', 'cookie_grabber.py')
+            cmd = [sys.executable, worker_path]
         
         req_data = json.dumps({"timeout": timeout, "browser": browser_type})
         
         try:
             _cookie_login_proc = subprocess.Popen(
-                [python_exe, worker_path],
+                cmd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                env=env,
             )
             
             # 写入参数并关闭 stdin

@@ -2,17 +2,35 @@ import os
 import json
 import getpass
 
+import sys
+
+# 判断是否被 PyInstaller 打包
+IS_FROZEN = getattr(sys, 'frozen', False)
+if IS_FROZEN:
+    # 执行文件所在目录（供存储配置、下载）
+    APP_EXEC_DIR = os.path.dirname(sys.executable)
+    # 资源内嵌目录（供读取静态文件）
+    APP_RESOURCE_DIR = sys._MEIPASS
+else:
+    # 源码运行模式
+    APP_EXEC_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    APP_RESOURCE_DIR = APP_EXEC_DIR
+
+def get_resource_path(relative_path):
+    """获取程序静态资源或内置代码所在绝对路径"""
+    return os.path.join(APP_RESOURCE_DIR, relative_path)
+
 class Config:
     """配置类"""
-    # 配置文件路径
-    CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "config.json")
+    # 配置文件路径在执行文件旁边
+    CONFIG_FILE = os.path.join(APP_EXEC_DIR, "config.json")
     
     # Cookie设置
     COOKIE = ""
     
-    # 文件保存路径
-    BASE_DIR = os.path.expanduser("data/")
-    DOWNLOAD_DIR = os.path.join(BASE_DIR, "douyin_download")
+    # 文件保存路径默认在执行文件旁边
+    BASE_DIR = os.path.join(APP_EXEC_DIR, "douyin_download")
+    DOWNLOAD_DIR = BASE_DIR
     
     # 请求参数
     HOST = 'https://www.douyin.com'

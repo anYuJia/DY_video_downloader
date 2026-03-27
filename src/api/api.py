@@ -27,7 +27,8 @@ class DouyinAPI:
         
         # 初始化JS签名引擎
         try:
-            with open('lib/js/douyin.js', 'r', encoding='utf-8') as f:
+            from src.config.config import get_resource_path
+            with open(get_resource_path('lib/js/douyin.js'), 'r', encoding='utf-8') as f:
                 self.douyin_sign = execjs.compile(f.read())
         except Exception as e:
             print(f"\033[91m[API] 初始化JS签名引擎失败: {e}\033[0m")
@@ -263,8 +264,16 @@ class DouyinAPI:
             if self.debug_mode:
                 print(f"\033[94m[API] 启动浏览器子进程(导航模式)...\033[0m")
 
-            worker_path = os.path.join(os.path.dirname(__file__), 'browser_worker.py')
-            python_exe = sys.executable
+            from src.config.config import IS_FROZEN
+            
+            env = os.environ.copy()
+            env['RUN_WORKER'] = 'browser_worker'
+            
+            if IS_FROZEN:
+                cmd = [sys.executable]
+            else:
+                worker_path = os.path.join(os.path.dirname(__file__), 'browser_worker.py')
+                cmd = [sys.executable, worker_path]
 
             req_data = json.dumps({
                 "cookie": self.cookie or "",
@@ -274,11 +283,12 @@ class DouyinAPI:
             })
 
             proc = subprocess.run(
-                [python_exe, worker_path],
+                cmd,
                 input=req_data,
                 capture_output=True,
                 text=True,
                 timeout=45,
+                env=env,
             )
 
             if proc.returncode != 0:
