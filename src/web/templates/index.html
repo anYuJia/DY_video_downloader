@@ -272,7 +272,13 @@
             </div>
             <div class="mb-3">
                 <label class="form-label">下载目录</label>
-                <input type="text" class="form-control" id="download-dir-input" placeholder="data/">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="download-dir-input" placeholder="data/">
+                    <button class="btn btn-outline-secondary" type="button" id="select-download-dir-btn">
+                        <i class="bi bi-folder2-open"></i> 选择文件夹
+                    </button>
+                </div>
+                <small class="text-muted" id="download-dir-hint">默认：data/</small>
             </div>
             <button class="btn btn-primary w-100" id="save-config-btn">
                 <i class="bi bi-check-lg"></i> 保存设置

@@ -164,9 +164,46 @@ def set_config():
     except Exception as e:
         return jsonify({'success': False, 'message': f'配置保存失败: {str(e)}'}), 500
 
+
+@app.route('/api/select_directory', methods=['POST'])
+def select_directory():
+    """打开系统文件夹选择器，返回用户选择的路径"""
+    try:
+        # 使用 macOS 原生对话框 (osascript)
+        import subprocess
+
+        # 初始目录
+        initial_dir = Config.BASE_DIR or os.path.expanduser('~')
+
+        # 使用 AppleScript 打开文件夹选择器
+        script = f'''
+        tell application "System Events"
+            activate
+            set selected_folder to choose folder with prompt "选择下载目录:" default location POSIX file "{initial_dir}"
+            return POSIX path of selected_folder
+        end tell
+        '''
+
+        result = subprocess.run(
+            ['osascript', '-e', script],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            directory = result.stdout.strip()
+            return jsonify({'success': True, 'path': directory})
+        else:
+            return jsonify({'success': False, 'message': '用户取消选择'})
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'message': '选择超时'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'选择失败：{str(e)}'}), 500
 @app.route('/api/media/proxy')
 def media_proxy():
     """代理抖音媒体资源，添加必要的Referer和Cookie头"""
+
     url = request.args.get('url', '')
     if not url or not any(d in url for d in ['douyin', 'douyinvod', 'douyinpic', 'byteimg', 'douyinstatic', 'ixigua']):
         return 'Invalid URL', 400

@@ -477,6 +477,12 @@ function setupEventListeners() {
     // Config
     document.getElementById('save-config-btn').addEventListener('click', saveConfig);
 
+    // Select download directory button
+    const selectDirBtn = document.getElementById('select-download-dir-btn');
+    if (selectDirBtn) {
+        selectDirBtn.addEventListener('click', selectDownloadDirectory);
+    }
+
     // Search
     document.getElementById('search-btn').addEventListener('click', searchUser);
     document.getElementById('search-input').addEventListener('keypress', function (e) {
@@ -882,6 +888,31 @@ async function saveConfig() {
         }
     } catch (error) {
         showToast('保存配置失败', 'error');
+    }
+}
+
+// 选择下载目录
+async function selectDownloadDirectory() {
+    try {
+        // 调用后端 API，使用系统文件夹选择器
+        const response = await fetch('/api/select_directory', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const result = await response.json();
+        if (result.success && result.path) {
+            document.getElementById('download-dir-input').value = result.path;
+            document.getElementById('download-dir-hint').textContent = '已选择：' + result.path;
+            showToast('已选择文件夹：' + result.path, 'success');
+        } else {
+            if (result.message !== '用户取消选择') {
+                showToast(result.message || '选择失败', 'error');
+            }
+        }
+    } catch (error) {
+        console.error('选择文件夹失败:', error);
+        showToast('选择文件夹失败', 'error');
     }
 }
 
