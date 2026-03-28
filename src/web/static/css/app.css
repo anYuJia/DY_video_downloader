@@ -916,6 +916,7 @@ textarea.form-control { resize: vertical; }
     height: 260px;
     overflow: hidden;
     position: relative;
+    cursor: pointer;
 }
 .video-cover {
     width: 100%;
@@ -924,6 +925,23 @@ textarea.form-control { resize: vertical; }
     transition: var(--transition);
 }
 .video-card:hover .video-cover { transform: scale(1.05); }
+
+/* 封面播放按钮 */
+.video-play-icon {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 3rem;
+    color: rgba(255, 255, 255, 0.9);
+    opacity: 0;
+    transition: var(--transition);
+    pointer-events: none;
+    z-index: 3;
+}
+.video-cover-container:hover .video-play-icon {
+    opacity: 1;
+}
 
 .video-overlay {
     position: absolute;

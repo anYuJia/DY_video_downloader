@@ -1920,8 +1920,9 @@ function displayLikedVideos(videos) {
         videoCard.className = 'col-md-3 col-sm-6 mb-3';
         videoCard.innerHTML = `
             <div class="card h-100 video-card">
-                <div class="position-relative video-cover-container">
+                <div class="position-relative video-cover-container" onclick="previewMediaFromList('${video.aweme_id}')">
                     <img src="${coverUrl}" class="card-img-top video-cover" alt="封面" onerror="this.src='/static/default-cover.svg'">
+                    <i class="bi bi-play-circle-fill video-play-icon"></i>
                     <div class="video-overlay">
                         <div class="video-stats">
                             <div class="stat-item">
@@ -1951,10 +1952,10 @@ function displayLikedVideos(videos) {
                         <button class="btn btn-sm btn-outline-info video-btn" onclick="showVideoDetail('${video.aweme_id}')">
                             <i class="bi bi-eye"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-success video-btn" onclick="previewMediaFromList('${video.aweme_id}')">
+                        <button class="btn btn-sm btn-outline-success video-btn" onclick="event.stopPropagation(); previewMediaFromList('${video.aweme_id}')">
                             <i class="bi bi-play-circle"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-warning video-btn" onclick="goToAuthorPage('${video.author?.sec_uid || video.sec_uid}', '${video.author?.nickname || video.nickname}')">
+                        <button class="btn btn-sm btn-outline-warning video-btn" onclick="event.stopPropagation(); goToAuthorPage('${video.author?.sec_uid || video.sec_uid}', '${video.author?.nickname || video.nickname}')">
                             <i class="bi bi-person-circle"></i>
                         </button>
                     </div>
@@ -3108,10 +3109,25 @@ function previewMediaFromList(awemeId) {
 // ═══════════════════════════════════════════════
 // IMMERSIVE PLAYER
 // ═══════════════════════════════════════════════
+let _playerBgmUrl = null;
+let _playerBgmAudio = null;
+
 function openImmersivePlayer(video) {
     if (!video || !video.media_urls || video.media_urls.length === 0) {
         showToast('没有可播放的媒体', 'warning');
         return;
+    }
+
+    // 提取 BGM 信息（从视频 URL 中获取）
+    _playerBgmUrl = null;
+    if (video.music || video.bgm_url) {
+        _playerBgmUrl = video.music || video.bgm_url;
+    } else if (video.media_urls && video.media_urls.length > 0) {
+        // 如果没有独立的 BGM，尝试从第一个视频提取音频
+        const firstVideo = video.media_urls.find(m => m.type === 'video');
+        if (firstVideo) {
+            _playerBgmUrl = firstVideo.url;
+        }
     }
 
     _playerItems = video.media_urls.map(m => ({
@@ -3159,6 +3175,11 @@ function _playerKeyHandler(e) {
 function closeImmersivePlayer() {
     if (_playerTimer) clearInterval(_playerTimer);
     if (_playerVideo) { _playerVideo.pause(); _playerVideo = null; }
+    // 停止 BGM
+    if (_playerBgmAudio) {
+        _playerBgmAudio.pause();
+        _playerBgmAudio = null;
+    }
     const el = document.getElementById('immersive-player');
     if (el) el.remove();
     document.body.style.overflow = '';
@@ -3196,9 +3217,17 @@ function _renderPlayerItem() {
             container.innerHTML = `<div class="ip-error"><i class="bi bi-exclamation-triangle"></i><p>视频加载失败</p><a href="${item.url}" target="_blank" class="btn btn-sm btn-outline-light mt-2">在新窗口打开</a></div>`;
         };
     } else if (item.type === 'image') {
+        // 图片播放 - 播放 BGM
         container.innerHTML = `<img src="${item.proxy}" alt="图片" onerror="this.src='${item.url}'">`;
         _playerVideo = null;
         playBtn.innerHTML = '<i class="bi bi-play-fill"></i>';
+
+        // 启动 BGM
+        if (_playerBgmUrl && !_playerBgmAudio) {
+            _playerBgmAudio = new Audio(_playerBgmUrl);
+            _playerBgmAudio.loop = true;
+            _playerBgmAudio.play().catch(e => _log('BGM 播放失败:', e));
+        }
 
         let elapsed = 0;
         _playerTimer = setInterval(() => {
