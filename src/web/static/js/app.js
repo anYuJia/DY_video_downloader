@@ -1686,6 +1686,7 @@ async function showVideoDetail(awemeId) {
     try {
         // 总是从 API 获取最新的视频详情
         _log(`从 API 获取视频详情：${awemeId}`);
+        console.log('[showVideoDetail] 开始请求，awemeId=', awemeId);
 
         const response = await fetch('/api/video_detail', {
             method: 'POST',
@@ -1693,13 +1694,26 @@ async function showVideoDetail(awemeId) {
             body: JSON.stringify({ aweme_id: awemeId })
         });
 
+        console.log('[showVideoDetail] 响应状态码:', response.status);
         const result = await response.json();
+        console.log('[showVideoDetail] 响应数据:', JSON.stringify(result, null, 2).slice(0, 2000));
+        console.log('[showVideoDetail] result.success=', result.success);
+        console.log('[showVideoDetail] result.video 存在=', result.video ? '是' : '否');
+        console.log('[showVideoDetail] result.message=', result.message);
+
         if (!result.success) {
+            console.error('[showVideoDetail] 失败原因:', result.message);
             showToast(result.message || '获取视频详情失败', 'error');
             return;
         }
 
         let video = result.video;
+        console.log('[showVideoDetail] video 对象:', video);
+        console.log('[showVideoDetail] video.aweme_id=', video?.aweme_id);
+        console.log('[showVideoDetail] video.media_urls=', video?.media_urls);
+        console.log('[showVideoDetail] video.videos=', video?.videos);
+        console.log('[showVideoDetail] video.video=', video?.video ? '存在 (复杂对象)' : '不存在');
+
         if (VideoStorage.saveVideo(video)) {
             _log(`视频详情已存储到本地：${awemeId}`);
         }
