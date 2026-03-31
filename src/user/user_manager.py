@@ -335,7 +335,9 @@ class DouyinUserManager:
                 'cover_url': post.get('video', {}).get('cover', {}).get('url_list', [''])[0],
                 # 保留原始数据字段用于调试
                 'images': post.get('images'),
-                'video': post.get('video')
+                'video': post.get('video'),
+                # 添加 videos 字段（复数）以匹配前端期望
+                'videos': urls
             }
             
             # 获取封面图

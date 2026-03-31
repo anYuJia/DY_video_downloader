@@ -1723,6 +1723,7 @@ async function showVideoDetail(awemeId) {
                 if (video.media_type || video.raw_media_type) extraHtml += `<div class="mb-2"><strong>媒体类型:</strong> ${video.media_type || video.raw_media_type}</div>`;
                 if (video.images !== undefined) extraHtml += `<div class="mb-2"><strong>Images字段:</strong> ${video.images ? '存在' : '不存在'}</div>`;
                 if (video.videos !== undefined) extraHtml += `<div class="mb-2"><strong>Videos字段:</strong> ${video.videos ? '存在' : '不存在'}</div>`;
+                if (video.video !== undefined) extraHtml += `<div class="mb-2"><strong>Video 字段 (单数):</strong> ${video.video ? '存在 (复杂对象)' : '不存在'}\</div>`;
                 if (video.stored_at) extraHtml += `<div class="mb-2"><strong>存储时间:</strong> ${new Date(video.stored_at).toLocaleString()}</div>`;
                 extraInfoContainer.innerHTML = extraHtml;
             }
