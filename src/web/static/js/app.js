@@ -61,6 +61,7 @@ let _playerVideo = null;
 const VideoStorage = {
     saveVideo: function (videoData) {
         try {
+            console.log('[VideoStorage.saveVideo] 开始存储，awemeId=', videoData?.aweme_id);
             const videos = this.getAllVideos();
             const awemeId = videoData.aweme_id;
 
@@ -70,14 +71,16 @@ const VideoStorage = {
             }
 
             videoData.stored_at = Date.now();
+            console.log('[VideoStorage.saveVideo] 准备增强数据...');
             videoData = this.enhanceVideoData(videoData);
             videos[awemeId] = videoData;
 
+            console.log('[VideoStorage.saveVideo] 准备 JSON.stringify，数据大小约=', JSON.stringify(videos).length, '字节');
             localStorage.setItem('dy_video_storage', JSON.stringify(videos));
             _log(`视频 ${awemeId} 已存储到本地，媒体类型: ${videoData.media_analysis?.media_type || '未知'}，媒体数量: ${videoData.media_analysis?.media_count || 0}`);
             return true;
         } catch (error) {
-            console.error('存储视频数据失败:', error);
+            console.error('[VideoStorage.saveVideo] 存储失败:', error);
             return false;
         }
     },
