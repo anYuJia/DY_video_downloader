@@ -89,13 +89,17 @@ const VideoStorage = {
         // 只复制需要的字段，避免复制大型对象
         const enhanced = {
             aweme_id: videoData.aweme_id,
-            author: videoData.author,
+            author: {
+                nickname: videoData.author?.nickname,
+                avatar_thumb: videoData.author?.avatar_thumb,
+                unique_id: videoData.author?.unique_id,
+                sec_uid: videoData.author?.sec_uid
+            },
             desc: videoData.desc,
             create_time: videoData.create_time,
             digg_count: videoData.digg_count,
             comment_count: videoData.comment_count,
             share_count: videoData.share_count,
-            statistics: videoData.statistics,
             media_type: videoData.media_type,
             media_urls: videoData.media_urls,
             raw_media_type: videoData.raw_media_type,
@@ -106,6 +110,14 @@ const VideoStorage = {
         };
         const mediaAnalysis = this.analyzeMediaData(videoData);
         enhanced.media_analysis = mediaAnalysis;
+        // 重建 statistics，避免复制大型对象
+        enhanced.statistics = {
+            comment_count: videoData.comment_count || 0,
+            digg_count: videoData.digg_count || 0,
+            share_count: videoData.share_count || 0,
+            play_count: videoData.statistics?.play_count || 0
+        };
+
 
         if (videoData.comment_count !== undefined || videoData.digg_count !== undefined || videoData.share_count !== undefined) {
             enhanced.statistics = {
