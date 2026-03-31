@@ -332,10 +332,10 @@ class DouyinUserManager:
                 'media_type': media_type,
                 'media_urls': urls,
                 'raw_media_type': media_type,
-                'cover_url': post.get('video').get('cover', {}).get('url_list', [''])[0],
+                'cover_url': post.get('video', {}).get('cover', {}).get('url_list', [''])[0],
                 # 保留原始数据字段用于调试
                 'images': post.get('images'),
-                'video': post.get('videos')
+                'video': post.get('video')
             }
             
             # 获取封面图
