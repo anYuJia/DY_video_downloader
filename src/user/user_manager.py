@@ -264,14 +264,20 @@ class DouyinUserManager:
         return media_type, urls
 
     async def get_video_detail(self, aweme_id: str) -> Optional[dict]:
+        import sys
+        sys.stderr.write(f'\n*** [UserManager] get_video_detail 被调用！aweme_id={aweme_id} ***\n')
+        sys.stderr.flush()
+        print(f"[UserManager] get_video_detail 开始，aweme_id={aweme_id}")
         """根据作品ID获取视频详情
 
         Args:
             aweme_id: 作品ID
 
         Returns:
-            dict: 视频详情信息，包含媒体URL等
+            dict: 视频详情信息，包含媒体 URL 等
         """
+        sys.stderr.write(f'*** [UserManager] 进入 try 块 ***\n')
+        sys.stderr.flush()
         try:
             # 通过作品ID获取详情的API接口
             params = {
@@ -285,8 +291,18 @@ class DouyinUserManager:
             resp, succ = await self.api.common_request('/aweme/v1/web/aweme/detail/',
                                                      params,
                                                      {}, skip_sign=True)
-            
+
+            sys.stderr.write(f'*** [UserManager] common_request 返回：succ={succ}, resp={resp}\n')
+            sys.stderr.flush()
+            print(f"[UserManager] get_video_detail 响应：succ={succ}, resp keys={list(resp.keys()) if resp else 'None'}")
+            if not succ:
+                print(f"[UserManager] API 返回错误，完整响应：{json.dumps(resp, ensure_ascii=False)[:2000]}")
+
             if not succ or not resp.get('aweme_detail'):
+                sys.stderr.write(f'*** [UserManager] 返回 None: succ={succ}, has_aweme_detail={"aweme_detail" in resp}\n')
+                sys.stderr.flush()
+                print(f"[UserManager] 返回 None: succ={succ}, has_aweme_detail={'aweme_detail' in resp}")
+                print(f"[UserManager] 完整响应内容：{resp}")
                 return None
                 
             post = resp['aweme_detail']
@@ -329,7 +345,25 @@ class DouyinUserManager:
                 images = post.get('images', [])
                 if images:
                     detail['cover_url'] = images[0].get('url_list', [''])[-1]
-            
+
+            # 提取 BGM 信息（支持图集和视频）
+            bgm_url = None
+            if post.get('music'):
+                music_data = post['music']
+                # 尝试多个可能的字段
+                if isinstance(music_data.get('play_url'), dict):
+                    bgm_url = music_data['play_url'].get('url_list', [''])[0] if music_data['play_url'].get('url_list') else None
+                elif isinstance(music_data.get('play_url'), str):
+                    bgm_url = music_data['play_url']
+                if not bgm_url:
+                    bgm_url = music_data.get('h5_url', '') or music_data.get('web_url', '')
+                if not bgm_url and music_data.get('music_file'):
+                    if isinstance(music_data['music_file'], dict):
+                        bgm_url = music_data['music_file'].get('url_list', [''])[0] if music_data['music_file'].get('url_list') else None
+                    elif isinstance(music_data['music_file'], str):
+                        bgm_url = music_data['music_file']
+            detail['bgm_url'] = bgm_url
+
             return detail
             
         except Exception as e:

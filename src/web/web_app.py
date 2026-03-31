@@ -54,6 +54,16 @@ active_tasks = {} # 用于存储活跃的 asyncio.Future 和 asyncio.Event
 _global_loop = None
 _loop_thread = None
 
+def safe_get_url(obj, default=''):
+    """安全地从 obj['url_list'] 中获取 URL，避免索引越界"""
+    if not obj:
+        return default
+    url_list = obj.get('url_list', [])
+    if not url_list:
+        return default
+    return url_list[0] if url_list else default
+
+
 def get_or_create_loop():
     global _global_loop, _loop_thread
     if _global_loop is None:
@@ -65,9 +75,15 @@ def get_or_create_loop():
 
 def run_async(coro):
     """在全局循环中运行异步任务并等待结果"""
+    import sys
+    sys.stderr.write(f'[run_async] 开始执行 coro={coro}\n')
+    sys.stderr.flush()
     loop = get_or_create_loop()
     future = asyncio.run_coroutine_threadsafe(coro, loop)
-    return future.result()
+    result = future.result()
+    sys.stderr.write(f'[run_async] 返回 result={result}\n')
+    sys.stderr.flush()
+    return result
 
 class WebDownloadProgress:
     """Web下载进度回调"""
@@ -282,53 +298,17 @@ iframe{flex:1;border:none;width:100%}
 
 @app.route('/api/open_verify_browser', methods=['POST'])
 def open_verify_browser():
-    """使用已存储的Cookie打开浏览器窗口，让用户完成验证"""
-    import subprocess
-    from playwright.sync_api import sync_playwright
-
-    cookie = Config.COOKIE
-    if not cookie:
-        return jsonify({'success': False, 'message': '未找到存储的Cookie'}), 400
+    """使用系统默认浏览器直接打开抖音，让用户完成验证"""
+    import webbrowser
 
     try:
-        def open_browser_with_cookie():
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=False, channel='chromium')
-                context = browser.new_context(
-                    viewport={"width": 1280, "height": 800},
-                )
-
-                # 解析并设置Cookie
-                if cookie:
-                    cookies = []
-                    for item in cookie.split(';'):
-                        if '=' in item:
-                            key, value = item.strip().split('=', 1)
-                            cookies.append({
-                                "name": key,
-                                "value": value,
-                                "domain": ".douyin.com",
-                                "path": "/"
-                            })
-                    context.add_cookies(cookies)
-
-                page = context.new_page()
-                # 打开抖音首页，页面会使用已设置的Cookie自动登录
-                page.goto("https://www.douyin.com/", wait_until="domcontentloaded", timeout=30000)
-                # 保持浏览器打开
-                input("请在浏览器中完成验证，完成后按回车键关闭此窗口...")
-
-                browser.close()
-
-        # 在新线程中运行浏览器
-        browser_thread = threading.Thread(target=open_browser_with_cookie, daemon=True)
-        browser_thread.start()
-
-        return jsonify({'success': True, 'message': '已打开浏览器，请在浏览器中完成验证'})
+        # 直接打开抖音官网
+        webbrowser.open('https://www.douyin.com/')
+        return jsonify({'success': True, 'message': '已打开抖音官网，请完成验证'})
 
     except Exception as e:
-        logger.error(f"打开验证浏览器失败: {str(e)}")
-        return jsonify({'success': False, 'message': f'打开浏览器失败: {str(e)}'}), 500
+        logger.error(f"打开验证浏览器失败：{str(e)}")
+        return jsonify({'success': False, 'message': f'无法打开浏览器：{str(e)}'}), 500
 
 @app.route('/api/search_user', methods=['POST'])
 def search_user():
@@ -530,10 +510,34 @@ def get_user_videos():
                 continue
             cover_url = ""
             if video.get('video') and video['video'].get('cover'):
-                cover_url = video['video']['cover']['url_list'][0]
+                cover_url = safe_get_url(video['video']['cover'])
             elif video.get('images'):
-                cover_url = video['images'][0]['url_list'][-1]
+                cover_url = safe_get_url(video['images'][0])
             media_type, media_urls = user_manager.get_media_info(video)
+
+            # 提取 BGM 信息
+            bgm_url = None
+            if video.get('music'):
+                music_data = video['music']
+                # 尝试多个可能的字段
+                bgm_url = safe_get_url(music_data.get('play_url', {}))
+                if not bgm_url:
+                    # 尝试 play_url 的直接 URL 字段
+                    bgm_url = music_data.get('play_url', '') if isinstance(music_data.get('play_url'), str) else None
+                if not bgm_url:
+                    # 尝试 music_file 字段
+                    bgm_url = safe_get_url(music_data.get('music_file', {}))
+                if not bgm_url:
+                    # 尝试 h5_url 或 web_url
+                    bgm_url = music_data.get('h5_url', '') or music_data.get('web_url', '')
+
+                # 调试模式输出 music 数据结构
+                if os.environ.get('DEBUG_MODE', '').lower() in ('true', '1', 'yes'):
+                    logger.debug(f"Music 数据结构：{json.dumps(music_data, ensure_ascii=False)[:500]}")
+            elif video.get('video') and video['video'].get('play_addr'):
+                # 如果没有独立音乐，使用视频的播放地址作为 BGM
+                bgm_url = safe_get_url(video['video']['play_addr'])
+
             video_list.append({
                 'aweme_id': aweme_id,
                 'desc': video.get('desc', ''),
@@ -544,9 +548,10 @@ def get_user_videos():
                 'cover_url': cover_url,
                 'media_type': media_type,
                 'media_urls': media_urls,
+                'bgm_url': bgm_url,
                 'author': {
                     'nickname': video.get('author', {}).get('nickname', ''),
-                    'avatar_thumb': video.get('author', {}).get('avatar_thumb', {}).get('url_list', [''])[0] if video.get('author', {}).get('avatar_thumb') else ''
+                    'avatar_thumb': safe_get_url(video.get('author', {}).get('avatar_thumb', {}))
                 }
             })
 
@@ -740,6 +745,8 @@ def download_single_video():
     except Exception as e:
         return jsonify({'success': False, 'message': f'下载启动失败: {str(e)}'}), 500
 
+
+
 @app.route('/api/download_user_video', methods=['POST'])
 def download_user_video():
     """通过sec_uid下载用户所有视频，支持WebSocket进度反馈"""
@@ -765,6 +772,7 @@ def download_user_video():
         async def do_download_task():
             try:
                 # 使用前端传来的nickname，不再调用get_user_detail
+
                 _nickname = nickname if nickname else 'unknown'
                 
                 # 发送开始信号
@@ -1092,6 +1100,9 @@ def download_liked():
 @app.route('/api/video_detail', methods=['POST'])
 def get_video_detail():
     """获取视频详情"""
+    import sys
+    sys.stderr.write(f'[DEBUG] /api/video_detail called, user_manager={user_manager is not None}\n')
+    sys.stderr.flush()
     try:
         data = request.json
         aweme_id = data.get('aweme_id', '').strip()
@@ -1103,7 +1114,16 @@ def get_video_detail():
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
         
         video_detail = run_async(user_manager.get_video_detail(aweme_id))
-        
+        print(f"[video_detail] run_async 返回，video_detail={video_detail}")
+
+        # 检查是否是因为 API 限流或视频不存在导致的空响应
+        if not video_detail:
+            logger.warning(f"视频详情为空，可能是视频不存在或 API 限流：aweme_id={aweme_id}")
+            return jsonify({
+                'success': False,
+                'message': '获取视频详情失败，可能是视频不存在或抖音 API 限流，请尝试其他视频或重新登录'
+            }), 404
+
         if video_detail:
             # 使用与get_user_videos相同的逻辑提取媒体信息
             def get_media_info(post):
@@ -1163,9 +1183,9 @@ def get_video_detail():
             logger.debug(f"   - 原始视频数据结构:")
             logger.debug(f"     - 是否有images字段: {'images' in video_detail}")
             logger.debug(f"     - 是否有video字段: {'video' in video_detail}")
-            if 'images' in video_detail:
+            if 'images' in video_detail and video_detail.get('images') is not None:
                 logger.debug(f"     - images数量: {len(video_detail.get('images', []))}")
-            if 'video' in video_detail:
+            if 'video' in video_detail and video_detail.get('video') is not None:
                 video_data = video_detail.get('video', {})
                 logger.debug(f"     - video.play_addr存在: {'play_addr' in video_data}")
                 if 'play_addr' in video_data:
@@ -1186,8 +1206,10 @@ def get_video_detail():
             })
         else:
             return jsonify({'success': False, 'message': '获取视频详情失败'}), 404
-    
     except Exception as e:
+        print(f'[video_detail] 异常：{str(e)}')
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'message': f'获取视频详情失败: {str(e)}'}), 500
 
 @app.route('/api/parse_link', methods=['POST'])

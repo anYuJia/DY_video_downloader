@@ -550,6 +550,11 @@ function setupEventListeners() {
         });
     });
 
+    // Prevent click on mini-progress from toggling
+    document.getElementById('bottom-bar-mini-progress')?.addEventListener('click', function (e) {
+        e.stopPropagation();
+    });
+
     // Drag-drop
     setupDragDrop();
 
@@ -1268,8 +1273,9 @@ function displayVideos(videos, append) {
         col.className = 'col-md-3 col-sm-6 mb-3';
         col.innerHTML = `
             <div class="card h-100 video-card" data-aweme-id="${video.aweme_id}">
-                <div class="position-relative video-cover-container">
+                <div class="position-relative video-cover-container" onclick="previewMediaFromList('${video.aweme_id}')">
                     <img src="${coverUrl}" class="card-img-top video-cover" alt="封面" onerror="this.src='/static/default-cover.svg'">
+                    <i class="bi bi-play-circle-fill video-play-icon"></i>
                     <div class="video-overlay">
                         <div class="video-stats">
                             <div class="stat-item">
@@ -1290,7 +1296,7 @@ function displayVideos(videos, append) {
                     ${duration ? `<span class="badge bg-dark position-absolute bottom-0 start-0 m-2">${duration}</span>` : ''}
                     <div class="video-select-overlay position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center"
                          style="display:none; background:rgba(0,0,0,0.3); cursor:pointer; z-index:5;"
-                         onclick="toggleVideoSelect('${video.aweme_id}', this)">
+                         onclick="event.stopPropagation(); toggleVideoSelect('${video.aweme_id}', this)">
                         <i class="bi bi-check-circle-fill" style="font-size:2rem; color:rgba(255,255,255,0.8);"></i>
                     </div>
                 </div>
@@ -1304,7 +1310,7 @@ function displayVideos(videos, append) {
                         <button class="btn btn-sm btn-outline-info video-btn" onclick="showVideoDetail('${video.aweme_id}')">
                             <i class="bi bi-eye"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-success video-btn" onclick="previewMediaFromList('${video.aweme_id}')">
+                        <button class="btn btn-sm btn-outline-success video-btn" onclick="event.stopPropagation(); previewMediaFromList('${video.aweme_id}')">
                             <i class="bi bi-play-circle"></i>
                         </button>
                     </div>
@@ -1678,31 +1684,25 @@ async function downloadParsedVideo(awemeId) {
 // ═══════════════════════════════════════════════
 async function showVideoDetail(awemeId) {
     try {
-        let video = VideoStorage.getVideo(awemeId);
+        // 总是从 API 获取最新的视频详情
+        _log(`从 API 获取视频详情：${awemeId}`);
 
-        if (video) {
-            _log(`从本地存储加载视频详情: ${awemeId}`);
-        } else {
-            _log(`从API获取视频详情: ${awemeId}`);
+        const response = await fetch('/api/video_detail', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ aweme_id: awemeId })
+        });
 
-            const response = await fetch('/api/video_detail', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ aweme_id: awemeId })
-            });
-
-            const result = await response.json();
-            if (result.success) {
-                video = result.video;
-                if (VideoStorage.saveVideo(video)) {
-                    _log(`视频详情已存储到本地: ${awemeId}`);
-                }
-            } else {
-                showToast(result.message, 'error');
-                return;
-            }
+        const result = await response.json();
+        if (!result.success) {
+            showToast(result.message || '获取视频详情失败', 'error');
+            return;
         }
 
+        let video = result.video;
+        if (VideoStorage.saveVideo(video)) {
+            _log(`视频详情已存储到本地：${awemeId}`);
+        }
         if (video) {
             document.getElementById('videoDetailCover').src = video.cover_url || '/static/default-cover.svg';
             document.getElementById('videoDetailDesc').textContent = video.desc || '无描述';
@@ -1746,6 +1746,47 @@ async function showVideoDetail(awemeId) {
                 mediaUrlsContainer.innerHTML = mediaHtml;
             } else {
                 mediaUrlsContainer.innerHTML = '<p class="text-muted">暂无媒体链接</p>';
+            }
+
+            // 显示音频/BGM 链接
+            const audioUrlsContainer = document.getElementById('videoDetailAudioUrls');
+            const audioTitle = document.getElementById('videoDetailAudioTitle');
+            const downloadAudioBtn = document.getElementById('downloadAudioFromDetail');
+            const bgmUrl = video.bgm_url || video.music;
+
+            _log(`BGM 检查：bgm_url="${video.bgm_url}", music="${video.music}", 最终 bgmUrl="${bgmUrl}"`);
+
+            if (bgmUrl) {
+                audioTitle.style.display = 'block';
+                downloadAudioBtn.style.display = 'inline-block';
+                audioUrlsContainer.style.display = 'block';
+                audioUrlsContainer.innerHTML = `
+                    <div class="mb-2 p-2 border rounded">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="badge bg-success me-2"><i class="bi bi-music-note"></i> BGM</span>
+                            <small class="text-muted">音频</small>
+                        </div>
+                        <div class="mt-1">
+                            <audio controls class="w-100 mt-2" style="max-width: 100%;">
+                                <source src="${bgmUrl}" type="audio/mpeg">
+                                您的浏览器不支持音频播放。
+                            </audio>
+                            <div class="mt-2 d-flex gap-2 align-items-center flex-wrap">
+                                <a href="${bgmUrl}" target="_blank" download class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-download"></i> 浏览器直接下载
+                                </a>
+                                <a href="${bgmUrl}" target="_blank" class="text-break small" style="word-break: break-all;">${bgmUrl}</a>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                // 设置按钮直接打开链接
+                downloadAudioBtn.setAttribute('data-bgm-url', bgmUrl);
+            } else {
+                audioTitle.style.display = 'none';
+                downloadAudioBtn.style.display = 'none';
+                audioUrlsContainer.style.display = 'none';
+                audioUrlsContainer.innerHTML = '<p class="text-muted">暂无音频</p>';
             }
 
             setupMediaPreview(video);
@@ -1826,6 +1867,20 @@ async function downloadVideoFromDetail() {
     } catch (error) {
         showToast('下载请求失败', 'error');
     }
+}
+
+async function downloadAudioFromDetail() {
+    const btn = document.getElementById('downloadAudioFromDetail');
+    const bgmUrl = btn.getAttribute('data-bgm-url');
+
+    if (!bgmUrl) {
+        showToast('没有可下载的音频', 'error');
+        return;
+    }
+
+    // 直接打开链接，让浏览器处理下载
+    window.open(bgmUrl, '_blank');
+    showToast('音频将在新标签页打开，请右键保存', 'info');
 }
 
 // ═══════════════════════════════════════════════
@@ -2314,12 +2369,6 @@ function showProgress(taskId, taskName) {
 
     const noProgress = document.getElementById('no-progress');
     if (noProgress) noProgress.classList.add('d-none');
-
-    // Auto-expand bottom bar when progress starts
-    const bottomBar = document.getElementById('bottom-bar');
-    if (bottomBar && !bottomBar.classList.contains('expanded')) {
-        bottomBar.classList.add('expanded');
-    }
 }
 
 function createTaskProgressElement(taskId, taskName) {
@@ -2446,12 +2495,6 @@ function createDownloadProgressElement(taskId, nickname) {
     // 清空之前的进度任务，只保留新的全局面板
     progressContainer.innerHTML = '';
     progressContainer.appendChild(progressElement);
-
-    // Auto-expand bottom bar
-    const bottomBar = document.getElementById('bottom-bar');
-    if (bottomBar && !bottomBar.classList.contains('expanded')) {
-        bottomBar.classList.add('expanded');
-    }
 
     updateActiveTasksCount();
 }
@@ -3118,15 +3161,15 @@ function openImmersivePlayer(video) {
         return;
     }
 
-    // 提取 BGM 信息（从视频 URL 中获取）
+    // 提取 BGM 信息
     _playerBgmUrl = null;
     if (video.music || video.bgm_url) {
         _playerBgmUrl = video.music || video.bgm_url;
     } else if (video.media_urls && video.media_urls.length > 0) {
-        // 如果没有独立的 BGM，尝试从第一个视频提取音频
-        const firstVideo = video.media_urls.find(m => m.type === 'video');
-        if (firstVideo) {
-            _playerBgmUrl = firstVideo.url;
+        // 如果没有独立的 BGM，使用第一个媒体的 URL 作为 BGM（图集场景）
+        const firstMedia = video.media_urls[0];
+        if (firstMedia) {
+            _playerBgmUrl = firstMedia.url;
         }
     }
 
@@ -3152,6 +3195,11 @@ function openImmersivePlayer(video) {
                 <button class="ip-btn" onclick="playerPrev()" id="ip-prev"><i class="bi bi-chevron-left"></i></button>
                 <button class="ip-btn ip-play-btn" onclick="playerTogglePlay()" id="ip-play"><i class="bi bi-pause-fill"></i></button>
                 <button class="ip-btn" onclick="playerNext()" id="ip-next"><i class="bi bi-chevron-right"></i></button>
+                ${_playerBgmUrl ? `
+                <a href="${_playerBgmUrl}" target="_blank" download class="ip-btn" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); font-size: 0.7rem;">
+                    音频
+                </a>
+                ` : ''}
             </div>
             <div class="ip-progress-track" onclick="playerSeek(event)">
                 <div class="ip-progress-bar" id="ip-progress"></div>
@@ -3412,7 +3460,7 @@ function showVerifyDialog() {
     .then(data => {
         if (data.success) {
             showToast('请在浏览器中完成验证，然后重新搜索', 'info');
-            addLog('浏览器已打开，请在浏览器中完成验证后重新搜索', 'info');
+            addLog('浏览器已打开，请在浏览器中完成验证后重新搜索\n\n💡 如果您已经在浏览器中登录了抖音，但仍提示验证，请：\n1. 按 F12 打开开发者工具\n2. 在 Console 中输入 document.cookie 复制 Cookie\n3. 回到应用，在设置中粘贴新的 Cookie', 'info');
         } else {
             // 如果后端打开失败，尝试直接打开
             const verifyWin = window.open('https://www.douyin.com/', 'douyin_verify', 'width=1100,height=750,scrollbars=yes');

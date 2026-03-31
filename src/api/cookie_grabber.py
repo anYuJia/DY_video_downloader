@@ -79,12 +79,15 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
             # 发送状态到 stderr（父进程可读取）
             _status("browser_opened", "浏览器已打开，正在加载抖音...")
 
-            page.goto("https://www.douyin.com/", wait_until="domcontentloaded", timeout=30000)
+            page.goto("https://www.douyin.com/", wait_until="load", timeout=30000)
+            # 等待页面完全加载，包括验证弹窗
+            page.wait_for_timeout(8000)  # 增加到 8 秒
             _status("page_loaded", "抖音页面已加载，检查登录状态...")
 
             # 轮询检测登录状态
             start_time = time.time()
             poll_interval = 2  # 每 2 秒检查一次
+            consecutive_not_verified = 0  # 连续未检测到验证的次数
 
             while time.time() - start_time < timeout:
                 cookies = context.cookies("https://www.douyin.com")
@@ -96,21 +99,89 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
                     for key in LOGIN_MARKER_KEYS
                 )
 
-                if has_login:
-                    _status("login_detected", "检测到登录成功，正在提取 Cookie...")
+                # 检查页面是否包含验证提示
+                try:
+                    page_title = page.title()
+                    page_url = page.url
+                    page_content = page.content()
 
-                    # 等待一小段时间让所有 Cookie 稳定
-                    time.sleep(2)
-
-                    # 再次获取最新 Cookie
-                    cookies = context.cookies("https://www.douyin.com")
-                    cookie_str = "; ".join(
-                        f"{c['name']}={c['value']}" for c in cookies
+                    # 更广泛的验证检测
+                    has_verification = (
+                        '验证' in page_title or
+                        '登录' in page_title or
+                        'passport' in page_url.lower() or
+                        '手机号' in page_title or
+                        'security' in page_url.lower() or
+                        '扫码' in page_title or
+                        '验证' in page_content[:1000] or  # 检查页面内容前 1000 字符
+                        '登录' in page_content[:1000] or
+                        'login' in page_url.lower() or
+                        '二维码' in page_title or
+                        '请登录' in page_content[:1000]
                     )
 
-                    _status("cookie_extracted", "Cookie 提取成功！登录态已保存，下次无需重新登录。")
-                    context.close()
-                    return {"success": True, "cookie": cookie_str}
+                    if has_verification:
+                        consecutive_not_verified = 0
+                        elapsed = int(time.time() - start_time)
+                        remaining = timeout - elapsed
+                        _status(
+                            "waiting_verification",
+                            f"检测到验证页面，请完成验证... ({elapsed}s / {timeout}s，剩余 {remaining}s)",
+                        )
+                        time.sleep(poll_interval)
+                        continue
+
+                    # 调试输出
+                    print(f"[cookie_grabber] 当前页面：title={page_title[:50]}, url={page_url[:60]}", file=sys.stderr, flush=True)
+                    print(f"[cookie_grabber] has_login={has_login}, sessionid={'sessionid' in cookie_dict}", file=sys.stderr, flush=True)
+
+                except Exception as e:
+                    # 页面可能正在加载或已关闭
+                    if 'closed' in str(e).lower():
+                        _status("browser_closed", "浏览器窗口被关闭")
+                        return {"success": False, "error": "browser_closed"}
+                    print(f"[cookie_grabber] 检查页面状态异常：{e}", file=sys.stderr, flush=True)
+                    pass
+
+                # 如果有登录标志，检查是否是新的登录（通过检查页面是否是主页）
+                if has_login:
+                    # 检查当前页面是否是抖音主页（不是登录/验证页面）
+                    try:
+                        current_url = page.url
+                        page_title = page.title()
+
+                        # 如果是主页且没有验证提示，说明已经登录成功
+                        if 'douyin.com' in current_url and \
+                           'passport' not in current_url.lower() and \
+                           'login' not in current_url.lower() and \
+                           '验证' not in page_title and \
+                           '登录' not in page_title:
+                            # 连续检测到主页，确认登录成功
+                            consecutive_not_verified += 1
+                            if consecutive_not_verified >= 3:  # 连续 3 次检测到主页，确认登录成功
+                                _status("login_detected", "检测到登录成功，正在提取 Cookie...")
+
+                                # 等待一小段时间让所有 Cookie 稳定
+                                time.sleep(2)
+
+                                # 再次获取最新 Cookie
+                                cookies = context.cookies("https://www.douyin.com")
+                                cookie_str = "; ".join(
+                                    f"{c['name']}={c['value']}" for c in cookies
+                                )
+
+                                _status("cookie_extracted", "Cookie 提取成功！登录态已保存，下次无需重新登录。")
+                                context.close()
+                                return {"success": True, "cookie": cookie_str}
+                        else:
+                            # 在验证页面，重置计数器
+                            consecutive_not_verified = 0
+                    except Exception as e:
+                        print(f"[cookie_grabber] 检查页面异常：{e}", file=sys.stderr, flush=True)
+                        pass
+                else:
+                    # 没有登录标志，重置计数器
+                    consecutive_not_verified = 0
 
                 # 检查页面是否被关闭
                 try:

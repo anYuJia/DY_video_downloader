@@ -564,11 +564,19 @@
                             <div id="videoDetailMediaUrls" class="small">
                                 <p class="text-muted">暂无媒体链接</p>
                             </div>
+
+                            <h6 class="fw-bold mt-3">音频/BGM</h6>
+                            <div id="videoDetailAudioUrls" class="small">
+                                <p class="text-muted">暂无音频</p>
+                            </div>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                    <a href="javascript:void(0)" class="btn btn-outline-success" id="downloadAudioFromDetail" style="display: none;" onclick="downloadAudioFromDetail()">
+                        <i class="bi bi-box-arrow-up-right"></i> 在新窗口打开音频
+                    </a>
                     <button type="button" class="btn btn-primary" id="downloadVideoFromDetail"
                         onclick="downloadVideoFromDetail()">下载视频</button>
                 </div>

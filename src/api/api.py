@@ -225,16 +225,24 @@ class DouyinAPI:
             print(f'\033[94m[API] 请求参数: {params}\033[0m')
             
         response = requests.get(url, params=params, headers=headers)
+        print(f'[DEBUG] response.status_code={response.status_code}, len(response.content)={len(response.content)}, len(response.text)={len(response.text)}')
+        sys.stderr.write(f'*** [API] 普通请求响应：status={response.status_code}, content_len={len(response.content)} ***\n')
+        sys.stderr.flush()
         
         if self.debug_mode:
             print(f'\033[94m[API] 响应状态码: {response.status_code}\033[0m')
             print(f'\033[94m[API] 响应内容长度: {len(response.text)}, 前500字符: {response.text[:500]}\033[0m')
 
-        if response.status_code != 200 or response.text == '':
-            if self.debug_mode:
-                print(f'\033[93m[API] 普通请求失败(状态={response.status_code}, 空={response.text == ""}), 尝试浏览器请求...\033[0m')
+        if response.status_code != 200 or len(response.content) == 0:
+            sys.stderr.write(f'*** [API] 请求失败，准备尝试浏览器 fallback ***\n')
+            sys.stderr.flush()
+            print(f'[API] 普通请求失败 (状态={response.status_code}, 空={len(response.content) == 0}), 尝试浏览器请求...')
             # 回退到浏览器请求
-            return await self.browser_request(uri, params)
+            browser_result = await self.browser_request(uri, params)
+            sys.stderr.write(f'*** [API] 浏览器请求返回：succ={browser_result[1]} ***\n')
+            sys.stderr.flush()
+            print(f'[API] 浏览器请求返回：succ={browser_result[1]}')
+            return browser_result
             
         try:
             json_response = response.json()
@@ -250,6 +258,14 @@ class DouyinAPI:
             if self.debug_mode:
                 print(f'\033[91m[API] 触发滑块验证！需要用户手动验证\033[0m')
             return {'_need_verify': True}, False
+
+        # 检测视频详情接口返回空数据（可能是视频不存在或 API 限流）
+        if uri and 'aweme/detail' in uri and json_response.get('aweme_detail') is None:
+            filter_detail = json_response.get('filter_detail', {})
+            filter_reason = filter_detail.get('filter_reason', 'unknown')
+            if self.debug_mode:
+                print(f'\033[91m[API] 视频详情接口返回空数据：filter_reason={filter_reason}\033[0m')
+            return json_response, False
 
         if json_response.get('status_code', 0) != 0:
             if self.debug_mode:
@@ -287,7 +303,7 @@ class DouyinAPI:
                 input=req_data,
                 capture_output=True,
                 text=True,
-                timeout=45,
+                timeout=90,  # 增加超时时间到 90 秒，允许用户完成验证操作
                 env=env,
             )
 
@@ -301,17 +317,26 @@ class DouyinAPI:
 
             result = json.loads(proc.stdout)
 
+            sys.stderr.write(f'*** [API] 浏览器响应：{json.dumps(result, ensure_ascii=False)[:500]} ***\n')
+            sys.stderr.flush()
+
             if self.debug_mode:
                 result_str = json.dumps(result, ensure_ascii=False)
                 print(f"\033[94m[API] 浏览器响应: {result_str[:500]}...\033[0m")
 
             if result and not result.get("error"):
                 if result.get('status_code', 0) != 0:
+                    sys.stderr.write(f'*** [API] 浏览器响应 status_code != 0，返回 False ***\n')
+                    sys.stderr.flush()
                     return result, False
+                sys.stderr.write(f'*** [API] 浏览器响应成功，返回 True ***\n')
+                sys.stderr.flush()
                 return result, True
 
             if self.debug_mode and result.get("error"):
                 print(f"\033[91m[API] 浏览器请求失败: {result['error']}\033[0m")
+            sys.stderr.write(f'*** [API] 浏览器响应有 error 或 result 为空，返回 False ***\n')
+            sys.stderr.flush()
             return {}, False
 
         except Exception as e:
