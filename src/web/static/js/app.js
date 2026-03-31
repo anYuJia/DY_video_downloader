@@ -1391,6 +1391,7 @@ function downloadVideoFromList(awemeId) {
         };
     } else {
         const video = window.currentVideos ? window.currentVideos.find(v => v.aweme_id === awemeId) : null;
+        console.log('[showVideoDetail] 准备更新 UI ...');
         if (video) {
             finalVideoData = {
                 aweme_id: awemeId,
@@ -1577,7 +1578,8 @@ function showParseResults(videos) {
 
     videos.forEach((video, index) => {
         if (video && video.aweme_id) {
-            if (VideoStorage.saveVideo(video)) {
+        console.log('[showVideoDetail] 准备调用 VideoStorage.saveVideo...');
+        if (VideoStorage.saveVideo(video)) {
                 _log(`解析的视频已存储到本地: ${video.aweme_id}`);
                 if (index === 0) addLog(`解析的视频已存储到本地: ${video.aweme_id}`);
             }
