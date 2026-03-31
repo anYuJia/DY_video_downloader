@@ -335,7 +335,7 @@ class DouyinUserManager:
                 'cover_url': post.get('video', {}).get('cover', {}).get('url_list', [''])[0],
                 # 保留原始数据字段用于调试
                 'images': post.get('images'),
-                'video': post.get('video'),
+                # 移除 video 字段（复杂对象，会导致 localStorage 溢出）
                 # 添加 videos 字段（复数）以匹配前端期望
                 'videos': urls
             }

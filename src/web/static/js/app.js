@@ -86,7 +86,24 @@ const VideoStorage = {
     },
 
     enhanceVideoData: function (videoData) {
-        const enhanced = { ...videoData };
+        // 只复制需要的字段，避免复制大型对象
+        const enhanced = {
+            aweme_id: videoData.aweme_id,
+            author: videoData.author,
+            desc: videoData.desc,
+            create_time: videoData.create_time,
+            digg_count: videoData.digg_count,
+            comment_count: videoData.comment_count,
+            share_count: videoData.share_count,
+            statistics: videoData.statistics,
+            media_type: videoData.media_type,
+            media_urls: videoData.media_urls,
+            raw_media_type: videoData.raw_media_type,
+            cover_url: videoData.cover_url,
+            bgm_url: videoData.bgm_url,
+            videos: videoData.videos,
+            images: videoData.images
+        };
         const mediaAnalysis = this.analyzeMediaData(videoData);
         enhanced.media_analysis = mediaAnalysis;
 
