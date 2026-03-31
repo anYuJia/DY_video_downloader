@@ -225,9 +225,10 @@ class DouyinAPI:
             print(f'\033[94m[API] 请求参数: {params}\033[0m')
             
         response = requests.get(url, params=params, headers=headers)
-        print(f'[DEBUG] response.status_code={response.status_code}, len(response.content)={len(response.content)}, len(response.text)={len(response.text)}')
-        sys.stderr.write(f'*** [API] 普通请求响应：status={response.status_code}, content_len={len(response.content)} ***\n')
-        sys.stderr.flush()
+        if self.debug_mode:
+            print(f'[DEBUG] response.status_code={response.status_code}, len(response.content)={len(response.content)}, len(response.text)={len(response.text)}')
+            sys.stderr.write(f'*** [API] 普通请求响应：status={response.status_code}, content_len={len(response.content)} ***\n')
+            sys.stderr.flush()
         
         if self.debug_mode:
             print(f'\033[94m[API] 响应状态码: {response.status_code}\033[0m')
