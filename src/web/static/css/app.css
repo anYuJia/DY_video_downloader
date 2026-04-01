@@ -1376,6 +1376,149 @@ textarea.form-control { resize: vertical; }
 }
 
 /* ═══════════════════════════════════════
+   SECTION PANELS (unified content sections)
+   ═══════════════════════════════════════ */
+.section-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    backdrop-filter: var(--blur);
+    -webkit-backdrop-filter: var(--blur);
+    animation: cardReveal 0.4s ease-out both;
+}
+.section-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--glass-border);
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.section-panel-header--success {
+    background: linear-gradient(135deg, rgba(0, 214, 143, 0.12), rgba(0, 214, 143, 0.04));
+    border-bottom-color: rgba(0, 214, 143, 0.15);
+}
+.section-panel-header--accent {
+    background: linear-gradient(135deg, rgba(254, 44, 85, 0.12), rgba(254, 44, 85, 0.04));
+    border-bottom-color: rgba(254, 44, 85, 0.15);
+}
+.section-panel-header--info {
+    background: linear-gradient(135deg, rgba(124, 92, 252, 0.12), rgba(124, 92, 252, 0.04));
+    border-bottom-color: rgba(124, 92, 252, 0.15);
+}
+.section-panel-title {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+.section-panel-header--success .section-panel-title i { color: var(--success); }
+.section-panel-header--accent .section-panel-title i { color: var(--accent); }
+.section-panel-header--info .section-panel-title i { color: var(--info); }
+.section-panel-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.section-panel-actions .btn {
+    font-size: 0.75rem;
+    padding: 4px 10px;
+}
+.section-panel-actions .badge {
+    font-size: 0.7rem;
+}
+.section-panel-body {
+    padding: 16px 18px;
+}
+
+/* ═══════════════════════════════════════
+   USER PROFILE CARD
+   ═══════════════════════════════════════ */
+.user-profile {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.user-profile-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid var(--glass-border-hover);
+    flex-shrink: 0;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+.user-profile-info {
+    flex: 1;
+    min-width: 120px;
+}
+.user-profile-name {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--text-primary);
+    margin: 0 0 2px;
+}
+.user-profile-id {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+}
+.user-profile-sig {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin: 4px 0 0;
+    line-height: 1.4;
+    max-height: 40px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.user-profile-stats {
+    display: flex;
+    gap: 8px;
+}
+.user-profile-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    min-width: 60px;
+    transition: var(--transition);
+}
+.user-profile-stat:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--glass-border-hover);
+    transform: translateY(-2px);
+}
+.user-profile-stat-num {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+}
+.user-profile-stat-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+@media (max-width: 767.98px) {
+    .user-profile { flex-direction: column; text-align: center; }
+    .user-profile-stats { justify-content: center; }
+    .section-panel-header { flex-direction: column; gap: 8px; }
+    .section-panel-actions { justify-content: center; }
+}
+
+/* ═══════════════════════════════════════
    TOAST
    ═══════════════════════════════════════ */
 .toast {

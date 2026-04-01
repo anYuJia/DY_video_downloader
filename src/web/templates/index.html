@@ -93,12 +93,16 @@
 
             <!-- Link parse results (hidden by default) -->
             <div id="linkParseResult" class="mb-3" style="display: none;">
-                <div class="card border-success">
-                    <div class="card-header bg-success text-white py-1 d-flex justify-content-between align-items-center">
-                        <h6 class="mb-0 small">解析结果</h6>
-                        <button class="btn btn-outline-light btn-sm" style="font-size: 0.6rem; padding: 1px 4px;" onclick="clearParseResult()">清除</button>
+                <div class="section-panel">
+                    <div class="section-panel-header section-panel-header--success">
+                        <div class="section-panel-title">
+                            <i class="bi bi-link-45deg"></i> 解析结果
+                        </div>
+                        <button class="btn btn-outline-light btn-sm" onclick="clearParseResult()">
+                            <i class="bi bi-x-lg"></i> 清除
+                        </button>
                     </div>
-                    <div class="card-body p-2">
+                    <div class="section-panel-body">
                         <div id="parsedVideosList"></div>
                     </div>
                 </div>
@@ -106,47 +110,46 @@
 
             <!-- User detail (hidden by default) -->
             <div id="userDetailSection" class="mb-3" style="display: none;">
-                <div class="card border-info">
-                    <div class="card-header bg-info text-white py-2">
-                        <h6 class="mb-0">用户详情</h6>
+                <div class="section-panel">
+                    <div class="section-panel-header section-panel-header--info">
+                        <div class="section-panel-title">
+                            <i class="bi bi-person-circle"></i> 用户详情
+                        </div>
                     </div>
-                    <div class="card-body py-2">
-                        <div class="row">
-                            <div class="col-md-2 text-center">
-                                <img id="userAvatar" src="" alt="用户头像" class="img-fluid rounded-circle"
-                                    style="max-width: 60px; max-height: 60px;">
+                    <div class="section-panel-body">
+                        <div class="user-profile">
+                            <img id="userAvatar" src="" alt="用户头像" class="user-profile-avatar">
+                            <div class="user-profile-info">
+                                <h6 id="userNickname" class="user-profile-name"></h6>
+                                <span id="userUniqueId" class="user-profile-id"></span>
+                                <p id="userSignature" class="user-profile-sig"></p>
                             </div>
-                            <div class="col-md-6">
-                                <h6 id="userNickname" class="mb-1"></h6>
-                                <p class="text-muted mb-1 small" id="userUniqueId"></p>
-                                <p class="mb-1 small" id="userSignature"></p>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="row text-center user-detail-stats">
-                                    <div class="col-3">
-                                        <small class="text-muted">作品</small>
-                                        <span id="userAwemeCount" class="small">0</span>
-                                    </div>
-                                    <div class="col-3">
-                                        <small class="text-muted">粉丝</small>
-                                        <span id="userFollowerCount" class="small">0</span>
-                                    </div>
-                                    <div class="col-3">
-                                        <small class="text-muted">关注</small>
-                                        <span id="userFollowingCount" class="small">0</span>
-                                    </div>
-                                    <div class="col-3">
-                                        <small class="text-muted">获赞</small>
-                                        <span id="userTotalFavorited" class="small">0</span>
-                                    </div>
+                            <div class="user-profile-stats">
+                                <div class="user-profile-stat">
+                                    <span id="userAwemeCount" class="user-profile-stat-num">0</span>
+                                    <span class="user-profile-stat-label">作品</span>
+                                </div>
+                                <div class="user-profile-stat">
+                                    <span id="userFollowerCount" class="user-profile-stat-num">0</span>
+                                    <span class="user-profile-stat-label">粉丝</span>
+                                </div>
+                                <div class="user-profile-stat">
+                                    <span id="userFollowingCount" class="user-profile-stat-num">0</span>
+                                    <span class="user-profile-stat-label">关注</span>
+                                </div>
+                                <div class="user-profile-stat">
+                                    <span id="userTotalFavorited" class="user-profile-stat-num">0</span>
+                                    <span class="user-profile-stat-label">获赞</span>
                                 </div>
                             </div>
                         </div>
-                        <div class="mt-2">
-                            <button type="button" class="btn btn-success btn-sm"
-                                onclick="downloadUserVideos()">下载所有作品</button>
-                            <button type="button" class="btn btn-info btn-sm"
-                                onclick="loadUserVideos()">查看作品列表</button>
+                        <div class="d-flex gap-2 mt-3">
+                            <button type="button" class="btn btn-primary btn-sm" onclick="downloadUserVideos()">
+                                <i class="bi bi-download"></i> 下载所有作品
+                            </button>
+                            <button type="button" class="btn btn-outline-info btn-sm" onclick="loadUserVideos()">
+                                <i class="bi bi-grid-3x3-gap"></i> 查看作品列表
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -154,29 +157,31 @@
 
             <!-- User videos (hidden by default) -->
             <div id="userVideosSection" class="mb-3" style="display: none;">
-                <div class="card border-success">
-                    <div class="card-header bg-success text-white py-2 d-flex justify-content-between align-items-center">
-                        <h6 class="mb-0">作品列表</h6>
-                        <div>
-                            <span id="videoCount" class="badge bg-light text-dark me-2">0 个作品</span>
-                            <button id="selectModeBtn" onclick="toggleSelectMode()" class="btn btn-light btn-sm me-1">
+                <div class="section-panel">
+                    <div class="section-panel-header section-panel-header--success">
+                        <div class="section-panel-title">
+                            <i class="bi bi-grid-3x3-gap"></i> 作品列表
+                        </div>
+                        <div class="section-panel-actions">
+                            <span id="videoCount" class="badge bg-light text-dark">0 个作品</span>
+                            <button id="selectModeBtn" onclick="toggleSelectMode()" class="btn btn-outline-light btn-sm">
                                 <i class="bi bi-check2-square"></i> 多选
                             </button>
                             <span id="selectedActions" style="display:none;">
-                                <span id="selectedCount" class="badge bg-primary me-1">已选 0</span>
-                                <button onclick="downloadSelected()" class="btn btn-light btn-sm me-1">
+                                <span id="selectedCount" class="badge bg-primary">已选 0</span>
+                                <button onclick="downloadSelected()" class="btn btn-outline-light btn-sm">
                                     <i class="bi bi-download"></i> 下载选中
                                 </button>
                             </span>
-                            <button onclick="downloadUserVideos()" class="btn btn-light btn-sm">
+                            <button onclick="downloadUserVideos()" class="btn btn-outline-light btn-sm">
                                 <i class="bi bi-download"></i> 下载全部
                             </button>
-                            <button onclick="goBackToHome()" class="btn btn-outline-light btn-sm ms-2">
-                                <i class="bi bi-x-lg"></i> 关闭
+                            <button onclick="goBackToHome()" class="btn btn-outline-light btn-sm">
+                                <i class="bi bi-x-lg"></i>
                             </button>
                         </div>
                     </div>
-                    <div class="card-body py-2">
+                    <div class="section-panel-body">
                         <div id="userVideosList" class="row"></div>
                     </div>
                 </div>
@@ -184,20 +189,22 @@
 
             <!-- Liked videos (hidden by default) -->
             <div id="likedVideosSection" class="mb-3" style="display: none;">
-                <div class="card border-danger">
-                    <div class="card-header bg-danger text-white py-2 d-flex justify-content-between align-items-center">
-                        <h6 class="mb-0"><i class="bi bi-heart-fill"></i> 点赞视频列表</h6>
-                        <div>
-                            <span id="likedVideoCount" class="badge bg-light text-dark me-2">0 个视频</span>
-                            <button onclick="downloadAllLikedVideos()" class="btn btn-light btn-sm">
+                <div class="section-panel">
+                    <div class="section-panel-header section-panel-header--accent">
+                        <div class="section-panel-title">
+                            <i class="bi bi-heart-fill"></i> 点赞视频列表
+                        </div>
+                        <div class="section-panel-actions">
+                            <span id="likedVideoCount" class="badge bg-light text-dark">0 个视频</span>
+                            <button onclick="downloadAllLikedVideos()" class="btn btn-outline-light btn-sm">
                                 <i class="bi bi-download"></i> 下载全部
                             </button>
-                            <button onclick="goBackToHome()" class="btn btn-outline-light btn-sm ms-2">
-                                <i class="bi bi-x-lg"></i> 关闭
+                            <button onclick="goBackToHome()" class="btn btn-outline-light btn-sm">
+                                <i class="bi bi-x-lg"></i>
                             </button>
                         </div>
                     </div>
-                    <div class="card-body py-2">
+                    <div class="section-panel-body">
                         <div id="likedVideosList" class="row"></div>
                     </div>
                 </div>
@@ -205,20 +212,22 @@
 
             <!-- Liked authors (hidden by default) -->
             <div id="likedAuthorsSection" class="mb-3" style="display: none;">
-                <div class="card border-info">
-                    <div class="card-header bg-info text-white py-2 d-flex justify-content-between align-items-center">
-                        <h6 class="mb-0"><i class="bi bi-people-fill"></i> 点赞作者列表</h6>
-                        <div>
-                            <button type="button" class="btn btn-light btn-sm me-2" onclick="downloadAllLikedAuthors()">
-                                <i class="bi bi-download"></i> 顺序下载全部作者视频
+                <div class="section-panel">
+                    <div class="section-panel-header section-panel-header--info">
+                        <div class="section-panel-title">
+                            <i class="bi bi-people-fill"></i> 点赞作者列表
+                        </div>
+                        <div class="section-panel-actions">
+                            <span id="likedAuthorCount" class="badge bg-light text-dark">0 个作者</span>
+                            <button type="button" class="btn btn-outline-light btn-sm" onclick="downloadAllLikedAuthors()">
+                                <i class="bi bi-download"></i> 下载全部作者视频
                             </button>
-                            <span id="likedAuthorCount" class="badge bg-light text-dark me-2">0 个作者</span>
                             <button onclick="goBackToHome()" class="btn btn-outline-light btn-sm">
-                                <i class="bi bi-x-lg"></i> 关闭
+                                <i class="bi bi-x-lg"></i>
                             </button>
                         </div>
                     </div>
-                    <div class="card-body py-2">
+                    <div class="section-panel-body">
                         <div id="likedAuthorsList" class="row"></div>
                     </div>
                 </div>
@@ -607,21 +616,26 @@
 
     <!-- User Select Modal -->
     <div class="modal fade" id="user-select-modal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">
-                        <i class="bi bi-people"></i>
-                        选择用户
-                    </h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <h5 class="modal-title">
+                            <i class="bi bi-people" style="color: var(--accent);"></i>
+                            选择用户
+                        </h5>
+                        <span class="badge" style="background: rgba(254,44,85,0.15); color: var(--accent); font-size: 0.7rem;">多个结果</span>
+                    </div>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <p>找到以下用户，请选择要下载的用户：</p>
-                    <div id="modal-user-list" class="row"></div>
+                    <p class="text-muted small mb-3">找到以下用户，请选择要查看的用户：</p>
+                    <div id="modal-user-list" class="row g-3"></div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">
+                        <i class="bi bi-x-lg"></i> 取消
+                    </button>
                 </div>
             </div>
         </div>
