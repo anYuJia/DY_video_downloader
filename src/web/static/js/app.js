@@ -61,7 +61,6 @@ let _playerVideo = null;
 const VideoStorage = {
     saveVideo: function (videoData) {
         try {
-            console.log('[VideoStorage.saveVideo] 开始存储，awemeId=', videoData?.aweme_id);
             const videos = this.getAllVideos();
             const awemeId = videoData.aweme_id;
 
@@ -71,11 +70,9 @@ const VideoStorage = {
             }
 
             videoData.stored_at = Date.now();
-            console.log('[VideoStorage.saveVideo] 准备增强数据...');
             videoData = this.enhanceVideoData(videoData);
             videos[awemeId] = videoData;
 
-            console.log('[VideoStorage.saveVideo] 准备 JSON.stringify，数据大小约=', JSON.stringify(videos).length, '字节');
             localStorage.setItem('dy_video_storage', JSON.stringify(videos));
             _log(`视频 ${awemeId} 已存储到本地，媒体类型: ${videoData.media_analysis?.media_type || '未知'}，媒体数量: ${videoData.media_analysis?.media_count || 0}`);
             return true;
@@ -1720,7 +1717,6 @@ async function showVideoDetail(awemeId) {
     try {
         // 总是从 API 获取最新的视频详情
         _log(`从 API 获取视频详情：${awemeId}`);
-        console.log('[showVideoDetail] 开始请求，awemeId=', awemeId);
 
         const response = await fetch('/api/video_detail', {
             method: 'POST',
@@ -1728,25 +1724,14 @@ async function showVideoDetail(awemeId) {
             body: JSON.stringify({ aweme_id: awemeId })
         });
 
-        console.log('[showVideoDetail] 响应状态码:', response.status);
         const result = await response.json();
-        console.log('[showVideoDetail] 响应数据:', JSON.stringify(result, null, 2).slice(0, 2000));
-        console.log('[showVideoDetail] result.success=', result.success);
-        console.log('[showVideoDetail] result.video 存在=', result.video ? '是' : '否');
-        console.log('[showVideoDetail] result.message=', result.message);
 
         if (!result.success) {
-            console.error('[showVideoDetail] 失败原因:', result.message);
             showToast(result.message || '获取视频详情失败', 'error');
             return;
         }
 
         let video = result.video;
-        console.log('[showVideoDetail] video 对象:', video);
-        console.log('[showVideoDetail] video.aweme_id=', video?.aweme_id);
-        console.log('[showVideoDetail] video.media_urls=', video?.media_urls);
-        console.log('[showVideoDetail] video.videos=', video?.videos);
-        console.log('[showVideoDetail] video.video=', video?.video ? '存在 (复杂对象)' : '不存在');
 
         if (VideoStorage.saveVideo(video)) {
             _log(`视频详情已存储到本地：${awemeId}`);
@@ -1799,43 +1784,70 @@ async function showVideoDetail(awemeId) {
 
             // 显示音频/BGM 链接
             const audioUrlsContainer = document.getElementById('videoDetailAudioUrls');
-            const audioTitle = document.getElementById('videoDetailAudioTitle');
             const downloadAudioBtn = document.getElementById('downloadAudioFromDetail');
             const bgmUrl = video.bgm_url || video.music;
 
-            _log(`BGM 检查：bgm_url="${video.bgm_url}", music="${video.music}", 最终 bgmUrl="${bgmUrl}"`);
-
             if (bgmUrl) {
-                audioTitle.style.display = 'block';
-                downloadAudioBtn.style.display = 'inline-block';
-                audioUrlsContainer.style.display = 'block';
-                audioUrlsContainer.innerHTML = `
-                    <div class="mb-2 p-2 border rounded">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <span class="badge bg-success me-2"><i class="bi bi-music-note"></i> BGM</span>
-                            <small class="text-muted">音频</small>
-                        </div>
-                        <div class="mt-1">
-                            <audio controls class="w-100 mt-2" style="max-width: 100%;">
-                                <source src="${bgmUrl}" type="audio/mpeg">
-                                您的浏览器不支持音频播放。
-                            </audio>
-                            <div class="mt-2 d-flex gap-2 align-items-center flex-wrap">
-                                <a href="${bgmUrl}" target="_blank" download class="btn btn-sm btn-outline-primary">
-                                    <i class="bi bi-download"></i> 浏览器直接下载
-                                </a>
-                                <a href="${bgmUrl}" target="_blank" class="text-break small" style="word-break: break-all;">${bgmUrl}</a>
-                            </div>
-                        </div>
-                    </div>
-                `;
+                if (downloadAudioBtn) downloadAudioBtn.style.display = 'inline-block';
+                if (audioUrlsContainer) {
+                    audioUrlsContainer.style.display = 'block';
+                    audioUrlsContainer.textContent = '';
+                    const audioDiv = document.createElement('div');
+                    audioDiv.className = 'mb-2 p-2 border rounded';
+
+                    const headerDiv = document.createElement('div');
+                    headerDiv.className = 'd-flex justify-content-between align-items-center';
+                    const badge = document.createElement('span');
+                    badge.className = 'badge bg-success me-2';
+                    badge.textContent = 'BGM';
+                    const small = document.createElement('small');
+                    small.className = 'text-muted';
+                    small.textContent = '音频';
+                    headerDiv.appendChild(badge);
+                    headerDiv.appendChild(small);
+
+                    const bodyDiv = document.createElement('div');
+                    bodyDiv.className = 'mt-1';
+                    const audio = document.createElement('audio');
+                    audio.controls = true;
+                    audio.className = 'w-100 mt-2';
+                    audio.style.maxWidth = '100%';
+                    const source = document.createElement('source');
+                    source.src = bgmUrl;
+                    source.type = 'audio/mpeg';
+                    audio.appendChild(source);
+
+                    const linkDiv = document.createElement('div');
+                    linkDiv.className = 'mt-2 d-flex gap-2 align-items-center flex-wrap';
+                    const dlLink = document.createElement('a');
+                    dlLink.href = bgmUrl;
+                    dlLink.target = '_blank';
+                    dlLink.download = '';
+                    dlLink.className = 'btn btn-sm btn-outline-primary';
+                    dlLink.textContent = '浏览器直接下载';
+                    const urlLink = document.createElement('a');
+                    urlLink.href = bgmUrl;
+                    urlLink.target = '_blank';
+                    urlLink.className = 'text-break small';
+                    urlLink.style.wordBreak = 'break-all';
+                    urlLink.textContent = bgmUrl;
+                    linkDiv.appendChild(dlLink);
+                    linkDiv.appendChild(urlLink);
+
+                    bodyDiv.appendChild(audio);
+                    bodyDiv.appendChild(linkDiv);
+                    audioDiv.appendChild(headerDiv);
+                    audioDiv.appendChild(bodyDiv);
+                    audioUrlsContainer.appendChild(audioDiv);
+                }
                 // 设置按钮直接打开链接
                 downloadAudioBtn.setAttribute('data-bgm-url', bgmUrl);
             } else {
-                audioTitle.style.display = 'none';
-                downloadAudioBtn.style.display = 'none';
-                audioUrlsContainer.style.display = 'none';
-                audioUrlsContainer.innerHTML = '<p class="text-muted">暂无音频</p>';
+                if (downloadAudioBtn) downloadAudioBtn.style.display = 'none';
+                if (audioUrlsContainer) {
+                    audioUrlsContainer.style.display = 'none';
+                    audioUrlsContainer.textContent = '';
+                }
             }
 
             setupMediaPreview(video);
@@ -1858,6 +1870,7 @@ async function showVideoDetail(awemeId) {
             modal.show();
         }
     } catch (error) {
+        console.error('[showVideoDetail] 错误:', error);
         showToast('获取视频详情失败', 'error');
     }
 }

@@ -81,8 +81,6 @@ def run_async(coro):
     loop = get_or_create_loop()
     future = asyncio.run_coroutine_threadsafe(coro, loop)
     result = future.result()
-    sys.stderr.write(f'[run_async] 返回 result={result}\n')
-    sys.stderr.flush()
     return result
 
 class WebDownloadProgress:
@@ -1100,23 +1098,18 @@ def download_liked():
 @app.route('/api/video_detail', methods=['POST'])
 def get_video_detail():
     """获取视频详情"""
-    import sys
-    sys.stderr.write(f'[DEBUG] /api/video_detail called, user_manager={user_manager is not None}\n')
-    sys.stderr.flush()
     try:
         data = request.json
         aweme_id = data.get('aweme_id', '').strip()
-        
+
         if not aweme_id:
             return jsonify({'success': False, 'message': '视频ID不能为空'}), 400
-        
+
         if not user_manager:
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
-        
-        video_detail = run_async(user_manager.get_video_detail(aweme_id))
-        print(f"[video_detail] run_async 返回，video_detail={video_detail}")
 
-        # 检查是否是因为 API 限流或视频不存在导致的空响应
+        video_detail = run_async(user_manager.get_video_detail(aweme_id))
+
         if not video_detail:
             logger.warning(f"视频详情为空，可能是视频不存在或 API 限流：aweme_id={aweme_id}")
             return jsonify({
@@ -1124,92 +1117,12 @@ def get_video_detail():
                 'message': '获取视频详情失败，可能是视频不存在或抖音 API 限流，请尝试其他视频或重新登录'
             }), 404
 
-        if video_detail:
-            # 使用与get_user_videos相同的逻辑提取媒体信息
-            def get_media_info(post):
-                """获取媒体信息和URL数组"""
-                if post.get("images"):
-                    images = post.get("images", [])
-                    urls = []
-                    has_live = False
-                    has_image = False
-
-                    for img in images:
-                        # Live Photo特征：包含video字段且有play_addr
-                        if img.get("video") and img["video"].get("play_addr"):
-                            has_live = True
-                            urls.append({
-                                'type': 'live_photo',
-                                'url': img["video"]["play_addr"]["url_list"][0]
-                            })
-                        else:
-                            has_image = True
-                            # 普通图片使用url_list的最后一个URL（通常是最高质量的）
-                            urls.append({
-                                'type': 'image',
-                                'url': img["url_list"][-1]
-                            })
-
-                    # 如果同时包含Live Photo和普通图片，返回mixed类型
-                    if has_live and has_image:
-                        return 'mixed', urls
-                    elif has_live:
-                        return 'live_photo', urls
-                    else:
-                        return 'image', urls
-                    
-                elif post.get("video"):
-                    # 视频类型
-                    video_url = post.get("video", {}).get("play_addr", {}).get("url_list", [""])[0]
-                    if video_url:
-                        return 'video', [{'type': 'video', 'url': video_url}]
-                    else:
-                        return 'unknown', []
-
-                # 默认返回空
-                return 'unknown', []
-            
-            # 提取媒体信息
-            media_type, media_urls = get_media_info(video_detail)
-            
-            # 在视频详情中添加媒体信息
-            video_detail['media_type'] = media_type
-            video_detail['media_urls'] = media_urls
-            video_detail['media_count'] = len(media_urls)
-            
-            logger.debug(f" 视频详情 {video_detail.get('aweme_id', 'unknown')} 媒体信息:")
-            logger.debug(f"   - 媒体类型: {media_type}")
-            logger.debug(f"   - 媒体数量: {len(media_urls)}")
-            logger.debug(f"   - 原始视频数据结构:")
-            logger.debug(f"     - 是否有images字段: {'images' in video_detail}")
-            logger.debug(f"     - 是否有video字段: {'video' in video_detail}")
-            if 'images' in video_detail and video_detail.get('images') is not None:
-                logger.debug(f"     - images数量: {len(video_detail.get('images', []))}")
-            if 'video' in video_detail and video_detail.get('video') is not None:
-                video_data = video_detail.get('video', {})
-                logger.debug(f"     - video.play_addr存在: {'play_addr' in video_data}")
-                if 'play_addr' in video_data:
-                    play_addr = video_data.get('play_addr', {})
-                    logger.debug(f"     - play_addr.url_list存在: {'url_list' in play_addr}")
-                    if 'url_list' in play_addr:
-                        url_list = play_addr.get('url_list', [])
-                        logger.debug(f"     - url_list长度: {len(url_list)}")
-                        if url_list:
-                            logger.debug(f"     - 第一个URL: {url_list[0][:100]}...")
-            for idx, url_info in enumerate(media_urls):
-                logger.debug(f"   - 媒体{idx+1}: {url_info.get('type', 'unknown')}")
-                logger.debug(f"     完整URL: {url_info.get('url', 'no_url')[:100]}...")
-            
-            return jsonify({
-                'success': True,
-                'video': video_detail
-            })
-        else:
-            return jsonify({'success': False, 'message': '获取视频详情失败'}), 404
+        return jsonify({
+            'success': True,
+            'video': video_detail
+        })
     except Exception as e:
-        print(f'[video_detail] 异常：{str(e)}')
-        import traceback
-        traceback.print_exc()
+        logger.error(f'获取视频详情异常: {str(e)}', exc_info=True)
         return jsonify({'success': False, 'message': f'获取视频详情失败: {str(e)}'}), 500
 
 @app.route('/api/parse_link', methods=['POST'])

@@ -264,10 +264,6 @@ class DouyinUserManager:
         return media_type, urls
 
     async def get_video_detail(self, aweme_id: str) -> Optional[dict]:
-        import sys
-        sys.stderr.write(f'\n*** [UserManager] get_video_detail 被调用！aweme_id={aweme_id} ***\n')
-        sys.stderr.flush()
-        print(f"[UserManager] get_video_detail 开始，aweme_id={aweme_id}")
         """根据作品ID获取视频详情
 
         Args:
@@ -276,8 +272,6 @@ class DouyinUserManager:
         Returns:
             dict: 视频详情信息，包含媒体 URL 等
         """
-        sys.stderr.write(f'*** [UserManager] 进入 try 块 ***\n')
-        sys.stderr.flush()
         try:
             # 通过作品ID获取详情的API接口
             params = {
@@ -287,24 +281,15 @@ class DouyinUserManager:
                 "device_platform": "webapp",
                 "os": "windows"
             }
-            
+
             resp, succ = await self.api.common_request('/aweme/v1/web/aweme/detail/',
                                                      params,
                                                      {}, skip_sign=True)
 
-            sys.stderr.write(f'*** [UserManager] common_request 返回：succ={succ}, resp={resp}\n')
-            sys.stderr.flush()
-            print(f"[UserManager] get_video_detail 响应：succ={succ}, resp keys={list(resp.keys()) if resp else 'None'}")
-            if not succ:
-                print(f"[UserManager] API 返回错误，完整响应：{json.dumps(resp, ensure_ascii=False)[:2000]}")
-
             if not succ or not resp.get('aweme_detail'):
-                sys.stderr.write(f'*** [UserManager] 返回 None: succ={succ}, has_aweme_detail={"aweme_detail" in resp}\n')
-                sys.stderr.flush()
-                print(f"[UserManager] 返回 None: succ={succ}, has_aweme_detail={'aweme_detail' in resp}")
-                print(f"[UserManager] 完整响应内容：{resp}")
+                logger.warning(f"获取视频详情失败: succ={succ}, aweme_id={aweme_id}")
                 return None
-                
+
             post = resp['aweme_detail']
             
             # 获取媒体信息
