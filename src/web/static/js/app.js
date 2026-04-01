@@ -1737,120 +1737,99 @@ async function showVideoDetail(awemeId) {
             _log(`视频详情已存储到本地：${awemeId}`);
         }
         if (video) {
-            document.getElementById('videoDetailCover').src = video.cover_url || '/static/default-cover.svg';
-            document.getElementById('videoDetailDesc').textContent = video.desc || '无描述';
+            // Type badge
+            const typeBadge = document.getElementById('videoDetailTypeBadge');
+            if (typeBadge) {
+                const typeMap = { video: '视频', image: '图集', live_photo: 'Live Photo', mixed: '混合' };
+                typeBadge.textContent = typeMap[video.media_type || video.raw_media_type] || '作品';
+            }
 
+            // Cover
+            document.getElementById('videoDetailCover').src = video.cover_url || '/static/default-cover.svg';
+
+            // Author bar
             const author = video.author || {};
             document.getElementById('videoDetailAuthorAvatar').src = author.avatar_thumb || '/static/default-avatar.svg';
             document.getElementById('videoDetailAuthorName').textContent = author.nickname || '未知作者';
+            document.getElementById('videoDetailTime').textContent = video.create_time
+                ? new Date(video.create_time * 1000).toLocaleString()
+                : '';
 
+            // Description
+            document.getElementById('videoDetailDesc').textContent = video.desc || '无描述';
+
+            // Stats
             document.getElementById('videoDetailLikes').textContent = formatNumber(video.digg_count || 0);
             document.getElementById('videoDetailComments').textContent = formatNumber(video.comment_count || 0);
             document.getElementById('videoDetailShares').textContent = formatNumber(video.share_count || 0);
-            document.getElementById('videoDetailTime').textContent = new Date(video.create_time * 1000).toLocaleString();
 
-            const extraInfoContainer = document.getElementById('videoDetailExtraInfo');
-            if (extraInfoContainer) {
-                let extraHtml = '';
-                if (video.aweme_id) extraHtml += `<div class="mb-2"><strong>作品ID:</strong> ${video.aweme_id}</div>`;
-                if (video.media_type || video.raw_media_type) extraHtml += `<div class="mb-2"><strong>媒体类型:</strong> ${video.media_type || video.raw_media_type}</div>`;
-                if (video.images !== undefined) extraHtml += `<div class="mb-2"><strong>Images字段:</strong> ${video.images ? '存在' : '不存在'}</div>`;
-                if (video.videos !== undefined) extraHtml += `<div class="mb-2"><strong>Videos字段:</strong> ${video.videos ? '存在' : '不存在'}</div>`;
-                if (video.video !== undefined) extraHtml += `<div class="mb-2"><strong>Video 字段 (单数):</strong> ${video.video ? '存在 (复杂对象)' : '不存在'}\</div>`;
-                if (video.stored_at) extraHtml += `<div class="mb-2"><strong>存储时间:</strong> ${new Date(video.stored_at).toLocaleString()}</div>`;
-                extraInfoContainer.innerHTML = extraHtml;
-            }
-
+            // Media URLs
             const mediaUrlsContainer = document.getElementById('videoDetailMediaUrls');
+            mediaUrlsContainer.textContent = '';
             if (video.media_urls && video.media_urls.length > 0) {
-                let mediaHtml = '';
                 video.media_urls.forEach((media, index) => {
-                    mediaHtml += `
-                        <div class="mb-2 p-2 border rounded">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <span class="badge bg-secondary me-2">${media.type || 'unknown'}</span>
-                                <small class="text-muted">媒体 ${index + 1}</small>
-                            </div>
-                            <div class="mt-1">
-                                <a href="${media.url || ''}" target="_blank" class="text-break small" style="word-break: break-all;">${media.url || ''}</a>
-                            </div>
-                        </div>
-                    `;
+                    const item = document.createElement('div');
+                    item.className = 'video-detail-media-item';
+
+                    const badge = document.createElement('span');
+                    const badgeClass = media.type === 'video' ? 'bg-primary' :
+                                       media.type === 'image' ? 'bg-success' : 'bg-secondary';
+                    badge.className = 'badge ' + badgeClass;
+                    badge.textContent = (media.type === 'video' ? '视频' :
+                                        media.type === 'image' ? '图片' :
+                                        media.type === 'live_photo' ? 'Live' : media.type || '未知');
+
+                    const link = document.createElement('a');
+                    link.href = media.url || '';
+                    link.target = '_blank';
+                    link.textContent = '媒体 ' + (index + 1) + ' - ' + (media.type || 'unknown');
+                    link.title = media.url || '';
+
+                    item.appendChild(badge);
+                    item.appendChild(link);
+                    mediaUrlsContainer.appendChild(item);
                 });
-                mediaUrlsContainer.innerHTML = mediaHtml;
             } else {
-                mediaUrlsContainer.innerHTML = '<p class="text-muted">暂无媒体链接</p>';
+                const empty = document.createElement('span');
+                empty.className = 'text-muted small';
+                empty.textContent = '暂无媒体链接';
+                mediaUrlsContainer.appendChild(empty);
             }
 
-            // 显示音频/BGM 链接
+            // Audio/BGM
+            const audioSection = document.getElementById('videoDetailAudioSection');
             const audioUrlsContainer = document.getElementById('videoDetailAudioUrls');
             const downloadAudioBtn = document.getElementById('downloadAudioFromDetail');
             const bgmUrl = video.bgm_url || video.music;
 
             if (bgmUrl) {
+                if (audioSection) audioSection.style.display = '';
                 if (downloadAudioBtn) downloadAudioBtn.style.display = 'inline-block';
                 if (audioUrlsContainer) {
-                    audioUrlsContainer.style.display = 'block';
                     audioUrlsContainer.textContent = '';
-                    const audioDiv = document.createElement('div');
-                    audioDiv.className = 'mb-2 p-2 border rounded';
-
-                    const headerDiv = document.createElement('div');
-                    headerDiv.className = 'd-flex justify-content-between align-items-center';
-                    const badge = document.createElement('span');
-                    badge.className = 'badge bg-success me-2';
-                    badge.textContent = 'BGM';
-                    const small = document.createElement('small');
-                    small.className = 'text-muted';
-                    small.textContent = '音频';
-                    headerDiv.appendChild(badge);
-                    headerDiv.appendChild(small);
-
-                    const bodyDiv = document.createElement('div');
-                    bodyDiv.className = 'mt-1';
                     const audio = document.createElement('audio');
                     audio.controls = true;
-                    audio.className = 'w-100 mt-2';
-                    audio.style.maxWidth = '100%';
                     const source = document.createElement('source');
                     source.src = bgmUrl;
                     source.type = 'audio/mpeg';
                     audio.appendChild(source);
+                    audioUrlsContainer.appendChild(audio);
 
-                    const linkDiv = document.createElement('div');
-                    linkDiv.className = 'mt-2 d-flex gap-2 align-items-center flex-wrap';
-                    const dlLink = document.createElement('a');
-                    dlLink.href = bgmUrl;
-                    dlLink.target = '_blank';
-                    dlLink.download = '';
-                    dlLink.className = 'btn btn-sm btn-outline-primary';
-                    dlLink.textContent = '浏览器直接下载';
-                    const urlLink = document.createElement('a');
-                    urlLink.href = bgmUrl;
-                    urlLink.target = '_blank';
-                    urlLink.className = 'text-break small';
-                    urlLink.style.wordBreak = 'break-all';
-                    urlLink.textContent = bgmUrl;
-                    linkDiv.appendChild(dlLink);
-                    linkDiv.appendChild(urlLink);
-
-                    bodyDiv.appendChild(audio);
-                    bodyDiv.appendChild(linkDiv);
-                    audioDiv.appendChild(headerDiv);
-                    audioDiv.appendChild(bodyDiv);
-                    audioUrlsContainer.appendChild(audioDiv);
+                    const link = document.createElement('a');
+                    link.href = bgmUrl;
+                    link.target = '_blank';
+                    link.className = 'video-detail-audio-link';
+                    link.textContent = bgmUrl;
+                    audioUrlsContainer.appendChild(link);
                 }
-                // 设置按钮直接打开链接
-                downloadAudioBtn.setAttribute('data-bgm-url', bgmUrl);
+                if (downloadAudioBtn) downloadAudioBtn.setAttribute('data-bgm-url', bgmUrl);
             } else {
+                if (audioSection) audioSection.style.display = 'none';
                 if (downloadAudioBtn) downloadAudioBtn.style.display = 'none';
-                if (audioUrlsContainer) {
-                    audioUrlsContainer.style.display = 'none';
-                    audioUrlsContainer.textContent = '';
-                }
             }
 
             setupMediaPreview(video);
+            setupMediaPreviewControls(video);
 
             document.getElementById('downloadVideoFromDetail').setAttribute('data-aweme-id', awemeId);
             document.getElementById('downloadVideoFromDetail').setAttribute('data-desc', video.desc || '视频');
@@ -3082,8 +3061,18 @@ function setupMediaPreviewControls(video) {
             setupImageCarousel(video.media_urls.filter(media => media.type === 'image' || media.type === 'live_photo'));
             showImagesBtn.style.display = 'inline-block';
         }
+
+        // Auto-show the most relevant media
+        if (hasImages && !hasVideo) {
+            showImages();
+        } else if (hasVideo) {
+            showVideo();
+        } else {
+            showCover();
+        }
     } else {
         mediaControls.style.display = 'none';
+        document.getElementById('videoDetailCover').style.display = 'block';
     }
 }
 

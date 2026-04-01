@@ -474,21 +474,23 @@
     <!-- Video Detail Modal -->
     <div class="modal fade" id="videoDetailModal" tabindex="-1" aria-labelledby="videoDetailModalLabel"
         aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="videoDetailModalLabel">视频详情</h5>
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content video-detail-modal">
+                <div class="modal-header video-detail-header">
+                    <div class="d-flex align-items-center gap-2">
+                        <h5 class="modal-title" id="videoDetailModalLabel">作品详情</h5>
+                        <span class="badge video-detail-type-badge" id="videoDetailTypeBadge"></span>
+                    </div>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body">
-                    <div class="row">
-                        <div class="col-md-6">
-                            <!-- Media preview area -->
-                            <div id="mediaPreviewContainer">
-                                <img id="videoDetailCover" src="" class="img-fluid rounded" alt="视频封面"
-                                    style="display: block;">
+                <div class="modal-body p-0">
+                    <div class="row g-0">
+                        <!-- Left: Media Preview -->
+                        <div class="col-md-6 video-detail-media-col">
+                            <div id="mediaPreviewContainer" class="video-detail-media-wrap">
+                                <img id="videoDetailCover" src="" class="video-detail-cover" alt="封面">
 
-                                <video id="videoDetailPlayer" class="img-fluid rounded" controls style="display: none;">
+                                <video id="videoDetailPlayer" class="video-detail-cover" controls style="display: none;">
                                     您的浏览器不支持视频播放。
                                 </video>
 
@@ -508,77 +510,96 @@
                                     <div class="carousel-indicators" id="carouselIndicators"></div>
                                 </div>
 
-                                <div id="mediaControls" class="mt-2" style="display: none;">
+                                <div id="mediaControls" class="video-detail-media-controls" style="display: none;">
                                     <div class="btn-group" role="group">
                                         <button type="button" class="btn btn-outline-primary btn-sm" id="showCoverBtn"
-                                            onclick="showCover()">封面</button>
+                                            onclick="showCover()">
+                                            <i class="bi bi-image"></i> 封面
+                                        </button>
                                         <button type="button" class="btn btn-outline-primary btn-sm" id="showVideoBtn"
-                                            onclick="showVideo()" style="display: none;">视频</button>
+                                            onclick="showVideo()" style="display: none;">
+                                            <i class="bi bi-play-circle"></i> 视频
+                                        </button>
                                         <button type="button" class="btn btn-outline-primary btn-sm" id="showImagesBtn"
-                                            onclick="showImages()" style="display: none;">图片</button>
+                                            onclick="showImages()" style="display: none;">
+                                            <i class="bi bi-images"></i> 图片
+                                        </button>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-6">
-                            <h6 class="fw-bold">视频描述</h6>
-                            <p id="videoDetailDesc" class="text-muted">-</p>
 
-                            <h6 class="fw-bold mt-3">作者信息</h6>
-                            <div class="d-flex align-items-center mb-2">
-                                <img id="videoDetailAuthorAvatar" src="" class="rounded-circle me-2" width="32"
-                                    height="32" alt="作者头像">
-                                <span id="videoDetailAuthorName" class="fw-bold">-</span>
-                            </div>
-
-                            <h6 class="fw-bold mt-3">统计信息</h6>
-                            <div class="row text-center">
-                                <div class="col-4">
-                                    <div class="text-danger">&#10084;</div>
-                                    <div id="videoDetailLikes" class="small">-</div>
-                                </div>
-                                <div class="col-4">
-                                    <div class="text-primary">&#128172;</div>
-                                    <div id="videoDetailComments" class="small">-</div>
-                                </div>
-                                <div class="col-4">
-                                    <div class="text-success">&#128228;</div>
-                                    <div id="videoDetailShares" class="small">-</div>
+                        <!-- Right: Info -->
+                        <div class="col-md-6 video-detail-info-col">
+                            <!-- Author Bar -->
+                            <div class="video-detail-author" id="videoDetailAuthorBar">
+                                <img id="videoDetailAuthorAvatar" src="" class="video-detail-avatar" alt="头像">
+                                <div class="video-detail-author-text">
+                                    <span id="videoDetailAuthorName" class="video-detail-author-name">-</span>
+                                    <span id="videoDetailTime" class="video-detail-time">-</span>
                                 </div>
                             </div>
 
-                            <h6 class="fw-bold mt-3">发布时间</h6>
-                            <p id="videoDetailTime" class="text-muted">-</p>
-
-                            <h6 class="fw-bold mt-3">详细信息</h6>
-                            <div id="videoDetailExtraInfo" class="small text-muted">
-                                <p>暂无额外信息</p>
+                            <!-- Description -->
+                            <div class="video-detail-desc-wrap">
+                                <p id="videoDetailDesc" class="video-detail-desc">-</p>
                             </div>
 
-                            <h6 class="fw-bold mt-3">媒体预览</h6>
-                            <div id="videoDetailMediaPreview" class="mb-3">
-                                <p class="text-muted">暂无媒体内容</p>
+                            <!-- Stats -->
+                            <div class="video-detail-stats">
+                                <div class="video-detail-stat video-detail-stat--like">
+                                    <i class="bi bi-heart-fill"></i>
+                                    <span id="videoDetailLikes" class="video-detail-stat-num">-</span>
+                                    <span class="video-detail-stat-label">点赞</span>
+                                </div>
+                                <div class="video-detail-stat video-detail-stat--comment">
+                                    <i class="bi bi-chat-dots-fill"></i>
+                                    <span id="videoDetailComments" class="video-detail-stat-num">-</span>
+                                    <span class="video-detail-stat-label">评论</span>
+                                </div>
+                                <div class="video-detail-stat video-detail-stat--share">
+                                    <i class="bi bi-share-fill"></i>
+                                    <span id="videoDetailShares" class="video-detail-stat-num">-</span>
+                                    <span class="video-detail-stat-label">分享</span>
+                                </div>
                             </div>
 
-                            <h6 class="fw-bold mt-3">媒体链接</h6>
-                            <div id="videoDetailMediaUrls" class="small">
-                                <p class="text-muted">暂无媒体链接</p>
+                            <!-- Media Links -->
+                            <div class="video-detail-section">
+                                <div class="video-detail-section-title">
+                                    <i class="bi bi-link-45deg"></i> 媒体链接
+                                </div>
+                                <div id="videoDetailMediaUrls" class="video-detail-media-list">
+                                    <span class="text-muted small">暂无媒体链接</span>
+                                </div>
                             </div>
 
-                            <h6 class="fw-bold mt-3">音频/BGM</h6>
-                            <div id="videoDetailAudioUrls" class="small">
-                                <p class="text-muted">暂无音频</p>
+                            <!-- Media Preview (for inline preview items) -->
+                            <div id="videoDetailMediaPreview" style="display:none;"></div>
+                            <div id="videoDetailExtraInfo" style="display:none;"></div>
+
+                            <!-- Audio/BGM -->
+                            <div class="video-detail-section" id="videoDetailAudioSection" style="display: none;">
+                                <div class="video-detail-section-title">
+                                    <i class="bi bi-music-note-beamed"></i> 音频 / BGM
+                                </div>
+                                <div id="videoDetailAudioUrls" class="video-detail-audio"></div>
                             </div>
                         </div>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                    <a href="javascript:void(0)" class="btn btn-outline-success" id="downloadAudioFromDetail" style="display: none;" onclick="downloadAudioFromDetail()">
-                        <i class="bi bi-box-arrow-up-right"></i> 在新窗口打开音频
+                <div class="modal-footer video-detail-footer">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">
+                        <i class="bi bi-x-lg"></i> 关闭
+                    </button>
+                    <a href="javascript:void(0)" class="btn btn-outline-success btn-sm" id="downloadAudioFromDetail"
+                        style="display: none;" onclick="downloadAudioFromDetail()">
+                        <i class="bi bi-music-note"></i> 下载音频
                     </a>
-                    <button type="button" class="btn btn-primary" id="downloadVideoFromDetail"
-                        onclick="downloadVideoFromDetail()">下载视频</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="downloadVideoFromDetail"
+                        onclick="downloadVideoFromDetail()">
+                        <i class="bi bi-download"></i> 下载作品
+                    </button>
                 </div>
             </div>
         </div>
