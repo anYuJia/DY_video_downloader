@@ -1844,6 +1844,8 @@ async function showVideoDetail(awemeId) {
             });
             modalElement.addEventListener('hidden.bs.modal', function () {
                 modalElement.setAttribute('aria-hidden', 'true');
+                const player = document.getElementById('videoDetailPlayer');
+                player.pause();
             });
 
             modal.show();
