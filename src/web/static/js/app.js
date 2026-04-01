@@ -3052,7 +3052,7 @@ function setupMediaPreviewControls(video) {
         if (hasVideo) {
             const videoUrl = video.media_urls.find(media => media.type === 'video')?.url;
             if (videoUrl) {
-                videoPlayer.src = videoUrl;
+                videoPlayer.src = proxyUrl(videoUrl);
                 showVideoBtn.style.display = 'inline-block';
             }
         }
@@ -3090,7 +3090,7 @@ function setupImageCarousel(imageMedias) {
         if (media.type === 'live_photo') {
             carouselItem.innerHTML = `
                 <video class="d-block w-100 rounded" controls>
-                    <source src="${media.url}" type="video/mp4">
+                    <source src="${proxyUrl(media.url)}" type="video/mp4">
                 </video>
                 <div class="carousel-caption d-none d-md-block">
                     <span class="badge bg-primary">Live Photo</span>
@@ -3098,7 +3098,7 @@ function setupImageCarousel(imageMedias) {
             `;
         } else {
             carouselItem.innerHTML = `
-                <img src="${media.url}" class="d-block w-100 rounded" alt="图片 ${index + 1}">
+                <img src="${proxyUrl(media.url)}" class="d-block w-100 rounded" alt="图片 ${index + 1}">
                 <div class="carousel-caption d-none d-md-block">
                     <span class="badge bg-secondary">图片 ${index + 1}</span>
                 </div>
