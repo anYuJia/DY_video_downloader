@@ -3122,8 +3122,16 @@ function setupImageCarousel(imageMedias) {
 
 function resetMediaDisplay() {
     document.getElementById('videoDetailCover').style.display = 'none';
-    document.getElementById('videoDetailPlayer').style.display = 'none';
+    const player = document.getElementById('videoDetailPlayer');
+    player.style.display = 'none';
+    player.pause();
+    player.removeAttribute('src');
+    player.load();
     document.getElementById('imageCarousel').style.display = 'none';
+    document.getElementById('carouselInner').textContent = '';
+    document.getElementById('carouselIndicators').textContent = '';
+    document.getElementById('showVideoBtn').style.display = 'none';
+    document.getElementById('showImagesBtn').style.display = 'none';
     document.querySelectorAll('#mediaControls .btn').forEach(btn => btn.classList.remove('active'));
 }
 
