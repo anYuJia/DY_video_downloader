@@ -1714,29 +1714,32 @@ a:hover { color: var(--accent-hover); }
 .ip-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.95);
-    backdrop-filter: blur(30px);
+    background: rgba(0, 0, 0, 0.97);
 }
 .ip-container {
     position: relative;
     width: 100%;
-    max-width: 560px;
-    height: 90vh;
+    height: 100vh;
     display: flex;
     flex-direction: column;
-    border-radius: var(--radius-xl);
     overflow: hidden;
     background: #000;
-    box-shadow: 0 0 80px rgba(0, 0, 0, 0.8);
 }
 .ip-header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
     display: flex;
     align-items: center;
     padding: 14px 18px;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(10px);
-    z-index: 2;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.3s ease;
 }
+.ip-container:hover .ip-header,
+.ip-container.ip-show-controls .ip-header { opacity: 1; }
 .ip-title {
     flex: 1;
     font-family: 'Outfit', sans-serif;
@@ -1775,6 +1778,8 @@ a:hover { color: var(--accent-hover); }
     justify-content: center;
     overflow: hidden;
     background: #000;
+    cursor: pointer;
+    position: relative;
 }
 .ip-media video {
     width: 100%;
@@ -1782,8 +1787,8 @@ a:hover { color: var(--accent-hover); }
     object-fit: contain;
 }
 .ip-media img {
-    max-width: 100%;
-    max-height: 100%;
+    width: 100%;
+    height: 100%;
     object-fit: contain;
 }
 .ip-error {
@@ -1792,46 +1797,70 @@ a:hover { color: var(--accent-hover); }
     padding: 40px;
 }
 .ip-error i { font-size: 3rem; margin-bottom: 12px; display: block; }
+.ip-overlay-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);
+    padding: 40px 0 20px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: 10;
+}
+.ip-container:hover .ip-overlay-controls,
+.ip-container.ip-show-controls .ip-overlay-controls { opacity: 1; }
 .ip-controls {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 24px;
-    padding: 12px;
-    background: rgba(0, 0, 0, 0.6);
+    gap: 20px;
+    padding: 0;
+    background: none;
 }
 .ip-btn {
-    background: rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     border: none;
     color: #fff;
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    font-size: 1.2rem;
+    font-size: 1.1rem;
     transition: var(--transition);
 }
-.ip-btn:hover { background: rgba(255,255,255,0.15); }
+.ip-btn:hover { background: rgba(255,255,255,0.25); transform: scale(1.1); }
 .ip-play-btn {
-    width: 52px;
-    height: 52px;
-    font-size: 1.5rem;
+    width: 48px;
+    height: 48px;
+    font-size: 1.4rem;
     background: var(--accent);
 }
-.ip-play-btn:hover { background: var(--accent-hover); }
+.ip-play-btn:hover { background: var(--accent-hover); transform: scale(1.1); }
 .ip-progress-track {
-    height: 4px;
-    background: rgba(255,255,255,0.1);
+    width: 80%;
+    max-width: 500px;
+    height: 3px;
+    background: rgba(255,255,255,0.15);
     cursor: pointer;
+    margin-top: 12px;
+    border-radius: 3px;
+    overflow: hidden;
 }
 .ip-progress-bar {
     height: 100%;
     background: var(--accent);
     width: 0%;
     transition: width 0.1s linear;
+    border-radius: 3px;
 }
 
 /* ── EMPTY STATE HERO ── */

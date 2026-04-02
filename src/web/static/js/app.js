@@ -3271,19 +3271,16 @@ function openImmersivePlayer(video) {
                 <span class="ip-counter" id="ip-counter">1 / ${_playerItems.length}</span>
                 <button class="ip-close" onclick="closeImmersivePlayer()"><i class="bi bi-x-lg"></i></button>
             </div>
-            <div class="ip-media" id="ip-media"></div>
-            <div class="ip-controls">
-                <button class="ip-btn" onclick="playerPrev()" id="ip-prev"><i class="bi bi-chevron-left"></i></button>
-                <button class="ip-btn ip-play-btn" onclick="playerTogglePlay()" id="ip-play"><i class="bi bi-pause-fill"></i></button>
-                <button class="ip-btn" onclick="playerNext()" id="ip-next"><i class="bi bi-chevron-right"></i></button>
-                ${_playerBgmUrl ? `
-                <a href="${_playerBgmUrl}" target="_blank" download class="ip-btn" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); font-size: 0.7rem;">
-                    音频
-                </a>
-                ` : ''}
-            </div>
-            <div class="ip-progress-track" onclick="playerSeek(event)">
-                <div class="ip-progress-bar" id="ip-progress"></div>
+            <div class="ip-media" id="ip-media" onclick="playerTogglePlay()"></div>
+            <div class="ip-overlay-controls">
+                <div class="ip-controls">
+                    <button class="ip-btn" onclick="event.stopPropagation(); playerPrev()" id="ip-prev"><i class="bi bi-chevron-left"></i></button>
+                    <button class="ip-btn ip-play-btn" onclick="event.stopPropagation(); playerTogglePlay()" id="ip-play"><i class="bi bi-pause-fill"></i></button>
+                    <button class="ip-btn" onclick="event.stopPropagation(); playerNext()" id="ip-next"><i class="bi bi-chevron-right"></i></button>
+                </div>
+                <div class="ip-progress-track" onclick="event.stopPropagation(); playerSeek(event)">
+                    <div class="ip-progress-bar" id="ip-progress"></div>
+                </div>
             </div>
         </div>
     `;
@@ -3389,12 +3386,35 @@ function playerPrev() {
 function playerTogglePlay() {
     const playBtn = document.getElementById('ip-play');
     if (_playerVideo) {
+        // Video: toggle play/pause
         if (_playerVideo.paused) {
             _playerVideo.play();
             playBtn.innerHTML = '<i class="bi bi-pause-fill"></i>';
         } else {
             _playerVideo.pause();
             playBtn.innerHTML = '<i class="bi bi-play-fill"></i>';
+        }
+    } else {
+        // Image: toggle auto-advance timer and BGM
+        if (_playerTimer) {
+            clearInterval(_playerTimer);
+            _playerTimer = null;
+            if (_playerBgmAudio) _playerBgmAudio.pause();
+            playBtn.innerHTML = '<i class="bi bi-play-fill"></i>';
+        } else {
+            // Resume auto-advance
+            if (_playerBgmAudio) _playerBgmAudio.play().catch(() => {});
+            playBtn.innerHTML = '<i class="bi bi-pause-fill"></i>';
+            let elapsed = 0;
+            const progress = document.getElementById('ip-progress');
+            _playerTimer = setInterval(() => {
+                elapsed += 50;
+                if (progress) progress.style.width = (elapsed / 3000 * 100) + '%';
+                if (elapsed >= 3000) {
+                    if (_playerIndex < _playerItems.length - 1) playerNext();
+                    else { clearInterval(_playerTimer); _playerTimer = null; }
+                }
+            }, 50);
         }
     }
 }
