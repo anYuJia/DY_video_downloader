@@ -1715,145 +1715,161 @@ async function downloadParsedVideo(awemeId) {
 // ═══════════════════════════════════════════════
 async function showVideoDetail(awemeId) {
     try {
-        // 总是从 API 获取最新的视频详情
-        _log(`从 API 获取视频详情：${awemeId}`);
+        // 1. 优先从内存列表或 localStorage 取缓存
+        let video = null;
+        if (window.currentVideos) {
+            video = window.currentVideos.find(v => v.aweme_id === awemeId) || null;
+        }
+        if (!video) {
+            video = VideoStorage.getVideo(awemeId);
+        }
 
-        const response = await fetch('/api/video_detail', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ aweme_id: awemeId })
-        });
+        // 2. 缓存中有完整数据（含 media_urls）则直接使用，否则调 API
+        if (!video || !video.media_urls || video.media_urls.length === 0) {
+            _log(`缓存无数据，从 API 获取视频详情：${awemeId}`);
+            const response = await fetch('/api/video_detail', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ aweme_id: awemeId })
+            });
+            const result = await response.json();
+            if (!result.success) {
+                showToast(result.message || '获取视频详情失败', 'error');
+                return;
+            }
+            video = result.video;
+            if (VideoStorage.saveVideo(video)) {
+                _log(`视频详情已存储到本地：${awemeId}`);
+            }
+        } else {
+            _log(`使用缓存数据显示详情：${awemeId}`);
+        }
 
-        const result = await response.json();
-
-        if (!result.success) {
-            showToast(result.message || '获取视频详情失败', 'error');
+        if (!video) {
+            showToast('获取视频详情失败', 'error');
             return;
         }
 
-        let video = result.video;
-
-        if (VideoStorage.saveVideo(video)) {
-            _log(`视频详情已存储到本地：${awemeId}`);
-        }
-        if (video) {
-            // Type badge
-            const typeBadge = document.getElementById('videoDetailTypeBadge');
-            if (typeBadge) {
-                const typeMap = { video: '视频', image: '图集', live_photo: 'Live Photo', mixed: '混合' };
-                typeBadge.textContent = typeMap[video.media_type || video.raw_media_type] || '作品';
-            }
-
-            // Cover
-            document.getElementById('videoDetailCover').src = video.cover_url || '/static/default-cover.svg';
-
-            // Author bar
-            const author = video.author || {};
-            document.getElementById('videoDetailAuthorAvatar').src = author.avatar_thumb || '/static/default-avatar.svg';
-            document.getElementById('videoDetailAuthorName').textContent = author.nickname || '未知作者';
-            document.getElementById('videoDetailTime').textContent = video.create_time
-                ? new Date(video.create_time * 1000).toLocaleString()
-                : '';
-
-            // Description
-            document.getElementById('videoDetailDesc').textContent = video.desc || '无描述';
-
-            // Stats
-            document.getElementById('videoDetailLikes').textContent = formatNumber(video.digg_count || 0);
-            document.getElementById('videoDetailComments').textContent = formatNumber(video.comment_count || 0);
-            document.getElementById('videoDetailShares').textContent = formatNumber(video.share_count || 0);
-
-            // Media URLs
-            const mediaUrlsContainer = document.getElementById('videoDetailMediaUrls');
-            mediaUrlsContainer.textContent = '';
-            if (video.media_urls && video.media_urls.length > 0) {
-                video.media_urls.forEach((media, index) => {
-                    const item = document.createElement('div');
-                    item.className = 'video-detail-media-item';
-
-                    const badge = document.createElement('span');
-                    const badgeClass = media.type === 'video' ? 'bg-primary' :
-                                       media.type === 'image' ? 'bg-success' : 'bg-secondary';
-                    badge.className = 'badge ' + badgeClass;
-                    badge.textContent = (media.type === 'video' ? '视频' :
-                                        media.type === 'image' ? '图片' :
-                                        media.type === 'live_photo' ? 'Live' : media.type || '未知');
-
-                    const link = document.createElement('a');
-                    link.href = media.url || '';
-                    link.target = '_blank';
-                    link.textContent = '媒体 ' + (index + 1) + ' - ' + (media.type || 'unknown');
-                    link.title = media.url || '';
-
-                    item.appendChild(badge);
-                    item.appendChild(link);
-                    mediaUrlsContainer.appendChild(item);
-                });
-            } else {
-                const empty = document.createElement('span');
-                empty.className = 'text-muted small';
-                empty.textContent = '暂无媒体链接';
-                mediaUrlsContainer.appendChild(empty);
-            }
-
-            // Audio/BGM
-            const audioSection = document.getElementById('videoDetailAudioSection');
-            const audioUrlsContainer = document.getElementById('videoDetailAudioUrls');
-            const downloadAudioBtn = document.getElementById('downloadAudioFromDetail');
-            const bgmUrl = video.bgm_url || video.music;
-
-            if (bgmUrl) {
-                if (audioSection) audioSection.style.display = '';
-                if (downloadAudioBtn) downloadAudioBtn.style.display = 'inline-block';
-                if (audioUrlsContainer) {
-                    audioUrlsContainer.textContent = '';
-                    const audio = document.createElement('audio');
-                    audio.controls = true;
-                    const source = document.createElement('source');
-                    source.src = bgmUrl;
-                    source.type = 'audio/mpeg';
-                    audio.appendChild(source);
-                    audioUrlsContainer.appendChild(audio);
-
-                    const link = document.createElement('a');
-                    link.href = bgmUrl;
-                    link.target = '_blank';
-                    link.className = 'video-detail-audio-link';
-                    link.textContent = bgmUrl;
-                    audioUrlsContainer.appendChild(link);
-                }
-                if (downloadAudioBtn) downloadAudioBtn.setAttribute('data-bgm-url', bgmUrl);
-            } else {
-                if (audioSection) audioSection.style.display = 'none';
-                if (downloadAudioBtn) downloadAudioBtn.style.display = 'none';
-            }
-
-            setupMediaPreview(video);
-            setupMediaPreviewControls(video);
-
-            document.getElementById('downloadVideoFromDetail').setAttribute('data-aweme-id', awemeId);
-            document.getElementById('downloadVideoFromDetail').setAttribute('data-desc', video.desc || '视频');
-            document.getElementById('downloadVideoFromDetail').setAttribute('data-media-urls', JSON.stringify(video.media_urls.map(m => m.url) || []));
-            document.getElementById('downloadVideoFromDetail').setAttribute('data-media-type', video.media_type || 'video');
-
-            const modalElement = document.getElementById('videoDetailModal');
-            if (!modalElement._detailInited) {
-                modalElement._detailInited = true;
-                modalElement.addEventListener('shown.bs.modal', function () {
-                    modalElement.removeAttribute('aria-hidden');
-                });
-                modalElement.addEventListener('hidden.bs.modal', function () {
-                    modalElement.setAttribute('aria-hidden', 'true');
-                    document.getElementById('videoDetailPlayer').pause();
-                });
-            }
-            const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
-            modal.show();
-        }
+        renderVideoDetail(video, awemeId);
     } catch (error) {
         console.error('[showVideoDetail] 错误:', error);
         showToast('获取视频详情失败', 'error');
     }
+}
+
+function renderVideoDetail(video, awemeId) {
+    // Type badge
+    const typeBadge = document.getElementById('videoDetailTypeBadge');
+    if (typeBadge) {
+        const typeMap = { video: '视频', image: '图集', live_photo: 'Live Photo', mixed: '混合' };
+        typeBadge.textContent = typeMap[video.media_type || video.raw_media_type] || '作品';
+    }
+
+    // Cover
+    document.getElementById('videoDetailCover').src = video.cover_url || '/static/default-cover.svg';
+
+    // Author bar
+    const author = video.author || {};
+    document.getElementById('videoDetailAuthorAvatar').src = author.avatar_thumb || '/static/default-avatar.svg';
+    document.getElementById('videoDetailAuthorName').textContent = author.nickname || '未知作者';
+    document.getElementById('videoDetailTime').textContent = video.create_time
+        ? new Date(video.create_time * 1000).toLocaleString()
+        : '';
+
+    // Description
+    document.getElementById('videoDetailDesc').textContent = video.desc || '无描述';
+
+    // Stats
+    document.getElementById('videoDetailLikes').textContent = formatNumber(video.digg_count || 0);
+    document.getElementById('videoDetailComments').textContent = formatNumber(video.comment_count || 0);
+    document.getElementById('videoDetailShares').textContent = formatNumber(video.share_count || 0);
+
+    // Media URLs
+    const mediaUrlsContainer = document.getElementById('videoDetailMediaUrls');
+    mediaUrlsContainer.textContent = '';
+    if (video.media_urls && video.media_urls.length > 0) {
+        video.media_urls.forEach((media, index) => {
+            const item = document.createElement('div');
+            item.className = 'video-detail-media-item';
+
+            const badge = document.createElement('span');
+            const badgeClass = media.type === 'video' ? 'bg-primary' :
+                               media.type === 'image' ? 'bg-success' : 'bg-secondary';
+            badge.className = 'badge ' + badgeClass;
+            badge.textContent = (media.type === 'video' ? '视频' :
+                                media.type === 'image' ? '图片' :
+                                media.type === 'live_photo' ? 'Live' : media.type || '未知');
+
+            const link = document.createElement('a');
+            link.href = media.url || '';
+            link.target = '_blank';
+            link.textContent = '媒体 ' + (index + 1) + ' - ' + (media.type || 'unknown');
+            link.title = media.url || '';
+
+            item.appendChild(badge);
+            item.appendChild(link);
+            mediaUrlsContainer.appendChild(item);
+        });
+    } else {
+        const empty = document.createElement('span');
+        empty.className = 'text-muted small';
+        empty.textContent = '暂无媒体链接';
+        mediaUrlsContainer.appendChild(empty);
+    }
+
+    // Audio/BGM
+    const audioSection = document.getElementById('videoDetailAudioSection');
+    const audioUrlsContainer = document.getElementById('videoDetailAudioUrls');
+    const downloadAudioBtn = document.getElementById('downloadAudioFromDetail');
+    const bgmUrl = video.bgm_url || video.music;
+
+    if (bgmUrl) {
+        if (audioSection) audioSection.style.display = '';
+        if (downloadAudioBtn) downloadAudioBtn.style.display = 'inline-block';
+        if (audioUrlsContainer) {
+            audioUrlsContainer.textContent = '';
+            const audio = document.createElement('audio');
+            audio.controls = true;
+            const source = document.createElement('source');
+            source.src = bgmUrl;
+            source.type = 'audio/mpeg';
+            audio.appendChild(source);
+            audioUrlsContainer.appendChild(audio);
+
+            const link = document.createElement('a');
+            link.href = bgmUrl;
+            link.target = '_blank';
+            link.className = 'video-detail-audio-link';
+            link.textContent = bgmUrl;
+            audioUrlsContainer.appendChild(link);
+        }
+        if (downloadAudioBtn) downloadAudioBtn.setAttribute('data-bgm-url', bgmUrl);
+    } else {
+        if (audioSection) audioSection.style.display = 'none';
+        if (downloadAudioBtn) downloadAudioBtn.style.display = 'none';
+    }
+
+    setupMediaPreview(video);
+    setupMediaPreviewControls(video);
+
+    document.getElementById('downloadVideoFromDetail').setAttribute('data-aweme-id', awemeId);
+    document.getElementById('downloadVideoFromDetail').setAttribute('data-desc', video.desc || '视频');
+    document.getElementById('downloadVideoFromDetail').setAttribute('data-media-urls', JSON.stringify(video.media_urls.map(m => m.url) || []));
+    document.getElementById('downloadVideoFromDetail').setAttribute('data-media-type', video.media_type || 'video');
+
+    const modalElement = document.getElementById('videoDetailModal');
+    if (!modalElement._detailInited) {
+        modalElement._detailInited = true;
+        modalElement.addEventListener('shown.bs.modal', function () {
+            modalElement.removeAttribute('aria-hidden');
+        });
+        modalElement.addEventListener('hidden.bs.modal', function () {
+            modalElement.setAttribute('aria-hidden', 'true');
+            document.getElementById('videoDetailPlayer').pause();
+        });
+    }
+    const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
+    modal.show();
 }
 
 async function downloadVideoFromDetail() {
