@@ -1099,6 +1099,25 @@ textarea.form-control { resize: vertical; }
 .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
 [data-theme="light"] .btn-close { filter: none; }
 
+/* Light theme — new components */
+[data-theme="light"] .video-detail-modal { box-shadow: 0 24px 80px rgba(0, 0, 0, 0.15); }
+[data-theme="light"] .video-detail-cover { background: rgba(0, 0, 0, 0.04); }
+[data-theme="light"] .video-detail-stat { background: rgba(0, 0, 0, 0.02); border-color: rgba(0, 0, 0, 0.06); }
+[data-theme="light"] .video-detail-stat:hover { background: rgba(0, 0, 0, 0.04); }
+[data-theme="light"] .video-detail-stat--like:hover { box-shadow: 0 4px 20px rgba(254, 44, 85, 0.1); }
+[data-theme="light"] .video-detail-stat--comment:hover { box-shadow: 0 4px 20px rgba(37, 244, 238, 0.08); }
+[data-theme="light"] .video-detail-stat--share:hover { box-shadow: 0 4px 20px rgba(0, 214, 143, 0.08); }
+[data-theme="light"] .video-detail-media-item { background: rgba(0, 0, 0, 0.02); border-color: rgba(0, 0, 0, 0.06); }
+[data-theme="light"] .video-detail-media-item:hover { background: rgba(0, 0, 0, 0.04); }
+[data-theme="light"] .video-detail-author { background: rgba(0, 0, 0, 0.02); border-color: rgba(0, 0, 0, 0.06); }
+[data-theme="light"] .section-panel { background: rgba(255, 255, 255, 0.9); border-color: rgba(0, 0, 0, 0.08); box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06); }
+[data-theme="light"] .section-panel-header--success { background: linear-gradient(135deg, rgba(0, 214, 143, 0.08), rgba(0, 214, 143, 0.02)); }
+[data-theme="light"] .section-panel-header--accent { background: linear-gradient(135deg, rgba(254, 44, 85, 0.08), rgba(254, 44, 85, 0.02)); }
+[data-theme="light"] .section-panel-header--info { background: linear-gradient(135deg, rgba(124, 92, 252, 0.08), rgba(124, 92, 252, 0.02)); }
+[data-theme="light"] .user-profile-avatar { border-color: rgba(0, 0, 0, 0.1); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); }
+[data-theme="light"] .user-profile-stat { background: rgba(0, 0, 0, 0.02); border-color: rgba(0, 0, 0, 0.06); }
+[data-theme="light"] .user-profile-stat:hover { background: rgba(0, 0, 0, 0.04); }
+
 /* ═══════════════════════════════════════
    VIDEO DETAIL MODAL
    ═══════════════════════════════════════ */

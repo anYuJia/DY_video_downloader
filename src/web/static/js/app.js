@@ -1025,20 +1025,20 @@ function createUserCard(user, showDownloadBtn) {
                     <div class="d-flex align-items-center mb-3">
                         <img src="${avatarUrl}" alt="头像" class="rounded-circle me-3" style="width: 50px; height: 50px; object-fit: cover;" onerror="this.src='/static/default-avatar.svg'">
                         <div class="flex-grow-1">
-                            <h6 class="card-title mb-1">${user.nickname}</h6>
+                            <h6 class="card-title mb-1">${escapeHtml(user.nickname)}</h6>
                             <small class="text-muted">抖音号: ${user.unique_id || '未设置'}</small>
                         </div>
                     </div>
                     <p class="card-text">
                         <small class="text-muted">粉丝: ${user.follower_count}</small><br>
-                        <small class="text-muted">${user.signature || '无简介'}</small>
+                        <small class="text-muted">${escapeHtml(user.signature || '无简介')}</small>
                     </p>
                     ${showDownloadBtn ? `
-                        <button class="btn btn-primary btn-sm" onclick="downloadUser('${user.sec_uid}', '${user.nickname}')">
+                        <button class="btn btn-primary btn-sm" onclick="downloadUser('${user.sec_uid}', '${escapeHtml(user.nickname).replace(/'/g, "\\'")}')">
                             <i class="bi bi-download"></i> 下载视频
                         </button>
                     ` : `
-                        <button class="btn btn-primary btn-sm" onclick="selectUser('${user.sec_uid}', '${user.nickname}')">
+                        <button class="btn btn-primary btn-sm" onclick="selectUser('${user.sec_uid}', '${escapeHtml(user.nickname).replace(/'/g, "\\'")}')">
                             <i class="bi bi-check"></i> 选择
                         </button>
                     `}
@@ -1330,7 +1330,7 @@ function displayVideos(videos, append) {
                     </div>
                 </div>
                 <div class="card-body video-card-body">
-                    <p class="card-text video-desc">${video.desc || '无描述'}</p>
+                    <p class="card-text video-desc">${escapeHtml(video.desc || '无描述')}</p>
                     <div class="text-muted small video-date">${createTime}</div>
                     <div class="video-actions">
                         <button class="btn btn-sm btn-outline-primary video-btn" onclick="downloadVideoFromList('${video.aweme_id}')">
@@ -1622,12 +1622,12 @@ function showParseResults(videos) {
                         onerror="this.src='/static/default-cover.svg';">
                 </div>
                 <div class="col-8">
-                    <h6 class="small fw-bold mb-1" style="font-size: 0.75rem;">${video.desc || '无描述'}</h6>
+                    <h6 class="small fw-bold mb-1" style="font-size: 0.75rem;">${escapeHtml(video.desc || '无描述')}</h6>
                     <p class="text-muted mb-1 small" style="font-size: 0.7rem;">
                         <img src="${avatarUrl}" class="rounded-circle me-1"
                             width="14" height="14" alt="作者头像"
                             onerror="this.src='/static/default-avatar.svg';">
-                        <span>${video.author.nickname || '未知作者'}</span>
+                        <span>${escapeHtml(video.author.nickname || '未知作者')}</span>
                     </p>
                     <div class="d-flex justify-content-between text-muted mb-1" style="font-size: 0.65rem;">
                         <span>${formatNumber(video.digg_count || 0)}</span>
@@ -1837,17 +1837,17 @@ async function showVideoDetail(awemeId) {
             document.getElementById('downloadVideoFromDetail').setAttribute('data-media-type', video.media_type || 'video');
 
             const modalElement = document.getElementById('videoDetailModal');
-            const modal = new bootstrap.Modal(modalElement);
-
-            modalElement.addEventListener('shown.bs.modal', function () {
-                modalElement.removeAttribute('aria-hidden');
-            });
-            modalElement.addEventListener('hidden.bs.modal', function () {
-                modalElement.setAttribute('aria-hidden', 'true');
-                const player = document.getElementById('videoDetailPlayer');
-                player.pause();
-            });
-
+            if (!modalElement._detailInited) {
+                modalElement._detailInited = true;
+                modalElement.addEventListener('shown.bs.modal', function () {
+                    modalElement.removeAttribute('aria-hidden');
+                });
+                modalElement.addEventListener('hidden.bs.modal', function () {
+                    modalElement.setAttribute('aria-hidden', 'true');
+                    document.getElementById('videoDetailPlayer').pause();
+                });
+            }
+            const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
             modal.show();
         }
     } catch (error) {
@@ -2041,7 +2041,7 @@ function displayLikedVideos(videos) {
                     ${duration ? `<span class="badge bg-dark position-absolute bottom-0 start-0 m-2">${duration}</span>` : ''}
                 </div>
                 <div class="card-body video-card-body">
-                    <p class="card-text video-desc">${video.desc || '无描述'}</p>
+                    <p class="card-text video-desc">${escapeHtml(video.desc || '无描述')}</p>
                     <div class="text-muted small video-date">${createTime}</div>
                     <div class="video-actions">
                         <button class="btn btn-sm btn-outline-primary video-btn" onclick="downloadVideoFromList('${video.aweme_id}')">
@@ -2084,7 +2084,7 @@ function displayLikedAuthors(authors) {
                     <div class="d-flex align-items-center mb-2">
                         <img src="${author.avatar_thumb || author.avatar_larger || '/static/default-avatar.svg'}" class="rounded-circle me-3" alt="头像" style="width: 50px; height: 50px; object-fit: cover;" onerror="this.src='/static/default-avatar.svg'">
                         <div class="flex-grow-1">
-                            <h6 class="mb-0 text-truncate" title="${author.nickname}">${author.nickname}</h6>
+                            <h6 class="mb-0 text-truncate" title="${escapeHtml(author.nickname)}">${escapeHtml(author.nickname)}</h6>
                             <small class="text-muted">@${author.unique_id || author.sec_uid}</small>
                         </div>
                     </div>
