@@ -3235,6 +3235,7 @@ function previewMediaFromList(awemeId) {
 // ═══════════════════════════════════════════════
 let _playerBgmUrl = null;
 let _playerBgmAudio = null;
+let _playerWorkIndex = -1; // 当前作品在 currentVideos 中的索引
 
 function openImmersivePlayer(video) {
     if (!video || !video.media_urls || video.media_urls.length === 0) {
@@ -3260,6 +3261,12 @@ function openImmersivePlayer(video) {
         proxy: proxyUrl(m.url)
     }));
     _playerIndex = 0;
+
+    // 记住当前作品在列表中的位置
+    _playerWorkIndex = -1;
+    if (window.currentVideos && video.aweme_id) {
+        _playerWorkIndex = window.currentVideos.findIndex(v => v.aweme_id === video.aweme_id);
+    }
 
     const overlay = document.createElement('div');
     overlay.id = 'immersive-player';
@@ -3288,13 +3295,26 @@ function openImmersivePlayer(video) {
     document.body.style.overflow = 'hidden';
 
     document.addEventListener('keydown', _playerKeyHandler);
+    document.getElementById('immersive-player').addEventListener('wheel', _playerWheelHandler, { passive: false });
     _renderPlayerItem();
+}
+
+let _playerWheelLock = false;
+function _playerWheelHandler(e) {
+    e.preventDefault();
+    if (_playerWheelLock) return;
+    _playerWheelLock = true;
+    if (e.deltaY > 0) playerWorkNext();
+    else if (e.deltaY < 0) playerWorkPrev();
+    setTimeout(() => { _playerWheelLock = false; }, 300);
 }
 
 function _playerKeyHandler(e) {
     if (e.key === 'Escape') closeImmersivePlayer();
-    if (e.key === 'ArrowLeft') playerPrev();
-    if (e.key === 'ArrowRight') playerNext();
+    if (e.key === 'ArrowLeft') { e.preventDefault(); playerPrev(); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); playerNext(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); playerWorkPrev(); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); playerWorkNext(); }
     if (e.key === ' ') { e.preventDefault(); playerTogglePlay(); }
 }
 
@@ -3310,6 +3330,8 @@ function closeImmersivePlayer() {
     if (el) el.remove();
     document.body.style.overflow = '';
     document.removeEventListener('keydown', _playerKeyHandler);
+    const ipEl = document.getElementById('immersive-player');
+    if (ipEl) ipEl.removeEventListener('wheel', _playerWheelHandler);
 }
 
 function _renderPlayerItem() {
@@ -3369,10 +3391,20 @@ function _renderPlayerItem() {
     }
 }
 
+function _playerAnimate(dir) {
+    const el = document.getElementById('ip-media');
+    if (!el) return;
+    el.classList.remove('ip-slide-up', 'ip-slide-down', 'ip-slide-left', 'ip-slide-right');
+    void el.offsetWidth; // reflow to restart animation
+    el.classList.add('ip-' + dir);
+    el.addEventListener('animationend', () => el.classList.remove('ip-' + dir), { once: true });
+}
+
 function playerNext() {
     if (_playerIndex < _playerItems.length - 1) {
         _playerIndex++;
         _renderPlayerItem();
+        _playerAnimate('slide-left');
     }
 }
 
@@ -3380,6 +3412,53 @@ function playerPrev() {
     if (_playerIndex > 0) {
         _playerIndex--;
         _renderPlayerItem();
+        _playerAnimate('slide-right');
+    }
+}
+
+function _switchToWork(newIndex) {
+    if (!window.currentVideos || newIndex < 0 || newIndex >= window.currentVideos.length) return;
+    const video = window.currentVideos[newIndex];
+    if (!video || !video.media_urls || video.media_urls.length === 0) return;
+
+    // 停止当前播放
+    if (_playerTimer) { clearInterval(_playerTimer); _playerTimer = null; }
+    if (_playerVideo) { _playerVideo.pause(); _playerVideo = null; }
+    if (_playerBgmAudio) { _playerBgmAudio.pause(); _playerBgmAudio = null; }
+
+    // 更新作品状态
+    _playerWorkIndex = newIndex;
+    _playerBgmUrl = null;
+    if (video.music || video.bgm_url) {
+        _playerBgmUrl = video.music || video.bgm_url;
+    } else if (video.media_urls.length > 0 && video.media_urls[0]) {
+        _playerBgmUrl = video.media_urls[0].url;
+    }
+    _playerItems = video.media_urls.map(m => ({
+        type: m.type || 'unknown',
+        url: m.url,
+        proxy: proxyUrl(m.url)
+    }));
+    _playerIndex = 0;
+
+    // 更新标题
+    const titleEl = document.querySelector('.ip-title');
+    if (titleEl) titleEl.textContent = video.desc || '媒体播放';
+
+    _renderPlayerItem();
+}
+
+function playerWorkNext() {
+    if (_playerWorkIndex >= 0 && _playerWorkIndex < (window.currentVideos?.length || 0) - 1) {
+        _switchToWork(_playerWorkIndex + 1);
+        _playerAnimate('slide-up');
+    }
+}
+
+function playerWorkPrev() {
+    if (_playerWorkIndex > 0) {
+        _switchToWork(_playerWorkIndex - 1);
+        _playerAnimate('slide-down');
     }
 }
 

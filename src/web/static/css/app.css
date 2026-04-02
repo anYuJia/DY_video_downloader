@@ -1863,6 +1863,28 @@ a:hover { color: var(--accent-hover); }
     border-radius: 3px;
 }
 
+/* ── IMMERSIVE PLAYER SLIDE ANIMATIONS ── */
+@keyframes ip-slide-up {
+    from { transform: translateY(60%); opacity: 0; }
+    to   { transform: translateY(0);   opacity: 1; }
+}
+@keyframes ip-slide-down {
+    from { transform: translateY(-60%); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+}
+@keyframes ip-slide-left {
+    from { transform: translateX(40%); opacity: 0; }
+    to   { transform: translateX(0);   opacity: 1; }
+}
+@keyframes ip-slide-right {
+    from { transform: translateX(-40%); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+}
+.ip-media.ip-slide-up    { animation: ip-slide-up    0.3s cubic-bezier(0.4,0,0.2,1); }
+.ip-media.ip-slide-down  { animation: ip-slide-down  0.3s cubic-bezier(0.4,0,0.2,1); }
+.ip-media.ip-slide-left  { animation: ip-slide-left  0.3s cubic-bezier(0.4,0,0.2,1); }
+.ip-media.ip-slide-right { animation: ip-slide-right 0.3s cubic-bezier(0.4,0,0.2,1); }
+
 /* ── EMPTY STATE HERO ── */
 .empty-hero {
     display: flex;
