@@ -1,5 +1,7 @@
 <div align="center">
 
+**简体中文** | [English](README_EN.md)
+
 # 🎥 DY Video Downloader
 
 **新一代智能化、高性能的抖音多媒体资源抓取与管理平台**
