@@ -58,7 +58,7 @@
 
 body {
     background: var(--bg-primary);
-    font-family: 'Outfit', 'Noto Sans SC', -apple-system, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
     color: var(--text-primary);
     min-height: 100vh;
     overflow-x: hidden;
@@ -2155,5 +2155,60 @@ a:hover { color: var(--accent-hover); }
 .cookie-browser-actions {
     display: flex;
     flex-direction: column;
+}
+
+/* ═══════════════════════════════════════
+   FIREFOX SCROLLBAR
+   ═══════════════════════════════════════ */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+[data-theme="light"] * {
+    scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+}
+
+/* ═══════════════════════════════════════
+   SKELETON LOADING
+   ═══════════════════════════════════════ */
+.skeleton-card {
+    background: var(--bg-card);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.skeleton-img {
+    width: 100%;
+    height: 180px;
+    background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-card-hover) 50%, var(--bg-tertiary) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton-text {
+    height: 14px;
+    margin: 12px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-card-hover) 50%, var(--bg-tertiary) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton-text.short {
+    width: 60%;
+    height: 10px;
+}
+
+@keyframes skeleton-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+@keyframes skeleton-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
 }
 

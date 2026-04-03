@@ -1,4 +1,6 @@
 import requests
+import requests.adapters
+import urllib3.util.retry
 import urllib.parse
 import os
 import execjs
@@ -8,6 +10,11 @@ import subprocess
 import sys
 import random
 import string
+
+# Configure a session with retry/SSL resilience
+_api_session = requests.Session()
+_retry = urllib3.util.retry.Retry(total=3, backoff_factor=0.5, status_forcelist=[502, 503, 504])
+_api_session.mount('https://', requests.adapters.HTTPAdapter(max_retries=_retry))
 
 
 
@@ -95,7 +102,7 @@ class DouyinAPI:
             h['sec-fetch-mode'] = 'navigate'
             h['accept'] = 'text/html,application/xhtml+xml'
 
-            response = requests.get(url, headers=h, timeout=10)
+            response = _api_session.get(url, headers=h, timeout=10)
             if self.debug_mode:
                 print(f"\033[93m[API] _get_webid 响应状态: {response.status_code}, 内容长度: {len(response.text)}\033[0m")
             if response.status_code != 200 or not response.text:
@@ -224,7 +231,7 @@ class DouyinAPI:
             print(f'\033[94m[API] 请求URL: {url}\033[0m')
             print(f'\033[94m[API] 请求参数: {params}\033[0m')
             
-        response = requests.get(url, params=params, headers=headers)
+        response = _api_session.get(url, params=params, headers=headers)
         if self.debug_mode:
             print(f'[DEBUG] response.status_code={response.status_code}, len(response.content)={len(response.content)}, len(response.text)={len(response.text)}')
             sys.stderr.write(f'*** [API] 普通请求响应：status={response.status_code}, content_len={len(response.content)} ***\n')

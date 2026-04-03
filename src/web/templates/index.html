@@ -7,7 +7,6 @@
     <title>DY Downloader</title>
     <link href="/static/css/bootstrap.min.css" rel="stylesheet">
     <link href="/static/css/bootstrap-icons.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link href="/static/css/app.css" rel="stylesheet">
 </head>
 
@@ -416,7 +415,7 @@
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <input type="text" class="form-control" id="storageSearchInput" placeholder="搜索视频描述、作者昵称..."
-                                oninput="filterStorageVideos()">
+                                oninput="if(typeof debouncedFilterStorageVideos!=='undefined')debouncedFilterStorageVideos();else filterStorageVideos()">
                         </div>
                         <div class="col-md-3">
                             <select class="form-select" id="storageFilterType" onchange="filterStorageVideos()">
@@ -425,8 +424,6 @@
                                 <option value="image">图集</option>
                                 <option value="live_photo">Live Photo</option>
                                 <option value="mixed">混合媒体</option>
-                                <option value="has_images_field">包含Images字段</option>
-                                <option value="has_videos_field">包含Videos字段</option>
                             </select>
                         </div>
                         <div class="col-md-3">
@@ -682,6 +679,9 @@
                         <button class="btn btn-primary w-100 mt-3" id="cookie-modal-save-btn" onclick="saveCookieFromModal()">
                             <i class="bi bi-check-lg"></i> 保存 Cookie
                         </button>
+                        <button class="btn btn-outline-secondary w-100 mt-2" id="cookie-test-btn" onclick="testCookieValidity()">
+                            测试有效性
+                        </button>
                     </div>
 
                     <!-- Browser login tab -->
@@ -732,6 +732,12 @@
     <!-- Scripts -->
     <script src="/static/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/storage.js"></script>
+    <script src="/static/js/cookie.js"></script>
+    <script src="/static/js/download.js"></script>
+    <script src="/static/js/ui.js"></script>
+    <script src="/static/js/socket.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 
