@@ -58,6 +58,8 @@ class DouyinUserManager:
             batch = resp.get('aweme_list', [])
             if on_batch and batch:
                 on_batch(batch)
+                # 让下载消费者有机会在下一页抓取前先处理已入队作品
+                await asyncio.sleep(0)
                 
             videos.extend(batch)
             max_cursor = resp.get('max_cursor', 0)
