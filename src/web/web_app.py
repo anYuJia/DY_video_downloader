@@ -879,16 +879,54 @@ def download_user_video():
                         
                         name = f"{_nickname}/{desc}"
                         aweme_id = post['aweme_id']
+
+                        def current_total_count():
+                            return max(total_videos, total_processed[0] + download_queue.qsize(), idx)
+
+                        def emit_current_video_progress(current_progress=0, status='downloading', message=None, current_downloaded=None,
+                                                        completed_files=0, total_files=1, speed_bps=None, eta_seconds=None,
+                                                        file_index=1, file_total=1, bytes_downloaded=0, bytes_total=0):
+                            processed_count = idx - 1 if current_downloaded is None else current_downloaded
+                            current_total = current_total_count()
+                            progress_ratio = max(0, min(current_progress, 100)) / 100
+                            overall_progress = int(((processed_count + progress_ratio) / max(current_total, 1)) * 100)
+
+                            socketio.emit('user_video_download_progress', {
+                                'task_id': task_id,
+                                'total_videos': current_total,
+                                'current_downloaded': processed_count,
+                                'remaining': max(current_total - processed_count, 0),
+                                'overall_progress': min(100, max(0, overall_progress)),
+                                'current_progress': max(0, min(current_progress, 100)),
+                                'message': message or f'正在下载: {desc}',
+                                'type': 'progress',
+                                'current_video': {
+                                    'aweme_id': aweme_id,
+                                    'desc': desc,
+                                    'status': status,
+                                    'progress': max(0, min(current_progress, 100)),
+                                    'completed_files': completed_files,
+                                    'total_files': total_files,
+                                    'file_index': file_index,
+                                    'file_total': file_total,
+                                    'speed_bps': speed_bps,
+                                    'eta_seconds': eta_seconds,
+                                    'bytes_downloaded': bytes_downloaded,
+                                    'bytes_total': bytes_total
+                                }
+                            })
                         
                         # 发送进度预览
-                        socketio.emit('user_video_download_progress', {
-                            'task_id': task_id,
-                            'total_videos': max(total_videos, total_processed[0] + download_queue.qsize()),
-                            'current_downloaded': idx - 1,
-                            'remaining': max(total_videos, total_processed[0] + download_queue.qsize()) - idx + 1,
-                            'message': f'正在下载: {desc}',
-                            'type': 'progress'
-                        })
+                        emit_current_video_progress(
+                            current_progress=0,
+                            status='starting',
+                            message=f'正在下载: {desc}',
+                            current_downloaded=idx - 1,
+                            completed_files=0,
+                            total_files=1,
+                            file_index=1,
+                            file_total=1
+                        )
                         
                         # 执行下载
                         try:
@@ -896,14 +934,46 @@ def download_user_video():
                                 continue
 
                             success = False
+                            def progress_callback(progress_data):
+                                emit_current_video_progress(
+                                    current_progress=progress_data.get('progress', 0),
+                                    status=progress_data.get('status', 'downloading'),
+                                    message=f'正在下载: {desc}',
+                                    current_downloaded=idx - 1,
+                                    completed_files=progress_data.get('completed', 0),
+                                    total_files=progress_data.get('total', len(urls) if urls else 1),
+                                    speed_bps=progress_data.get('speed_bps'),
+                                    eta_seconds=progress_data.get('eta_seconds'),
+                                    file_index=progress_data.get('file_index', 1),
+                                    file_total=progress_data.get('file_total', len(urls) if urls else 1),
+                                    bytes_downloaded=progress_data.get('bytes_downloaded', 0),
+                                    bytes_total=progress_data.get('bytes_total', 0)
+                                )
+
                             if media_type == 'video':
-                                success = user_manager.downloader.download_video(urls[0], name, aweme_id, cancel_event)
+                                success = user_manager.downloader.download_video(
+                                    urls[0], name, aweme_id, cancel_event,
+                                    socketio=socketio, task_id=task_id, progress_callback=progress_callback
+                                )
                             else:
                                 formatted_urls = [{'url': url, 'type': media_type if media_type != 'mixed' else t} for t, url in (urls if isinstance(urls[0], tuple) else [(media_type, u) for u in urls])]
-                                success = user_manager.downloader.download_media_group(formatted_urls, name, aweme_id, socketio, task_id, cancel_event)
+                                success = user_manager.downloader.download_media_group(
+                                    formatted_urls, name, aweme_id, socketio, task_id, cancel_event, progress_callback
+                                )
 
                             if success:
                                 socketio.emit('download_success', {'task_id': task_id, 'message': f'作品 {desc} 下载完成'})
+                                emit_current_video_progress(
+                                    current_progress=100,
+                                    status='completed',
+                                    message=f'完成处理: {desc}',
+                                    current_downloaded=idx,
+                                    completed_files=len(urls),
+                                    total_files=len(urls),
+                                    file_index=len(urls),
+                                    file_total=len(urls),
+                                    eta_seconds=0
+                                )
 
                             # 检查取消状态
                             if cancel_event.is_set():

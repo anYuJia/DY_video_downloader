@@ -13,6 +13,77 @@ let isPaused = false;
 
 // ── Functions ──
 
+function clampPercent(value) {
+    const numberValue = Number(value);
+    if (!Number.isFinite(numberValue)) return 0;
+    return Math.max(0, Math.min(100, numberValue));
+}
+
+function formatDuration(seconds) {
+    const totalSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
+    if (totalSeconds < 60) return `${totalSeconds}s`;
+    if (totalSeconds < 3600) {
+        const minutes = Math.floor(totalSeconds / 60);
+        const restSeconds = totalSeconds % 60;
+        return `${minutes}分${restSeconds}s`;
+    }
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    return `${hours}时${minutes}分`;
+}
+
+function formatSpeed(bytesPerSecond) {
+    const speed = Number(bytesPerSecond);
+    if (!Number.isFinite(speed) || speed <= 0) return '速度: --';
+    if (speed < 1024) return `速度: ${speed.toFixed(0)} B/s`;
+    if (speed < 1024 * 1024) return `速度: ${(speed / 1024).toFixed(1)} KB/s`;
+    return `速度: ${(speed / 1024 / 1024).toFixed(1)} MB/s`;
+}
+
+function updateTaskTiming(taskId, overallPct, data) {
+    const task = downloadTasks[taskId];
+    if (!task || !task.startTime) return;
+
+    const elapsedTime = document.getElementById('elapsed-time');
+    const downloadEta = document.getElementById('download-eta');
+    const elapsedSeconds = Number.isFinite(Number(data?.elapsed_seconds))
+        ? Number(data.elapsed_seconds)
+        : (Date.now() - task.startTime.getTime()) / 1000;
+
+    if (elapsedTime) elapsedTime.textContent = `用时: ${formatDuration(elapsedSeconds)}`;
+
+    let etaSeconds = Number(data?.eta_seconds);
+    if (!Number.isFinite(etaSeconds)) {
+        etaSeconds = overallPct > 0 && overallPct < 100
+            ? elapsedSeconds / overallPct * (100 - overallPct)
+            : (overallPct >= 100 ? 0 : NaN);
+    }
+
+    if (downloadEta) {
+        downloadEta.textContent = Number.isFinite(etaSeconds)
+            ? `预计: ${formatDuration(etaSeconds)}`
+            : '预计: --';
+    }
+}
+
+function updateCurrentWorkProgress(options) {
+    const shouldUpdateProgress = options?.progress !== undefined;
+    const progress = clampPercent(options?.progress);
+    const currentProgressBar = document.getElementById('current-progress-bar');
+    const currentProgressText = document.getElementById('current-progress-text');
+    const currentStatus = document.getElementById('current-status');
+    const currentSpeedEl = document.getElementById('current-speed');
+
+    if (shouldUpdateProgress && currentProgressBar) {
+        currentProgressBar.style.width = `${progress}%`;
+        currentProgressBar.setAttribute('aria-valuenow', progress);
+        currentProgressBar.className = progress >= 100 ? 'progress-bar bg-success' : 'progress-bar bg-info';
+    }
+    if (shouldUpdateProgress && currentProgressText) currentProgressText.textContent = `${Math.round(progress)}%`;
+    if (currentStatus && options?.statusText) currentStatus.textContent = options.statusText;
+    if (currentSpeedEl && options?.speedBps !== undefined) currentSpeedEl.textContent = formatSpeed(options.speedBps);
+}
+
 function showProgress(taskId, taskName) {
     taskName = taskName || '下载任务';
 
@@ -27,7 +98,8 @@ function showProgress(taskId, taskName) {
             completed: 0,
             total: 0,
             status: 'running',
-            startTime: new Date()
+            startTime: new Date(),
+            isBatch: false
         };
 
         // 使用全局面板而不是单独的任务面板
@@ -301,6 +373,13 @@ function updateDownloadProgress(dataOrProgress, processedOrCompleted, totalOrUnd
     if (typeof dataOrProgress === 'object' && dataOrProgress !== null) {
         const data = dataOrProgress;
         const taskId = data.task_id;
+        if (taskId && !downloadTasks[taskId]) {
+            showProgress(taskId, globalDownloadPanel.nickname || '下载任务');
+        }
+        if (taskId && downloadTasks[taskId]) {
+            downloadTasks[taskId].isBatch = true;
+        }
+
         const totalElement = document.getElementById(`total-${taskId}`);
         const downloadedElement = document.getElementById(`downloaded-${taskId}`);
         const remainingElement = document.getElementById(`remaining-${taskId}`);
@@ -317,7 +396,11 @@ function updateDownloadProgress(dataOrProgress, processedOrCompleted, totalOrUnd
         if (overallPct === undefined && data.total_videos !== undefined && data.total_videos > 0 && data.current_downloaded !== undefined) {
             overallPct = Math.round((data.current_downloaded / data.total_videos) * 100);
         }
-        overallPct = overallPct || 0;
+        overallPct = clampPercent(overallPct);
+
+        if (taskId && downloadTasks[taskId]) {
+            downloadTasks[taskId].overallProgress = overallPct;
+        }
 
         // 更新全局面板
         if (data.total_videos !== undefined && overallDownloaded) {
@@ -340,6 +423,23 @@ function updateDownloadProgress(dataOrProgress, processedOrCompleted, totalOrUnd
         if (overallProgressText) {
             overallProgressText.textContent = `${overallPct}%`;
         }
+
+        const currentVideo = data.current_video || {};
+        let currentStatusText = data.message || currentVideo.desc || '等待中...';
+        if (Number.isFinite(Number(currentVideo.file_total)) && Number(currentVideo.file_total) > 1) {
+            const fileIndex = Number(currentVideo.file_index) || 1;
+            currentStatusText = `${currentStatusText} (${fileIndex}/${currentVideo.file_total})`;
+        }
+        if (data.type === 'info' && data.message) {
+            currentStatusText = data.message;
+        }
+
+        updateCurrentWorkProgress({
+            progress: currentVideo.progress !== undefined ? currentVideo.progress : data.current_progress,
+            statusText: currentStatusText,
+            speedBps: currentVideo.speed_bps
+        });
+        updateTaskTiming(taskId, overallPct, data);
     } else {
         // Numeric signature
         const progress = dataOrProgress;
@@ -365,7 +465,7 @@ function updateDownloadProgress(dataOrProgress, processedOrCompleted, totalOrUnd
     }
 }
 
-function updateProgress(progress, completed, total, taskId) {
+function updateProgress(progress, completed, total, taskId, detail) {
     if (!taskId) {
         taskId = Object.keys(downloadTasks)[0];
         if (!taskId) return;
@@ -398,59 +498,31 @@ function updateProgress(progress, completed, total, taskId) {
 
     if (progressTime) {
         const elapsed = Math.floor((new Date() - task.startTime) / 1000);
-        progressTime.textContent = `用时: ${elapsed}s`;
+        progressTime.textContent = `用时: ${formatDuration(elapsed)}`;
     }
 
-    if (progressSpeed && task.completed > 0) {
-        const elapsed = (new Date() - task.startTime) / 1000;
-        const speed = task.completed / elapsed;
-        progressSpeed.textContent = `速度: ${speed.toFixed(1)}/s`;
+    if (progressSpeed) {
+        if (detail && detail.speed_bps !== undefined) {
+            progressSpeed.textContent = formatSpeed(detail.speed_bps);
+        } else if (task.completed > 0) {
+            const elapsed = Math.max((new Date() - task.startTime) / 1000, 0.001);
+            const speed = task.completed / elapsed;
+            progressSpeed.textContent = `速度: ${speed.toFixed(1)}/s`;
+        }
     }
 
     // 更新全局面板的当前作品进度
-    const currentProgressBar = document.getElementById('current-progress-bar');
-    const currentProgressText = document.getElementById('current-progress-text');
-    const currentStatus = document.getElementById('current-status');
-    const currentSpeedEl = document.getElementById('current-speed');
-    const elapsedTime = document.getElementById('elapsed-time');
+    const statusText = task.isBatch
+        ? undefined
+        : (detail && detail.file_total > 1 ? `${detail.file_index || 1}/${detail.file_total}` : `${task.completed}/${task.total}`);
+    updateCurrentWorkProgress({
+        progress: task.progress,
+        statusText,
+        speedBps: detail ? detail.speed_bps : undefined
+    });
 
-    if (currentProgressBar) {
-        currentProgressBar.style.width = `${task.progress}%`;
-        currentProgressBar.setAttribute('aria-valuenow', task.progress);
-        if (task.progress >= 100) currentProgressBar.className = 'progress-bar bg-success';
-        else if (task.progress >= 50) currentProgressBar.className = 'progress-bar bg-info';
-        else currentProgressBar.className = 'progress-bar bg-info';
-    }
-    if (currentProgressText) {
-        currentProgressText.textContent = `${Math.round(task.progress)}%`;
-    }
-    if (currentStatus) {
-        currentStatus.textContent = `${task.completed}/${task.total}`;
-    }
-    if (currentSpeedEl && task.completed > 0) {
-        const elapsed = (new Date() - task.startTime) / 1000;
-        const speed = task.completed / elapsed;
-        currentSpeedEl.textContent = `速度: ${speed.toFixed(1)}/s`;
-    }
-    if (elapsedTime && task.startTime) {
-        const elapsed = Math.floor((new Date() - task.startTime) / 1000);
-        elapsedTime.textContent = `用时: ${elapsed}s`;
-    }
-
-    // ETA calculation
-    if (task.progress > 0 && task.startTime) {
-        const elapsed = (Date.now() - task.startTime) / 1000;
-        const eta = progress > 0 ? Math.round(elapsed / progress * (100 - progress)) : 0;
-        const etaText = eta > 60 ? Math.floor(eta / 60) + '分' + (eta % 60) + '秒' : eta + '秒';
-
-        const downloadEta = document.getElementById('download-eta');
-        if (downloadEta) {
-            downloadEta.textContent = `预计: ${etaText}`;
-        } else if (elapsedTime) {
-            // Fallback: append to elapsed-time element
-            const elapsedSec = Math.floor(elapsed);
-            elapsedTime.textContent = `用时: ${elapsedSec}s / 预计 ${etaText}`;
-        }
+    if (!task.isBatch && task.startTime) {
+        updateTaskTiming(taskId, task.progress, detail || {});
     }
 }
 

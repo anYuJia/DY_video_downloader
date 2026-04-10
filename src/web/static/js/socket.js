@@ -59,6 +59,9 @@ function setupSocketIO() {
             showProgress(taskId, data.user || taskName);
             showToast(`开始批量下载 ${data.user || ''} 的作品`, 'info');
         }
+        if (downloadTasks[taskId]) {
+            downloadTasks[taskId].isBatch = data.type !== 'single_video';
+        }
         updateStatus('running', '下载中');
     });
 
@@ -77,7 +80,7 @@ function setupSocketIO() {
         }
 
         showProgress(taskId, taskName);
-        updateProgress(data.progress, data.completed, data.total, taskId);
+        updateProgress(data.progress, data.completed, data.total, taskId, data);
 
         if (data.status === 'starting') {
             addLog(`下载: ${taskName} (${data.total} 个文件)`, 'info');
@@ -164,6 +167,12 @@ function setupSocketIO() {
 
     socket.on('download_info', function (data) {
         _log('收到下载信息:', data);
+        if (data.task_id && data.total_videos !== undefined) {
+            updateDownloadProgress({
+                ...data,
+                type: data.type || 'info'
+            });
+        }
         addLog(data.message, 'info');
         scrollToBottom();
     });

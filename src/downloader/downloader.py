@@ -114,8 +114,37 @@ class DouyinDownloader:
             print(f"\033[93m[Downloader] 下载请求头: {headers}\033[0m")
             
         return headers
+
+    def _get_response_size(self, response) -> int:
+        """从响应头获取文件大小，取不到时返回 0。"""
+        content_length = response.headers.get('Content-Length')
+        if content_length and content_length.isdigit():
+            return int(content_length)
+
+        content_range = response.headers.get('Content-Range', '')
+        if '/' in content_range:
+            total = content_range.rsplit('/', 1)[-1]
+            if total.isdigit():
+                return int(total)
+
+        return 0
+
+    def _emit_download_progress(self, socketio, task_id, progress_callback=None, **payload):
+        """同时兼容旧 download_progress 事件和新的批量当前作品回调。"""
+        if socketio and task_id:
+            socketio.emit('download_progress', {
+                'task_id': task_id,
+                **payload
+            })
+
+        if progress_callback:
+            try:
+                progress_callback(payload)
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"\033[91m[Downloader] 进度回调失败: {str(e)}\033[0m")
         
-    def download_media_group(self, urls: List[dict], name: str, aweme_id: str = None, socketio=None, task_id=None, cancel_event=None) -> bool:
+    def download_media_group(self, urls: List[dict], name: str, aweme_id: str = None, socketio=None, task_id=None, cancel_event=None, progress_callback=None) -> bool:
         """下载一组媒体文件（图片、视频或Live Photo）
         Args:
             urls: [{'url': 'https://example.com/file.mp4', 'type': 'video'|'image'|'live_photo'}]
@@ -177,30 +206,59 @@ class DouyinDownloader:
                         print(f"\033[93m[Downloader] 文件类型: {file_type}\033[0m")
                     
                     # 发送WebSocket进度更新 - 开始下载单个文件
+                    file_started_at = time.monotonic()
+                    file_type_display = {
+                        'video': '视频',
+                        'image': '图片',
+                        'live_photo': 'Live Photo'
+                    }.get(file_type, '文件')
                     if socketio and task_id:
                         from datetime import datetime
-                        progress = ((i + 0.5) / len(urls)) * 100
-                        file_type_display = {
-                            'video': '视频',
-                            'image': '图片', 
-                            'live_photo': 'Live Photo'
-                        }.get(file_type, '文件')
-                        socketio.emit('download_progress', {
-                            'task_id': task_id,
-                            'progress': progress,
-                            'completed': i,
-                            'total': len(urls),
-                            'status': 'downloading'
-                        })
+                        progress = (i / len(urls)) * 100
+                        self._emit_download_progress(
+                            socketio, task_id, progress_callback,
+                            progress=progress,
+                            completed=i,
+                            total=len(urls),
+                            status='downloading',
+                            file_index=i + 1,
+                            file_total=len(urls),
+                            file_progress=0,
+                            bytes_downloaded=0,
+                            bytes_total=0,
+                            speed_bps=0,
+                            eta_seconds=None,
+                            file_type=file_type,
+                            file_type_display=file_type_display
+                        )
                         socketio.emit('download_log', {
                             'task_id': task_id,
                             'message': f'正在下载第 {i+1}/{len(urls)} 个文件 ({file_type_display})',
                             'timestamp': datetime.now().strftime('%H:%M:%S')
                         })
+                    elif progress_callback:
+                        progress = (i / len(urls)) * 100
+                        self._emit_download_progress(
+                            socketio, task_id, progress_callback,
+                            progress=progress,
+                            completed=i,
+                            total=len(urls),
+                            status='downloading',
+                            file_index=i + 1,
+                            file_total=len(urls),
+                            file_progress=0,
+                            bytes_downloaded=0,
+                            bytes_total=0,
+                            speed_bps=0,
+                            eta_seconds=None,
+                            file_type=file_type,
+                            file_type_display=file_type_display
+                        )
                         
                     headers = self._get_download_headers()
                     response = _session.get(url, headers=headers, stream=True, timeout=(10, 120))
                     response.raise_for_status()
+                    response_size = self._get_response_size(response)
                     
                     if self.debug_mode:
                         print(f"\033[93m[Downloader] 请求状态码: {response.status_code}\033[0m")
@@ -240,7 +298,9 @@ class DouyinDownloader:
                     downloaded_files.append(filepath)
 
                     with open(filepath, "wb") as f:
-                        total_size = 0
+                        downloaded_size = 0
+                        last_emit_time = time.monotonic()
+                        last_emit_progress = (i / len(urls)) * 100
                         for chunk in response.iter_content(chunk_size=Config.CHUNK_SIZE):
                             # 检查取消信号
                             if cancel_event and cancel_event.is_set():
@@ -256,35 +316,92 @@ class DouyinDownloader:
                                 return False
                             if chunk:
                                 f.write(chunk)
-                                total_size += len(chunk)
-                                if self.debug_mode and total_size % (Config.CHUNK_SIZE * 10) == 0:
-                                    print(f"\033[93m[Downloader] 已下载: {total_size/1024:.2f} KB\033[0m")
+                                downloaded_size += len(chunk)
+                                now = time.monotonic()
+                                elapsed = max(now - file_started_at, 0.001)
+                                file_progress = (downloaded_size / response_size * 100) if response_size > 0 else 0
+                                file_progress = min(100, max(0, file_progress))
+                                progress = ((i + file_progress / 100) / len(urls)) * 100
+                                speed_bps = downloaded_size / elapsed
+                                eta_seconds = ((response_size - downloaded_size) / speed_bps) if response_size > 0 and speed_bps > 0 else None
+                                should_emit = (
+                                    now - last_emit_time >= 0.5 or
+                                    abs(progress - last_emit_progress) >= 1 or
+                                    (response_size > 0 and downloaded_size >= response_size)
+                                )
+                                if should_emit:
+                                    self._emit_download_progress(
+                                        socketio, task_id, progress_callback,
+                                        progress=progress,
+                                        completed=i,
+                                        total=len(urls),
+                                        status='downloading',
+                                        file_index=i + 1,
+                                        file_total=len(urls),
+                                        file_progress=file_progress,
+                                        bytes_downloaded=downloaded_size,
+                                        bytes_total=response_size,
+                                        speed_bps=speed_bps,
+                                        eta_seconds=eta_seconds,
+                                        file_type=file_type,
+                                        file_type_display=file_type_display
+                                    )
+                                    last_emit_time = now
+                                    last_emit_progress = progress
+                                if self.debug_mode and downloaded_size % (Config.CHUNK_SIZE * 10) == 0:
+                                    print(f"\033[93m[Downloader] 已下载: {downloaded_size/1024:.2f} KB\033[0m")
 
                     if self.debug_mode:
                         print(f"\033[92m[Downloader] 文件下载完成: {filepath}, 大小: {os.path.getsize(filepath)/1024:.2f} KB\033[0m")
                     
-                    file_type_display = {
-                        'video': '视频',
-                        'image': '图片', 
-                        'live_photo': 'Live Photo'
-                    }.get(file_type, '文件')
                     print(f"\033[93m下载{file_type_display} ({i+1}/{len(urls)}) 成功：{user_dir}/{filename_with_index}.{extension}\033[0m")
                     
                     # 发送WebSocket进度更新 - 单个文件完成
                     if socketio and task_id:
                         progress = ((i + 1) / len(urls)) * 100
-                        socketio.emit('download_progress', {
-                            'task_id': task_id,
-                            'progress': progress,
-                            'completed': i + 1,
-                            'total': len(urls),
-                            'status': 'downloading'
-                        })
+                        elapsed = max(time.monotonic() - file_started_at, 0.001)
+                        final_size = os.path.getsize(filepath) if os.path.exists(filepath) else response_size
+                        self._emit_download_progress(
+                            socketio, task_id, progress_callback,
+                            progress=progress,
+                            completed=i + 1,
+                            total=len(urls),
+                            status='downloading',
+                            file_index=i + 1,
+                            file_total=len(urls),
+                            file_progress=100,
+                            bytes_downloaded=final_size,
+                            bytes_total=response_size or final_size,
+                            speed_bps=final_size / elapsed,
+                            eta_seconds=0,
+                            file_type=file_type,
+                            file_type_display=file_type_display
+                        )
                         socketio.emit('download_log', {
                             'task_id': task_id,
                             'message': f'✅ 第 {i+1}/{len(urls)} 个文件下载成功 ({filename_with_index}.{extension})',
                             'timestamp': datetime.now().strftime('%H:%M:%S')
                         })
+                    elif progress_callback:
+                        progress = ((i + 1) / len(urls)) * 100
+                        elapsed = max(time.monotonic() - file_started_at, 0.001)
+                        final_size = os.path.getsize(filepath) if os.path.exists(filepath) else response_size
+                        self._emit_download_progress(
+                            socketio, task_id, progress_callback,
+                            progress=progress,
+                            completed=i + 1,
+                            total=len(urls),
+                            status='downloading',
+                            file_index=i + 1,
+                            file_total=len(urls),
+                            file_progress=100,
+                            bytes_downloaded=final_size,
+                            bytes_total=response_size or final_size,
+                            speed_bps=final_size / elapsed,
+                            eta_seconds=0,
+                            file_type=file_type,
+                            file_type_display=file_type_display
+                        )
                         
                 except Exception as e:
                     if self.debug_mode:
@@ -323,7 +440,7 @@ class DouyinDownloader:
 
 
 
-    def download_video(self, url: str, name: str, aweme_id: str, cancel_event=None) -> bool:
+    def download_video(self, url: str, name: str, aweme_id: str, cancel_event=None, socketio=None, task_id=None, progress_callback=None) -> bool:
         """下载视频
         Args:
             url: 视频URL
@@ -352,6 +469,8 @@ class DouyinDownloader:
             headers = self._get_download_headers()
             response = _session.get(url, headers=headers, stream=True, timeout=(10, 120))
             response.raise_for_status()
+            response_size = self._get_response_size(response)
+            file_started_at = time.monotonic()
 
             user_path = os.path.join(self.download_dir, user_dir)
             os.makedirs(user_path, exist_ok=True)
@@ -360,8 +479,27 @@ class DouyinDownloader:
             if self.debug_mode:
                 print(f"\033[93m[Downloader] 开始下载视频: {filepath}\033[0m")
 
+            self._emit_download_progress(
+                socketio, task_id, progress_callback,
+                progress=0,
+                completed=0,
+                total=1,
+                status='downloading',
+                file_index=1,
+                file_total=1,
+                file_progress=0,
+                bytes_downloaded=0,
+                bytes_total=response_size,
+                speed_bps=0,
+                eta_seconds=None,
+                file_type='video',
+                file_type_display='视频'
+            )
+
             with open(filepath, "wb") as f:
-                total_size = 0
+                downloaded_size = 0
+                last_emit_time = time.monotonic()
+                last_emit_progress = 0
                 for chunk in response.iter_content(chunk_size=Config.CHUNK_SIZE):
                     # 检查取消信号
                     if cancel_event and cancel_event.is_set():
@@ -373,15 +511,63 @@ class DouyinDownloader:
                         return False
                     if chunk:
                         f.write(chunk)
-                        total_size += len(chunk)
-                        if self.debug_mode and total_size % (Config.CHUNK_SIZE * 10) == 0:
-                            print(f"\033[93m[Downloader] 已下载: {total_size/1024:.2f} KB\033[0m")
+                        downloaded_size += len(chunk)
+                        now = time.monotonic()
+                        elapsed = max(now - file_started_at, 0.001)
+                        progress = (downloaded_size / response_size * 100) if response_size > 0 else 0
+                        progress = min(100, max(0, progress))
+                        speed_bps = downloaded_size / elapsed
+                        eta_seconds = ((response_size - downloaded_size) / speed_bps) if response_size > 0 and speed_bps > 0 else None
+                        should_emit = (
+                            now - last_emit_time >= 0.5 or
+                            abs(progress - last_emit_progress) >= 1 or
+                            (response_size > 0 and downloaded_size >= response_size)
+                        )
+                        if should_emit:
+                            self._emit_download_progress(
+                                socketio, task_id, progress_callback,
+                                progress=progress,
+                                completed=0,
+                                total=1,
+                                status='downloading',
+                                file_index=1,
+                                file_total=1,
+                                file_progress=progress,
+                                bytes_downloaded=downloaded_size,
+                                bytes_total=response_size,
+                                speed_bps=speed_bps,
+                                eta_seconds=eta_seconds,
+                                file_type='video',
+                                file_type_display='视频'
+                            )
+                            last_emit_time = now
+                            last_emit_progress = progress
+                        if self.debug_mode and downloaded_size % (Config.CHUNK_SIZE * 10) == 0:
+                            print(f"\033[93m[Downloader] 已下载: {downloaded_size/1024:.2f} KB\033[0m")
             
             if self.debug_mode:
                 file_size = os.path.getsize(filepath)
                 print(f"\033[92m[Downloader] 视频下载完成: {filepath}, 大小: {file_size/1024:.2f} KB\033[0m")
                 
             print(f"\033[93m下载视频成功：{user_dir}/{filename}.mp4\033[0m")
+            elapsed = max(time.monotonic() - file_started_at, 0.001)
+            final_size = os.path.getsize(filepath) if os.path.exists(filepath) else response_size
+            self._emit_download_progress(
+                socketio, task_id, progress_callback,
+                progress=100,
+                completed=1,
+                total=1,
+                status='completed',
+                file_index=1,
+                file_total=1,
+                file_progress=100,
+                bytes_downloaded=final_size,
+                bytes_total=response_size or final_size,
+                speed_bps=final_size / elapsed,
+                eta_seconds=0,
+                file_type='video',
+                file_type_display='视频'
+            )
             
             # 保存下载记录
             self._save_download_record(user_dir, aweme_id)
