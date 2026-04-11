@@ -1839,12 +1839,17 @@ a:hover { color: var(--accent-hover); }
 }
 .ip-btn:hover { background: rgba(255,255,255,0.25); transform: scale(1.1); }
 .ip-play-btn {
-    width: 48px;
-    height: 48px;
-    font-size: 1.4rem;
-    background: var(--accent);
+    width: 56px;
+    height: 56px;
+    font-size: 1.55rem;
+    background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.24);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.22);
 }
-.ip-play-btn:hover { background: var(--accent-hover); transform: scale(1.1); }
+.ip-play-btn:hover {
+    background: rgba(255,255,255,0.3);
+    transform: scale(1.1);
+}
 .ip-progress-track {
     width: 80%;
     max-width: 500px;
@@ -2211,4 +2216,3 @@ a:hover { color: var(--accent-hover); }
     0%, 100% { opacity: 1; }
     50% { opacity: 0.7; }
 }
-

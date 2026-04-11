@@ -265,6 +265,30 @@ class DouyinUserManager:
 
         return media_type, urls
 
+    def _extract_bgm_url(self, post: dict) -> Optional[str]:
+        """提取作品背景音乐地址。"""
+        bgm_url = None
+
+        if post.get('music'):
+            music_data = post['music']
+            if isinstance(music_data.get('play_url'), dict):
+                play_urls = music_data['play_url'].get('url_list', [])
+                bgm_url = play_urls[0] if play_urls else None
+            elif isinstance(music_data.get('play_url'), str):
+                bgm_url = music_data['play_url']
+
+            if not bgm_url:
+                bgm_url = music_data.get('h5_url', '') or music_data.get('web_url', '')
+
+            if not bgm_url and music_data.get('music_file'):
+                if isinstance(music_data['music_file'], dict):
+                    file_urls = music_data['music_file'].get('url_list', [])
+                    bgm_url = file_urls[0] if file_urls else None
+                elif isinstance(music_data['music_file'], str):
+                    bgm_url = music_data['music_file']
+
+        return bgm_url
+
     async def get_video_detail(self, aweme_id: str) -> Optional[dict]:
         """根据作品ID获取视频详情
 
@@ -335,23 +359,7 @@ class DouyinUserManager:
                 if images:
                     detail['cover_url'] = images[0].get('url_list', [''])[-1]
 
-            # 提取 BGM 信息（支持图集和视频）
-            bgm_url = None
-            if post.get('music'):
-                music_data = post['music']
-                # 尝试多个可能的字段
-                if isinstance(music_data.get('play_url'), dict):
-                    bgm_url = music_data['play_url'].get('url_list', [''])[0] if music_data['play_url'].get('url_list') else None
-                elif isinstance(music_data.get('play_url'), str):
-                    bgm_url = music_data['play_url']
-                if not bgm_url:
-                    bgm_url = music_data.get('h5_url', '') or music_data.get('web_url', '')
-                if not bgm_url and music_data.get('music_file'):
-                    if isinstance(music_data['music_file'], dict):
-                        bgm_url = music_data['music_file'].get('url_list', [''])[0] if music_data['music_file'].get('url_list') else None
-                    elif isinstance(music_data['music_file'], str):
-                        bgm_url = music_data['music_file']
-            detail['bgm_url'] = bgm_url
+            detail['bgm_url'] = self._extract_bgm_url(post)
 
             return detail
             
@@ -697,6 +705,7 @@ class DouyinUserManager:
                     'cover_url': cover_url,
                     'media_type': media_type,
                     'media_urls': media_urls,
+                    'bgm_url': self._extract_bgm_url(post),
                     'author': {
                         'nickname': post.get('author', {}).get('nickname', ''),
                         'sec_uid': post.get('author', {}).get('sec_uid', ''),

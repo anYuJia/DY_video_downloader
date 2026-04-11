@@ -733,17 +733,18 @@ function renderVideoDetail(video, awemeId) {
     var downloadAudioBtn = document.getElementById('downloadAudioFromDetail');
     var bgmUrl = video.bgm_url || video.music;
     if (bgmUrl) {
+        var proxiedBgmUrl = proxyUrl(bgmUrl);
         if (audioSection) audioSection.style.display = '';
         if (downloadAudioBtn) downloadAudioBtn.style.display = 'inline-block';
         if (audioUrlsContainer) {
             audioUrlsContainer.textContent = '';
             var aud = document.createElement('audio'); aud.controls = true;
-            var src = document.createElement('source'); src.src = bgmUrl; src.type = 'audio/mpeg';
+            var src = document.createElement('source'); src.src = proxiedBgmUrl; src.type = 'audio/mpeg';
             aud.appendChild(src); audioUrlsContainer.appendChild(aud);
-            var al = document.createElement('a'); al.href = bgmUrl; al.target = '_blank'; al.className = 'video-detail-audio-link'; al.textContent = bgmUrl;
+            var al = document.createElement('a'); al.href = proxiedBgmUrl; al.target = '_blank'; al.className = 'video-detail-audio-link'; al.textContent = bgmUrl;
             audioUrlsContainer.appendChild(al);
         }
-        if (downloadAudioBtn) downloadAudioBtn.setAttribute('data-bgm-url', bgmUrl);
+        if (downloadAudioBtn) downloadAudioBtn.setAttribute('data-bgm-url', proxiedBgmUrl);
     } else {
         if (audioSection) audioSection.style.display = 'none';
         if (downloadAudioBtn) downloadAudioBtn.style.display = 'none';

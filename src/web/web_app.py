@@ -17,6 +17,7 @@ from datetime import datetime
 logging.basicConfig(level=logging.DEBUG if os.environ.get('DEBUG_MODE', '').lower() in ('true', '1') else logging.INFO,
                     format='[%(levelname)s] %(message)s')
 logger = logging.getLogger('web_app')
+socketio_debug = os.environ.get('DEBUG_MODE', '').lower() in ('true', '1', 'yes')
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -37,8 +38,8 @@ socketio = SocketIO(
     app, 
     cors_allowed_origins="*",
     async_mode='gevent',  # 使用gevent模式
-    logger=True,  # 启用日志
-    engineio_logger=True,  # 启用Engine.IO日志
+    logger=socketio_debug,
+    engineio_logger=socketio_debug,
     ping_timeout=60,  # 增加ping超时时间
     ping_interval=25  # 增加ping间隔
 )

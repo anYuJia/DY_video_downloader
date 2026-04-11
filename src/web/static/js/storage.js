@@ -277,16 +277,17 @@ const VideoStorage = {
 const LikedDataCache = {
     LIKED_VIDEOS_KEY: 'liked_videos_cache',
     LIKED_AUTHORS_KEY: 'liked_authors_cache',
+    CACHE_VERSION: 2,
     currentDisplayType: null,
 
     saveLikedVideos: function(videos, count) {
-        const cacheData = { data: videos, count: count, timestamp: Date.now() };
+        const cacheData = { version: this.CACHE_VERSION, data: videos, count: count, timestamp: Date.now() };
         localStorage.setItem(this.LIKED_VIDEOS_KEY, JSON.stringify(cacheData));
         _log(`已缓存 ${videos.length} 个点赞视频`);
     },
 
     saveLikedAuthors: function(authors, count) {
-        const cacheData = { data: authors, count: count, timestamp: Date.now() };
+        const cacheData = { version: this.CACHE_VERSION, data: authors, count: count, timestamp: Date.now() };
         localStorage.setItem(this.LIKED_AUTHORS_KEY, JSON.stringify(cacheData));
         _log(`已缓存 ${authors.length} 个点赞作者`);
     },
@@ -296,6 +297,11 @@ const LikedDataCache = {
             const cached = localStorage.getItem(this.LIKED_VIDEOS_KEY);
             if (cached) {
                 const cacheData = JSON.parse(cached);
+                if (cacheData.version !== this.CACHE_VERSION) {
+                    localStorage.removeItem(this.LIKED_VIDEOS_KEY);
+                    _log('点赞视频缓存版本已过期，已自动清理');
+                    return null;
+                }
                 _log(`从缓存获取到 ${cacheData.data.length} 个点赞视频`);
                 return cacheData;
             }
@@ -310,6 +316,11 @@ const LikedDataCache = {
             const cached = localStorage.getItem(this.LIKED_AUTHORS_KEY);
             if (cached) {
                 const cacheData = JSON.parse(cached);
+                if (cacheData.version !== this.CACHE_VERSION) {
+                    localStorage.removeItem(this.LIKED_AUTHORS_KEY);
+                    _log('点赞作者缓存版本已过期，已自动清理');
+                    return null;
+                }
                 _log(`从缓存获取到 ${cacheData.data.length} 个点赞作者`);
                 return cacheData;
             }

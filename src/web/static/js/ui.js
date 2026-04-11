@@ -965,6 +965,33 @@ function previewMediaFromList(awemeId) {
     showToast('没有可预览的媒体内容', 'error');
 }
 
+function _resolvePlayerBgmUrl(video) {
+    return video?.music || video?.bgm_url || null;
+}
+
+function _shouldUseSeparateBgm(item) {
+    return item && (item.type === 'image' || item.type === 'live_photo');
+}
+
+function _startPlayerBgm() {
+    if (!_playerBgmUrl) return;
+    if (!_playerBgmAudio) {
+        _playerBgmAudio = new Audio(proxyUrl(_playerBgmUrl));
+        _playerBgmAudio.loop = true;
+    }
+    _playerBgmAudio.play().catch(() => {});
+}
+
+function _setPlayerPlayButtonState(isPlaying) {
+    const playBtn = document.getElementById('ip-play');
+    if (!playBtn) return;
+
+    playBtn.innerHTML = '';
+    const icon = document.createElement('i');
+    icon.className = isPlaying ? 'bi bi-pause-fill' : 'bi bi-play-fill';
+    playBtn.appendChild(icon);
+}
+
 // ═══════════════════════════════════════════════
 // IMMERSIVE PLAYER
 // ═══════════════════════════════════════════════
@@ -975,15 +1002,7 @@ function openImmersivePlayer(video) {
     }
 
     // 提取 BGM 信息
-    _playerBgmUrl = null;
-    if (video.music || video.bgm_url) {
-        _playerBgmUrl = video.music || video.bgm_url;
-    } else if (video.media_urls && video.media_urls.length > 0) {
-        const firstMedia = video.media_urls[0];
-        if (firstMedia) {
-            _playerBgmUrl = firstMedia.url;
-        }
-    }
+    _playerBgmUrl = _resolvePlayerBgmUrl(video);
 
     _playerItems = video.media_urls.map(m => ({
         type: m.type || 'unknown',
@@ -1058,7 +1077,7 @@ function openImmersivePlayer(video) {
     playBtn.id = 'ip-play';
     playBtn.onclick = function(e) { e.stopPropagation(); playerTogglePlay(); };
     const playIcon = document.createElement('i');
-    playIcon.className = 'bi bi-pause-fill';
+    playIcon.className = 'bi bi-play-fill';
     playBtn.appendChild(playIcon);
 
     const nextBtn = document.createElement('button');
@@ -1147,6 +1166,10 @@ function _renderPlayerItem() {
     progress.style.width = '0%';
 
     if (item.type === 'video' || item.type === 'live_photo') {
+        if (_playerBgmAudio && !_shouldUseSeparateBgm(item)) {
+            _playerBgmAudio.pause();
+        }
+
         const videoEl = document.createElement('video');
         videoEl.id = 'ip-video';
         videoEl.autoplay = true;
@@ -1156,27 +1179,24 @@ function _renderPlayerItem() {
         container.appendChild(videoEl);
 
         _playerVideo = videoEl;
-        playBtn.innerHTML = '';
-        const pauseIcon = document.createElement('i');
-        pauseIcon.className = 'bi bi-pause-fill';
-        playBtn.appendChild(pauseIcon);
+        _setPlayerPlayButtonState(true);
 
         _playerVideo.ontimeupdate = () => {
             if (_playerVideo.duration) {
                 progress.style.width = (_playerVideo.currentTime / _playerVideo.duration * 100) + '%';
             }
         };
+        _playerVideo.onplay = () => _setPlayerPlayButtonState(true);
+        _playerVideo.onpause = () => _setPlayerPlayButtonState(false);
         _playerVideo.onended = () => {
             if (_playerIndex < _playerItems.length - 1) playerNext();
             else {
-                playBtn.innerHTML = '';
-                const pIcon = document.createElement('i');
-                pIcon.className = 'bi bi-play-fill';
-                playBtn.appendChild(pIcon);
+                _setPlayerPlayButtonState(false);
             }
         };
         _playerVideo.onerror = () => {
             container.innerHTML = '';
+            _setPlayerPlayButtonState(false);
             const errDiv = document.createElement('div');
             errDiv.className = 'ip-error';
             const errIcon = document.createElement('i');
@@ -1193,8 +1213,15 @@ function _renderPlayerItem() {
             errDiv.appendChild(errLink);
             container.appendChild(errDiv);
         };
+
+        if (_shouldUseSeparateBgm(item)) {
+            _startPlayerBgm();
+        }
     } else if (item.type === 'image') {
-        // 图片播放 - 播放 BGM
+        if (_playerBgmAudio && !_shouldUseSeparateBgm(item)) {
+            _playerBgmAudio.pause();
+        }
+
         const img = document.createElement('img');
         img.src = item.proxy;
         img.alt = '图片';
@@ -1203,17 +1230,8 @@ function _renderPlayerItem() {
         container.appendChild(img);
 
         _playerVideo = null;
-        playBtn.innerHTML = '';
-        const pIcon = document.createElement('i');
-        pIcon.className = 'bi bi-play-fill';
-        playBtn.appendChild(pIcon);
-
-        // 启动 BGM
-        if (_playerBgmUrl && !_playerBgmAudio) {
-            _playerBgmAudio = new Audio(_playerBgmUrl);
-            _playerBgmAudio.loop = true;
-            _playerBgmAudio.play().catch(e => _log('BGM 播放失败:', e));
-        }
+        _startPlayerBgm();
+        _setPlayerPlayButtonState(true);
 
         let elapsed = 0;
         _playerTimer = setInterval(() => {
@@ -1221,11 +1239,16 @@ function _renderPlayerItem() {
             progress.style.width = (elapsed / 3000 * 100) + '%';
             if (elapsed >= 3000) {
                 if (_playerIndex < _playerItems.length - 1) playerNext();
-                else clearInterval(_playerTimer);
+                else {
+                    clearInterval(_playerTimer);
+                    _playerTimer = null;
+                    _setPlayerPlayButtonState(false);
+                }
             }
         }, 50);
     } else {
         container.innerHTML = '';
+        _setPlayerPlayButtonState(false);
         const errDiv = document.createElement('div');
         errDiv.className = 'ip-error';
         const errP = document.createElement('p');
@@ -1272,12 +1295,7 @@ function _switchToWork(newIndex) {
 
     // 更新作品状态
     _playerWorkIndex = newIndex;
-    _playerBgmUrl = null;
-    if (video.music || video.bgm_url) {
-        _playerBgmUrl = video.music || video.bgm_url;
-    } else if (video.media_urls.length > 0 && video.media_urls[0]) {
-        _playerBgmUrl = video.media_urls[0].url;
-    }
+    _playerBgmUrl = _resolvePlayerBgmUrl(video);
     _playerItems = video.media_urls.map(m => ({
         type: m.type || 'unknown',
         url: m.url,
@@ -1307,36 +1325,25 @@ function playerWorkPrev() {
 }
 
 function playerTogglePlay() {
-    const playBtn = document.getElementById('ip-play');
     if (_playerVideo) {
         if (_playerVideo.paused) {
             _playerVideo.play();
-            playBtn.innerHTML = '';
-            const icon = document.createElement('i');
-            icon.className = 'bi bi-pause-fill';
-            playBtn.appendChild(icon);
+            if (_playerBgmAudio) _playerBgmAudio.play().catch(() => {});
+            _setPlayerPlayButtonState(true);
         } else {
             _playerVideo.pause();
-            playBtn.innerHTML = '';
-            const icon = document.createElement('i');
-            icon.className = 'bi bi-play-fill';
-            playBtn.appendChild(icon);
+            if (_playerBgmAudio) _playerBgmAudio.pause();
+            _setPlayerPlayButtonState(false);
         }
     } else {
         if (_playerTimer) {
             clearInterval(_playerTimer);
             _playerTimer = null;
             if (_playerBgmAudio) _playerBgmAudio.pause();
-            playBtn.innerHTML = '';
-            const icon = document.createElement('i');
-            icon.className = 'bi bi-play-fill';
-            playBtn.appendChild(icon);
+            _setPlayerPlayButtonState(false);
         } else {
             if (_playerBgmAudio) _playerBgmAudio.play().catch(() => {});
-            playBtn.innerHTML = '';
-            const icon = document.createElement('i');
-            icon.className = 'bi bi-pause-fill';
-            playBtn.appendChild(icon);
+            _setPlayerPlayButtonState(true);
             let elapsed = 0;
             const progress = document.getElementById('ip-progress');
             _playerTimer = setInterval(() => {
@@ -1344,7 +1351,11 @@ function playerTogglePlay() {
                 if (progress) progress.style.width = (elapsed / 3000 * 100) + '%';
                 if (elapsed >= 3000) {
                     if (_playerIndex < _playerItems.length - 1) playerNext();
-                    else { clearInterval(_playerTimer); _playerTimer = null; }
+                    else {
+                        clearInterval(_playerTimer);
+                        _playerTimer = null;
+                        _setPlayerPlayButtonState(false);
+                    }
                 }
             }, 50);
         }
