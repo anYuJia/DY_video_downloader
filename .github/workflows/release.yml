@@ -1,0 +1,178 @@
+name: Build And Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag, for example v1.0.1"
+        required: true
+        type: string
+      release_name:
+        description: "Optional release title"
+        required: false
+        type: string
+      prerelease:
+        description: "Mark release as prerelease"
+        required: false
+        default: false
+        type: boolean
+      draft:
+        description: "Create release as draft"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: douyin_downloader
+  PYTHON_VERSION: "3.10"
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            label: linux-x64
+            asset_suffix: linux-x64
+            archive_ext: tar.gz
+          - runner: windows-latest
+            label: windows-x64
+            asset_suffix: windows-x64
+            archive_ext: zip
+          - runner: macos-13
+            label: macos-x64
+            asset_suffix: macos-x64
+            archive_ext: tar.gz
+          - runner: macos-14
+            label: macos-arm64
+            asset_suffix: macos-arm64
+            archive_ext: tar.gz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Prepare CI requirements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          output = []
+          for raw in Path("requirements.txt").read_text(encoding="utf-8").splitlines():
+              line = raw.split("#", 1)[0].strip()
+              if not line:
+                  continue
+              if line.startswith("asyncio") or line.startswith("dataclasses"):
+                  continue
+              output.append(line)
+
+          Path("requirements-ci.txt").write_text("\n".join(output) + "\n", encoding="utf-8")
+          print("Prepared requirements-ci.txt with", len(output), "entries")
+          PY
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements-ci.txt pyinstaller
+
+      - name: Build app
+        shell: bash
+        run: pyinstaller build.spec --clean --noconfirm
+
+      - name: Package build (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.tag_name }}"
+          fi
+          asset_name="${APP_NAME}-${version}-${{ matrix.asset_suffix }}"
+          tar -C dist -czf "${asset_name}.tar.gz" "${APP_NAME}"
+          echo "ASSET_FILE=${asset_name}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Package build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = "${env:GITHUB_REF_NAME}"
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ inputs.tag_name }}"
+          }
+          $assetName = "${env:APP_NAME}-$version-${{ matrix.asset_suffix }}"
+          Compress-Archive -Path "dist/${env:APP_NAME}" -DestinationPath "$assetName.zip" -Force
+          "ASSET_FILE=$assetName.zip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.label }}
+          path: ${{ env.ASSET_FILE }}
+          if-no-files-found: error
+
+  release:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag_name="${{ inputs.tag_name }}"
+            release_name="${{ inputs.release_name }}"
+            prerelease="${{ inputs.prerelease }}"
+            draft="${{ inputs.draft }}"
+          else
+            tag_name="${GITHUB_REF_NAME}"
+            release_name=""
+            prerelease="false"
+            draft="false"
+          fi
+
+          if [ -z "$release_name" ]; then
+            release_name="DY Video Downloader ${tag_name}"
+          fi
+
+          echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
+          echo "release_name=$release_name" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag_name }}
+          name: ${{ steps.meta.outputs.release_name }}
+          target_commitish: ${{ github.sha }}
+          draft: ${{ steps.meta.outputs.draft == 'true' }}
+          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          files: release-assets/*
+          fail_on_unmatched_files: true
