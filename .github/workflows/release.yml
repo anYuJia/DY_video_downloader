@@ -48,10 +48,6 @@ jobs:
             label: windows-x64
             asset_suffix: windows-x64
             archive_ext: zip
-          - runner: macos-13
-            label: macos-x64
-            asset_suffix: macos-x64
-            archive_ext: tar.gz
           - runner: macos-14
             label: macos-arm64
             asset_suffix: macos-arm64
