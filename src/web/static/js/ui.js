@@ -992,6 +992,28 @@ function _setPlayerPlayButtonState(isPlaying) {
     playBtn.appendChild(icon);
 }
 
+function _advancePlayerSequence() {
+    if (_playerItems.length > 1) {
+        if (_playerIndex < _playerItems.length - 1) {
+            playerNext();
+        } else {
+            _playerIndex = 0;
+            _renderPlayerItem();
+            _playerAnimate('slide-left');
+        }
+        return;
+    }
+
+    if (_playerTimer) {
+        clearInterval(_playerTimer);
+        _playerTimer = null;
+    }
+    if (_playerBgmAudio) {
+        _playerBgmAudio.pause();
+    }
+    _setPlayerPlayButtonState(false);
+}
+
 // ═══════════════════════════════════════════════
 // IMMERSIVE PLAYER
 // ═══════════════════════════════════════════════
@@ -1189,10 +1211,7 @@ function _renderPlayerItem() {
         _playerVideo.onplay = () => _setPlayerPlayButtonState(true);
         _playerVideo.onpause = () => _setPlayerPlayButtonState(false);
         _playerVideo.onended = () => {
-            if (_playerIndex < _playerItems.length - 1) playerNext();
-            else {
-                _setPlayerPlayButtonState(false);
-            }
+            _advancePlayerSequence();
         };
         _playerVideo.onerror = () => {
             container.innerHTML = '';
@@ -1238,12 +1257,7 @@ function _renderPlayerItem() {
             elapsed += 50;
             progress.style.width = (elapsed / 3000 * 100) + '%';
             if (elapsed >= 3000) {
-                if (_playerIndex < _playerItems.length - 1) playerNext();
-                else {
-                    clearInterval(_playerTimer);
-                    _playerTimer = null;
-                    _setPlayerPlayButtonState(false);
-                }
+                _advancePlayerSequence();
             }
         }, 50);
     } else {
@@ -1350,12 +1364,7 @@ function playerTogglePlay() {
                 elapsed += 50;
                 if (progress) progress.style.width = (elapsed / 3000 * 100) + '%';
                 if (elapsed >= 3000) {
-                    if (_playerIndex < _playerItems.length - 1) playerNext();
-                    else {
-                        clearInterval(_playerTimer);
-                        _playerTimer = null;
-                        _setPlayerPlayButtonState(false);
-                    }
+                    _advancePlayerSequence();
                 }
             }, 50);
         }

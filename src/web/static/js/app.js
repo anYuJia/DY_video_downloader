@@ -840,6 +840,9 @@ function displayLikedVideos(videos) {
         var createTime = new Date(video.create_time * 1000).toLocaleDateString();
         var mediaType = video.media_type === 'image' ? (video.image_count > 1 ? '图集' : '图片') : '视频';
         var duration = video.duration > 0 ? formatDuration(video.duration) : '';
+        var diggCount = video.digg_count != null ? video.digg_count : (video.statistics?.digg_count || 0);
+        var commentCount = video.comment_count != null ? video.comment_count : (video.statistics?.comment_count || 0);
+        var shareCount = video.share_count != null ? video.share_count : (video.statistics?.share_count || 0);
         var vc = document.createElement('div');
         vc.className = 'col-md-3 col-sm-6 mb-3';
         vc.innerHTML = '<div class="card h-100 video-card">' +
@@ -847,9 +850,9 @@ function displayLikedVideos(videos) {
             '<img src="' + coverUrl + '" class="card-img-top video-cover" alt="封面" onerror="this.src=\'/static/default-cover.svg\'">' +
             '<i class="bi bi-play-circle-fill video-play-icon"></i>' +
             '<div class="video-overlay"><div class="video-stats">' +
-            '<div class="stat-item"><i class="bi bi-heart-fill"></i><span>' + formatNumber(video.statistics?.digg_count || 0) + '</span></div>' +
-            '<div class="stat-item"><i class="bi bi-chat-fill"></i><span>' + formatNumber(video.statistics?.comment_count || 0) + '</span></div>' +
-            '<div class="stat-item"><i class="bi bi-share-fill"></i><span>' + formatNumber(video.statistics?.share_count || 0) + '</span></div>' +
+            '<div class="stat-item"><i class="bi bi-heart-fill"></i><span>' + formatNumber(diggCount) + '</span></div>' +
+            '<div class="stat-item"><i class="bi bi-chat-fill"></i><span>' + formatNumber(commentCount) + '</span></div>' +
+            '<div class="stat-item"><i class="bi bi-share-fill"></i><span>' + formatNumber(shareCount) + '</span></div>' +
             '</div></div>' +
             '<span class="badge bg-primary position-absolute top-0 end-0 m-2">' + mediaType + '</span>' +
             (duration ? '<span class="badge bg-dark position-absolute bottom-0 start-0 m-2">' + duration + '</span>' : '') +
