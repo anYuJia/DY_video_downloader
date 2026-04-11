@@ -64,6 +64,54 @@ def safe_get_url(obj, default=''):
     return url_list[0] if url_list else default
 
 
+def infer_media_type_from_url(url, fallback_type='video'):
+    """根据 URL 粗略推断媒体类型，用于兼容旧前端传入的字符串数组。"""
+    normalized_fallback = fallback_type if fallback_type in ('video', 'image', 'live_photo') else 'video'
+    if not isinstance(url, str) or not url:
+        return normalized_fallback
+
+    clean_url = url.split('?', 1)[0].lower()
+    if clean_url.endswith(('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.heif')):
+        return 'image'
+    if clean_url.endswith(('.mp4', '.mov', '.m4v', '.webm')):
+        return 'video'
+    return normalized_fallback
+
+
+def normalize_media_urls(media_urls, raw_media_type='video'):
+    """统一媒体数据结构为 [{'url': str, 'type': str}]。"""
+    if not isinstance(media_urls, list):
+        raise ValueError(f"媒体URL格式错误: {type(media_urls)}")
+
+    fallback_type = raw_media_type if raw_media_type in ('video', 'image', 'live_photo') else 'video'
+    normalized_urls = []
+
+    for item in media_urls:
+        if isinstance(item, dict):
+            url = str(item.get('url', '')).strip()
+            if not url:
+                continue
+            normalized_urls.append({
+                'url': url,
+                'type': item.get('type') or infer_media_type_from_url(url, fallback_type)
+            })
+            continue
+
+        if isinstance(item, str):
+            url = item.strip()
+            if not url:
+                continue
+            normalized_urls.append({
+                'url': url,
+                'type': infer_media_type_from_url(url, fallback_type)
+            })
+            continue
+
+        logger.warning(f"跳过不支持的媒体URL项: {item}")
+
+    return normalized_urls
+
+
 def get_or_create_loop():
     global _global_loop, _loop_thread
     if _global_loop is None:
@@ -589,6 +637,10 @@ def download_single_video():
         if not media_urls:
             return jsonify({'success': False, 'message': '没有可用的媒体URL'}), 400
 
+        media_urls = normalize_media_urls(media_urls, raw_media_type)
+        if not media_urls:
+            return jsonify({'success': False, 'message': '没有有效的媒体URL'}), 400
+
         task_id = str(uuid.uuid4())
 
         # 在全局 Loop 中运行下载任务
@@ -612,7 +664,7 @@ def download_single_video():
                         'aweme_id': aweme_id,
                         'media_type': raw_media_type,
                         'media_count': media_count
-                    }, broadcast=True)  # 添加broadcast=True确保消息广播到所有客户端
+                    })
                     logger.debug(f" WebSocket事件已发送")
                 except Exception as e:
                     logger.error(f" 发送WebSocket事件失败: {str(e)}")
@@ -630,12 +682,7 @@ def download_single_video():
                 })
                 
                 # 提取URL列表，处理不同的数据格式
-                urls = []
-                if isinstance(media_urls, list):
-                    urls = media_urls
-                else:
-                    logger.error(f" 媒体URL格式错误: {type(media_urls)}")
-                    raise ValueError(f"媒体URL格式错误: {type(media_urls)}")
+                urls = media_urls
                 
                 logger.debug(f" 提取的URL列表: {urls}")
                 

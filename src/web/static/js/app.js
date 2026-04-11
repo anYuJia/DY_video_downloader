@@ -483,10 +483,53 @@ function displayVideos(videos, append) {
 // ═══════════════════════════════════════════════
 // VIDEO DOWNLOAD FUNCTIONS
 // ═══════════════════════════════════════════════
+function inferMediaTypeFromUrl(url, fallbackType) {
+    var normalizedFallback = fallbackType === 'image' || fallbackType === 'live_photo' || fallbackType === 'video'
+        ? fallbackType
+        : 'video';
+    if (!url || typeof url !== 'string') return normalizedFallback;
+
+    var cleanUrl = url.split('?')[0].toLowerCase();
+    if (/\.(jpg|jpeg|png|webp|gif|bmp|heic|heif)$/.test(cleanUrl)) return 'image';
+    if (/\.(mp4|mov|m4v|webm)$/.test(cleanUrl)) return 'video';
+    return normalizedFallback;
+}
+
+function normalizeMediaUrlsForDownload(mediaUrls, rawMediaType) {
+    if (!Array.isArray(mediaUrls)) return [];
+
+    var fallbackType = rawMediaType === 'image' || rawMediaType === 'live_photo' || rawMediaType === 'video'
+        ? rawMediaType
+        : 'video';
+
+    return mediaUrls.map(function(item) {
+        if (typeof item === 'string') {
+            var normalizedUrl = item.trim();
+            if (!normalizedUrl) return null;
+            return {
+                url: normalizedUrl,
+                type: inferMediaTypeFromUrl(normalizedUrl, fallbackType)
+            };
+        }
+
+        if (item && typeof item === 'object') {
+            var itemUrl = typeof item.url === 'string' ? item.url.trim() : '';
+            if (!itemUrl) return null;
+            return Object.assign({}, item, {
+                url: itemUrl,
+                type: item.type || inferMediaTypeFromUrl(itemUrl, fallbackType)
+            });
+        }
+
+        return null;
+    }).filter(function(item) { return !!item; });
+}
+
 function downloadSingleVideoWithData(awemeId, desc, mediaUrls, rawMediaType, authorName) {
     var storedVideo = VideoStorage.getVideo(awemeId);
     var fvd = storedVideo ? { aweme_id: awemeId, desc: storedVideo.desc || desc, media_urls: storedVideo.media_urls || mediaUrls, raw_media_type: storedVideo.raw_media_type || storedVideo.media_type || rawMediaType, author_name: storedVideo.author ? storedVideo.author.nickname : (authorName || '未知作者') }
         : { aweme_id: awemeId, desc: desc, media_urls: mediaUrls, raw_media_type: rawMediaType, author_name: authorName || '未知作者' };
+    fvd.media_urls = normalizeMediaUrlsForDownload(fvd.media_urls, fvd.raw_media_type);
     if (!fvd.media_urls || fvd.media_urls.length === 0) { showToast('媒体URL不能为空', 'error'); return; }
     fetch('/api/download_single_video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fvd) })
     .then(function(r) { return r.json(); })
@@ -506,6 +549,7 @@ function downloadVideoFromList(awemeId) {
         if (video) { fvd = { aweme_id: awemeId, desc: video.desc || '视频', media_urls: video.media_urls || [], raw_media_type: video.raw_media_type || video.media_type || 'video', author_name: video.author ? video.author.nickname : '未知作者' }; }
         else { showToast('找不到视频数据', 'error'); return; }
     }
+    fvd.media_urls = normalizeMediaUrlsForDownload(fvd.media_urls, fvd.raw_media_type);
     if (!fvd.media_urls || fvd.media_urls.length === 0) { showToast('媒体URL不能为空', 'error'); return; }
     fetch('/api/download_single_video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fvd) })
     .then(function(r) { return r.json(); })
@@ -617,7 +661,8 @@ async function downloadParsedVideo(awemeId) {
         var storedVideo = VideoStorage.getVideo(awemeId);
         var fvd = storedVideo
             ? { aweme_id: awemeId, desc: storedVideo.desc || videoData.desc || '视频', media_urls: storedVideo.media_urls || videoData.media_urls || [], raw_media_type: storedVideo.raw_media_type || storedVideo.media_type || videoData.media_type || 'video', author_name: storedVideo.author ? storedVideo.author.nickname : (videoData.author ? videoData.author.nickname : '未知作者') }
-            : Object.assign({}, videoData, { author_name: videoData.author ? videoData.author.nickname : '未知作者' });
+            : Object.assign({}, videoData, { raw_media_type: videoData.raw_media_type || videoData.media_type || 'video', author_name: videoData.author ? videoData.author.nickname : '未知作者' });
+        fvd.media_urls = normalizeMediaUrlsForDownload(fvd.media_urls, fvd.raw_media_type);
         var response = await fetch('/api/download_single_video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ aweme_id: fvd.aweme_id, desc: fvd.desc, media_urls: fvd.media_urls, raw_media_type: fvd.raw_media_type, author_name: fvd.author_name }) });
         var result = await response.json();
         if (result.success) { showToast('开始下载媒体', 'success'); addLog('开始下载媒体: ' + fvd.desc); }
@@ -708,8 +753,8 @@ function renderVideoDetail(video, awemeId) {
     setupMediaPreviewControls(video);
     document.getElementById('downloadVideoFromDetail').setAttribute('data-aweme-id', awemeId);
     document.getElementById('downloadVideoFromDetail').setAttribute('data-desc', video.desc || '视频');
-    document.getElementById('downloadVideoFromDetail').setAttribute('data-media-urls', JSON.stringify(video.media_urls.map(function(m) { return m.url; }) || []));
-    document.getElementById('downloadVideoFromDetail').setAttribute('data-media-type', video.media_type || 'video');
+    document.getElementById('downloadVideoFromDetail').setAttribute('data-media-urls', JSON.stringify(video.media_urls || []));
+    document.getElementById('downloadVideoFromDetail').setAttribute('data-media-type', video.raw_media_type || video.media_type || 'video');
 
     var modalElement = document.getElementById('videoDetailModal');
     if (!modalElement._detailInited) {
@@ -729,6 +774,7 @@ async function downloadVideoFromDetail() {
         var fvd = storedVideo
             ? { aweme_id: awemeId, desc: storedVideo.desc || btn.getAttribute('data-desc'), media_urls: storedVideo.media_urls || [], raw_media_type: storedVideo.raw_media_type || storedVideo.media_type || btn.getAttribute('data-media-type'), author_name: storedVideo.author ? storedVideo.author.nickname : '未知作者' }
             : { aweme_id: awemeId, desc: btn.getAttribute('data-desc'), media_urls: JSON.parse(btn.getAttribute('data-media-urls') || '[]'), raw_media_type: btn.getAttribute('data-media-type'), author_name: '未知作者' };
+        fvd.media_urls = normalizeMediaUrlsForDownload(fvd.media_urls, fvd.raw_media_type);
         if (!fvd.media_urls || fvd.media_urls.length === 0) { showToast('没有可下载的媒体链接', 'error'); return; }
         var response = await fetch('/api/download_single_video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fvd) });
         var result = await response.json();
@@ -898,6 +944,7 @@ async function downloadAllLikedVideos() {
     for (var i = 0; i < videos.length; i++) {
         var v = videos[i];
         var vd = { aweme_id: v.aweme_id, desc: v.desc || '点赞视频_' + (i + 1), media_urls: v.media_urls || [], raw_media_type: v.raw_media_type || v.media_type || 'video', author_name: v.author ? v.author.nickname : '未知作者' };
+        vd.media_urls = normalizeMediaUrlsForDownload(vd.media_urls, vd.raw_media_type);
         if (!vd.media_urls.length) { fail++; done++; continue; }
         try {
             var r = await fetch('/api/download_single_video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(vd) });

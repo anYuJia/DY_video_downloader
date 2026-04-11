@@ -284,7 +284,6 @@ class DouyinDownloader:
 
                     # 如果文件已存在，添加时间戳避免覆盖
                     if os.path.exists(filepath):
-                        import time
                         timestamp = int(time.time())
                         filename_with_index = f"{filename_with_index}_{timestamp}"
                         filepath = os.path.join(user_path, f"{filename_with_index}.{extension}")
