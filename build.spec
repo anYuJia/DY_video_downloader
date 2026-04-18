@@ -49,8 +49,11 @@ hiddenimports = [
     'src.api.cookie_grabber',
     'src.api.browser_worker',
     'pywebview',
-    'pyobjc-framework-WebKit',
 ]
+
+# macOS WebKit bridge (only available on macOS)
+if sys.platform == 'darwin':
+    hiddenimports.append('pyobjc-framework-WebKit')
 
 a = Analysis(
     ['main.py'],

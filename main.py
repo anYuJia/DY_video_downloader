@@ -114,7 +114,8 @@ if __name__ == '__main__':
         width=1280,
         height=800,
         resizable=True,
-        maximizable=True,
+        text_select=True,
+        zoomable=True,
     )
     window.events.closing += on_closing
 
