@@ -194,8 +194,19 @@ async function apiFetch(url, options) {
 }
 
 function showVerifyDialog() {
-    showToast('正在打开验证浏览器...', 'info');
-    addLog('触发滑块验证，正在使用已存储的Cookie打开浏览器...', 'warning');
+    // 检查是否是临时 cookie（未登录）
+    const cookieInput = document.getElementById('cookie-input');
+    const cookieValue = cookieInput ? cookieInput.value : '';
+    const hasLoginCookie = cookieValue.includes('sessionid');
+
+    if (!hasLoginCookie) {
+        // 未登录状态，提示可能需要验证
+        showToast('临时 Cookie 可能触发验证，建议登录账号以获得更稳定的使用体验', 'warning');
+        addLog('提示：使用临时 Cookie 可能会遇到验证。建议登录账号以避免验证。', 'warning');
+    } else {
+        showToast('正在打开验证浏览器...', 'info');
+        addLog('触发滑块验证，正在使用已存储的Cookie打开浏览器...', 'warning');
+    }
 
     // 调用后端API，使用已存储的Cookie打开浏览器
     fetch('/api/open_verify_browser', {
