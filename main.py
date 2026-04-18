@@ -54,6 +54,9 @@ if __name__ == '__main__':
     import time
     import webview
 
+    # macOS 上跳过 gevent patch，避免与 Cocoa 运行循环冲突
+    os.environ['USE_PYWEBVIEW'] = '1'
+
     from src.web.web_app import start_server, socketio
 
     def find_free_port(start=5001, end=5010):
@@ -73,7 +76,7 @@ if __name__ == '__main__':
         while time.time() - start_time < timeout:
             try:
                 import urllib.request
-                urllib.request.urlopen(f'http://localhost:{port}/', timeout=1)
+                urllib.request.urlopen('http://127.0.0.1:{}/'.format(port), timeout=1)
                 return True
             except Exception:
                 time.sleep(0.3)
@@ -110,7 +113,7 @@ if __name__ == '__main__':
     # 创建pywebview窗口
     window = webview.create_window(
         title='抖音下载器',
-        url='http://localhost:{}'.format(port),
+        url='http://127.0.0.1:{}'.format(port),
         width=1280,
         height=800,
         resizable=True,
@@ -119,5 +122,5 @@ if __name__ == '__main__':
     )
     window.events.closing += on_closing
 
-    # 在主线程启动pywebview（阻塞）
+    # 在主线程启动pywebview（阻塞），debug模式查看控制台错误
     webview.start()

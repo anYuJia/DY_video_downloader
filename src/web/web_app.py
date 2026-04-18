@@ -1,8 +1,11 @@
 import platform
+import os
 
 IS_WINDOWS = platform.system().lower() == 'windows'
+IS_MACOS = platform.system().lower() == 'darwin'
 
-if not IS_WINDOWS:
+# macOS + pywebview 时跳过 gevent patch，避免与 Cocoa 运行循环冲突
+if not IS_WINDOWS and not (IS_MACOS and os.environ.get('USE_PYWEBVIEW') == '1'):
     from gevent import monkey
     monkey.patch_all()
 
@@ -10,7 +13,6 @@ from flask import Flask, render_template, request, jsonify, Response
 from flask_socketio import SocketIO, emit
 import asyncio
 import threading
-import os
 import sys
 import json
 import uuid
