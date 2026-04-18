@@ -36,3 +36,6 @@ pytest-asyncio>=0.18.0
 # Playwright 浏览器自动化（用于自动获取Cookie）
 playwright>=1.40.0
 playwright-stealth>=1.0.6
+
+# 原生窗口
+pywebview>=5.0
