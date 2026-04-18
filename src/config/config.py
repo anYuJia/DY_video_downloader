@@ -31,6 +31,7 @@ class Config:
     # 文件保存路径默认在执行文件旁边
     BASE_DIR = os.path.join(APP_EXEC_DIR, "douyin_download")
     DOWNLOAD_DIR = BASE_DIR
+    HISTORY_DIRS = []
     
     # 请求参数
     HOST = 'https://www.douyin.com'
@@ -92,7 +93,8 @@ class Config:
         # 首先尝试从环境变量加载
         cls.COOKIE = os.environ.get("DOUYIN_COOKIE", cls.COOKIE)
         cls.BASE_DIR = os.environ.get("DOUYIN_BASE_DIR", cls.BASE_DIR)
-        cls.DOWNLOAD_DIR = os.path.join(cls.BASE_DIR, "douyin_download")
+        cls.DOWNLOAD_DIR = cls.BASE_DIR
+        cls.HISTORY_DIRS = []
         
         # 然后尝试从配置文件加载
         if os.path.exists(cls.CONFIG_FILE):
@@ -101,7 +103,11 @@ class Config:
                     config_data = json.load(f)
                     cls.COOKIE = config_data.get("cookie", cls.COOKIE).replace('\n', '').replace('\r', '').strip()
                     cls.BASE_DIR = config_data.get("base_dir", cls.BASE_DIR)
-                    cls.DOWNLOAD_DIR = os.path.join(cls.BASE_DIR, "douyin_download")
+                    cls.DOWNLOAD_DIR = cls.BASE_DIR
+                    cls.HISTORY_DIRS = cls.normalize_history_dirs(config_data.get("history_dirs", []))
+                    legacy_dir = os.path.join(cls.BASE_DIR, "douyin_download")
+                    if os.path.isdir(legacy_dir) and os.path.abspath(legacy_dir).lower() != os.path.abspath(cls.DOWNLOAD_DIR).lower():
+                        cls.HISTORY_DIRS = cls.normalize_history_dirs([*cls.HISTORY_DIRS, legacy_dir])
                     print("\033[92m配置已从配置文件加载\033[0m")
                     return True
             except Exception as e:
@@ -109,11 +115,37 @@ class Config:
         return False
     
     @classmethod
-    def save_config(cls, cookie, base_dir):
+    def normalize_history_dirs(cls, history_dirs):
+        """归一化历史下载目录列表。"""
+        normalized = []
+        seen = set()
+
+        if not isinstance(history_dirs, list):
+            return normalized
+
+        for item in history_dirs:
+            if not item:
+                continue
+            try:
+                path = os.path.abspath(str(item))
+            except Exception:
+                continue
+
+            key = path.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(path)
+
+        return normalized
+
+    @classmethod
+    def save_config(cls, cookie, base_dir, history_dirs=None):
         """保存配置到配置文件"""
         config_data = {
             "cookie": cookie,
-            "base_dir": base_dir
+            "base_dir": base_dir,
+            "history_dirs": cls.normalize_history_dirs(history_dirs if history_dirs is not None else cls.HISTORY_DIRS)
         }
         try:
             with open(cls.CONFIG_FILE, 'w', encoding='utf-8') as f:

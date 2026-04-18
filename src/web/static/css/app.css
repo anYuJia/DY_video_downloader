@@ -436,6 +436,55 @@ body::before {
     margin-top: 16px;
 }
 
+#download-history-stats {
+    display: block;
+    max-width: 100%;
+    line-height: 1.35;
+}
+
+.history-stats-summary {
+    margin-bottom: 6px;
+}
+
+.history-stats-path {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    word-break: normal;
+}
+
+.history-copy-btn {
+    margin-left: 6px;
+    padding: 4px 8px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+}
+
+.history-stats-label {
+    color: var(--text-secondary);
+    margin-right: 2px;
+}
+
+.history-path-segment {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+}
+
+.history-path-separator {
+    color: var(--text-muted);
+    opacity: 0.9;
+}
+
 .history-list {
     display: flex;
     flex-direction: column;
