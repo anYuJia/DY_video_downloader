@@ -379,132 +379,105 @@ def get_temp_cookie() -> dict:
 
 
 def fetch_recommended_feed(cookie: str, count: int = 20, cursor: int = 0) -> dict:
-    """获取推荐视频流"""
-    with sync_playwright() as p:
-        browser = None
-        try:
-            # 使用Playwright内置Chromium，添加更多隐藏参数
-            browser = p.chromium.launch(
-                headless=True,
-                args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-dev-shm-usage',
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-gpu',
-                    '--disable-software-rasterizer',
-                    '--disable-extensions',
-                    '--disable-infobars',
-                    '--window-position=0,0',
-                    '--ignore-certificate-errors',
-                    '--ignore-certificate-errors-spki-list',
-                ]
-            )
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080},
-                java_script_enabled=True,
-                bypass_csp=True,
-            )
+    """获取推荐视频流 - 使用直接HTTP请求，无需浏览器"""
+    try:
+        import asyncio
+        import sys
+        import os
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        from api.api import DouyinAPI
 
-            # 设置 cookie
-            if cookie:
-                cookies = []
-                for item in cookie.split(';'):
-                    if '=' in item:
-                        key, value = item.strip().split('=', 1)
-                        cookies.append({
-                            "name": key,
-                            "value": value,
-                            "domain": ".douyin.com",
-                            "path": "/"
-                        })
-                context.add_cookies(cookies)
+        # 创建API实例
+        api = DouyinAPI(cookie)
 
-            page = context.new_page()
+        # 构造请求参数
+        params = {
+            'device_platform': 'webapp',
+            'aid': '6383',
+            'channel': 'channel_pc_web',
+            'pc_client_type': '1',
+            'version_code': '170400',
+            'version_name': '17.4.0',
+            'cookie_enabled': 'true',
+            'browser_language': 'zh-CN',
+            'browser_platform': 'MacIntel',
+            'browser_name': 'Chrome',
+            'browser_version': '120.0.0.0',
+            'browser_online': 'true',
+            'engine_name': 'Blink',
+            'engine_version': '120.0.0.0',
+            'os_name': 'Mac OS',
+            'os_version': '10.15.7',
+            'cpu_core_num': '10',
+            'device_memory': '8',
+            'platform': 'PC',
+            'downlink': '10',
+            'effective_type': '4g',
+            'round_trip_time': '100',
+            'webid': api._get_webid(),
+            'msToken': api._get_ms_token(),
+        }
 
-            # 拦截 API 响应
-            api_result = {"data": None}
-            result_ready = False
+        # 使用asyncio运行异步请求
+        async def fetch():
+            try:
+                # 尝试推荐API
+                resp, success = await api.common_request(
+                    '/aweme/v1/web/tab/feed/',
+                    params,
+                    {},
+                    skip_sign=True
+                )
 
-            def handle_response(response):
-                nonlocal result_ready
-                if result_ready:
-                    return
-                    
-                url = response.url
-                
-                # 捕获推荐视频 API - 精确匹配 module/feed 和 tab/feed
-                if ('aweme/v2/web/module/feed' in url or 
-                    'aweme/v1/web/tab/feed' in url or
-                    'aweme/v1/web/feed' in url):
-                    try:
-                        if response.status == 200:
-                            body = response.body()
-                            if body and len(body) > 0:
-                                data = json.loads(body)
-                                aweme_list = data.get("aweme_list", [])
-                                if aweme_list and len(aweme_list) > 0:
-                                    api_result["data"] = data
-                                    result_ready = True
-                                    print(f"[fetch_recommended_feed] 捕获到推荐 API: {url[:100]}, 视频数: {len(aweme_list)}", file=sys.stderr)
-                    except Exception as e:
-                        print(f"[fetch_recommended_feed] 解析响应失败: {e}", file=sys.stderr)
+                if success and resp.get('aweme_list'):
+                    return {
+                        'success': True,
+                        'aweme_list': resp.get('aweme_list', []),
+                        'cursor': resp.get('cursor', 0),
+                        'has_more': resp.get('has_more', False)
+                    }
 
-            page.on("response", handle_response)
+                # 如果失败，尝试其他推荐API
+                resp, success = await api.common_request(
+                    '/aweme/v2/web/module/feed/',
+                    {**params, 'module_id': '3003101', 'count': str(count)},
+                    {},
+                    skip_sign=True
+                )
 
-            # 访问推荐页面
-            recommend_url = "https://www.douyin.com/?recommend=1"
-            print(f"[fetch_recommended_feed] 访问推荐页面: {recommend_url}", file=sys.stderr)
-            page.goto(recommend_url, wait_until="domcontentloaded", timeout=30000)
+                if success and resp.get('aweme_list'):
+                    return {
+                        'success': True,
+                        'aweme_list': resp.get('aweme_list', []),
+                        'cursor': resp.get('cursor', 0),
+                        'has_more': resp.get('has_more', False)
+                    }
 
-            # 等待 API 响应
-            print(f"[fetch_recommended_feed] 等待 API 响应...", file=sys.stderr)
-            max_wait = 15
-
-            for i in range(max_wait):
-                if result_ready and api_result["data"] is not None:
-                    aweme_list = api_result["data"].get("aweme_list", [])
-                    if aweme_list and len(aweme_list) > 0:
-                        print(f"[fetch_recommended_feed] 成功获取 {len(aweme_list)} 个推荐视频", file=sys.stderr)
-                        break
-
-                page.wait_for_timeout(1000)
-
-                # 滚动页面触发加载
-                if i == 3:
-                    page.evaluate("window.scrollBy(0, 500)")
-                elif i == 6:
-                    page.evaluate("window.scrollBy(0, 500)")
-                elif i == 9:
-                    page.evaluate("window.scrollBy(0, 500)")
-
-            browser.close()
-
-            if api_result["data"]:
                 return {
-                    "success": True,
-                    "aweme_list": api_result["data"].get("aweme_list", []),
-                    "cursor": api_result["data"].get("cursor", 0),
-                    "has_more": api_result["data"].get("has_more", False)
+                    'success': False,
+                    'message': '未能获取推荐视频'
                 }
-            else:
+            except Exception as e:
+                print(f"[fetch_recommended_feed] 请求失败: {e}", file=sys.stderr)
                 return {
-                    "success": False,
-                    "message": "未能获取推荐视频"
+                    'success': False,
+                    'message': str(e)
                 }
 
-        except Exception as e:
-            print(f"[fetch_recommended_feed] 错误: {e}", file=sys.stderr)
-            if browser:
-                try:
-                    browser.close()
-                except:
-                    pass
-            return {
-                "success": False,
-                "message": str(e)
-            }
+        # 运行异步函数
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(fetch())
+        loop.close()
+
+        return result
+
+    except Exception as e:
+        print(f"[fetch_recommended_feed] 错误: {e}", file=sys.stderr)
+        return {
+            'success': False,
+            'message': str(e)
+        }
 
 
 def get_video_detail(cookie: str, aweme_id: str) -> dict:
