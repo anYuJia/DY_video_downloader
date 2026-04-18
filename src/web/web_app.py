@@ -2028,15 +2028,45 @@ def get_recommended_feed():
             videos = []
             for aweme in aweme_list:
                 try:
+                    # 提取视频播放地址
+                    video_data = aweme.get('video', {})
+                    play_addr_data = video_data.get('play_addr', {})
+                    if isinstance(play_addr_data, dict):
+                        play_addr = play_addr_data.get('url_list', [''])[0]
+                    else:
+                        play_addr = play_addr_data if play_addr_data else ''
+
+                    # 提取封面
+                    cover_data = video_data.get('cover', {})
+                    if isinstance(cover_data, dict):
+                        cover = cover_data.get('url_list', [''])[0]
+                    else:
+                        cover = cover_data if cover_data else ''
+
+                    # 提取动态封面
+                    dynamic_cover_data = video_data.get('dynamic_cover', {})
+                    if isinstance(dynamic_cover_data, dict):
+                        dynamic_cover = dynamic_cover_data.get('url_list', [''])[0]
+                    else:
+                        dynamic_cover = dynamic_cover_data if dynamic_cover_data else ''
+
+                    # 提取作者头像
+                    author_data = aweme.get('author', {})
+                    avatar_data = author_data.get('avatar_thumb', {})
+                    if isinstance(avatar_data, dict):
+                        avatar_thumb = avatar_data.get('url_list', [''])[0]
+                    else:
+                        avatar_thumb = avatar_data if avatar_data else ''
+
                     video_info = {
                         'aweme_id': aweme.get('aweme_id', ''),
                         'desc': aweme.get('desc', ''),
                         'create_time': aweme.get('create_time', 0),
                         'author': {
-                            'uid': aweme.get('author', {}).get('uid', ''),
-                            'nickname': aweme.get('author', {}).get('nickname', ''),
-                            'avatar_thumb': aweme.get('author', {}).get('avatar_thumb', {}).get('url_list', [''])[0],
-                            'sec_uid': aweme.get('author', {}).get('sec_uid', ''),
+                            'uid': author_data.get('uid', ''),
+                            'nickname': author_data.get('nickname', ''),
+                            'avatar_thumb': avatar_thumb,
+                            'sec_uid': author_data.get('sec_uid', ''),
                         },
                         'statistics': {
                             'digg_count': aweme.get('statistics', {}).get('digg_count', 0),
@@ -2045,19 +2075,26 @@ def get_recommended_feed():
                             'play_count': aweme.get('statistics', {}).get('play_count', 0),
                         },
                         'video': {
-                            'cover': aweme.get('video', {}).get('cover', {}).get('url_list', [''])[0],
-                            'dynamic_cover': aweme.get('video', {}).get('dynamic_cover', {}).get('url_list', [''])[0],
-                            'play_addr': aweme.get('video', {}).get('play_addr', {}).get('url_list', [''])[0],
-                            'width': aweme.get('video', {}).get('width', 0),
-                            'height': aweme.get('video', {}).get('height', 0),
-                            'duration': aweme.get('video', {}).get('duration', 0),
+                            'cover': cover,
+                            'dynamic_cover': dynamic_cover,
+                            'play_addr': play_addr,
+                            'width': video_data.get('width', 0),
+                            'height': video_data.get('height', 0),
+                            'duration': video_data.get('duration', 0),
                         },
                         'music': {
                             'title': aweme.get('music', {}).get('title', ''),
                             'author': aweme.get('music', {}).get('author', ''),
-                            'cover': aweme.get('music', {}).get('cover_large', {}).get('url_list', [''])[0],
+                            'cover': aweme.get('music', {}).get('cover_large', {}).get('url_list', [''])[0] if isinstance(aweme.get('music', {}).get('cover_large', {}), dict) else '',
                         }
                     }
+
+                    # 调试日志
+                    if not play_addr:
+                        logger.warning(f"视频 {aweme.get('aweme_id')} 没有播放地址")
+                    elif len(videos) == 0:
+                        logger.info(f"第一个视频播放地址: {play_addr[:100]}...")
+
                     videos.append(video_info)
                 except Exception as e:
                     logger.error(f"解析视频信息失败: {e}")
@@ -2088,6 +2125,105 @@ def get_recommended_feed():
             'success': False,
             'message': f'获取失败: {str(e)}'
         })
+
+
+@app.route('/api/download_video', methods=['POST'])
+def download_video_by_aweme_id():
+    """通过 aweme_id 下载视频"""
+    try:
+        data = request.json
+        aweme_id = data.get('aweme_id', '').strip()
+
+        if not aweme_id:
+            return jsonify({'success': False, 'message': 'aweme_id 参数不能为空'}), 400
+
+        if not user_manager:
+            return jsonify({'success': False, 'message': '请先初始化'}), 400
+
+        # 获取视频详情
+        cookie = Config.COOKIE if Config.COOKIE else ''
+        if not cookie:
+            return jsonify({'success': False, 'message': '请先登录抖音账号'}), 400
+
+        # 调用 browser_worker 获取视频详情
+        import subprocess
+        worker_path = os.path.join(os.path.dirname(__file__), '..', 'api', 'browser_worker.py')
+
+        proc = subprocess.run(
+            [sys.executable, worker_path],
+            input=json.dumps({
+                "action": "get_video_detail",
+                "cookie": cookie,
+                "aweme_id": aweme_id
+            }),
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            timeout=30,
+        )
+
+        if proc.returncode != 0:
+            return jsonify({'success': False, 'message': '获取视频详情失败'}), 500
+
+        result = json.loads(proc.stdout)
+
+        if not result.get('success'):
+            return jsonify({'success': False, 'message': result.get('message', '获取视频详情失败')}), 500
+
+        aweme_detail = result.get('aweme_detail', {})
+        author = aweme_detail.get('author', {})
+        video = aweme_detail.get('video', {})
+
+        # 获取视频 URL
+        play_addr = video.get('play_addr', {}).get('url_list', [''])
+        if not play_addr or not play_addr[0]:
+            return jsonify({'success': False, 'message': '无法获取视频下载地址'}), 500
+
+        # 生成文件名
+        author_name = author.get('nickname', '未知作者')
+        desc = aweme_detail.get('desc', '未知作品')[:50]
+        name = f"{author_name}_{desc}_{aweme_id}"
+
+        # 添加到下载队列
+        task_id = str(uuid.uuid4())
+
+        async def do_download():
+            try:
+                success = user_manager.downloader.download_video(
+                    play_addr[0], name, aweme_id,
+                    cancel_event=asyncio.Event(),
+                    socketio=socketio, task_id=task_id
+                )
+
+                if success:
+                    socketio.emit('download_complete', {
+                        'task_id': task_id,
+                        'aweme_id': aweme_id,
+                        'message': f'{name} 下载完成'
+                    })
+                else:
+                    socketio.emit('download_error', {
+                        'task_id': task_id,
+                        'aweme_id': aweme_id,
+                        'message': f'{name} 下载失败'
+                    })
+            except Exception as e:
+                logger.error(f"下载视频失败: {e}")
+                socketio.emit('download_error', {
+                    'task_id': task_id,
+                    'aweme_id': aweme_id,
+                    'message': f'下载失败: {str(e)}'
+                })
+
+        # 在后台线程执行下载
+        loop = get_or_create_event_loop()
+        asyncio.run_coroutine_threadsafe(do_download(), loop)
+
+        return jsonify({'success': True, 'task_id': task_id, 'message': '已添加到下载队列'})
+
+    except Exception as e:
+        logger.exception(f"下载视频异常: {e}")
+        return jsonify({'success': False, 'message': f'下载失败: {str(e)}'}), 500
 
 
 # 添加一个定时发送心跳的函数

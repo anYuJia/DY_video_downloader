@@ -137,11 +137,6 @@
                 </div>
             </div>
 
-            <!-- User detail (hidden by default) -->
-            <div id="userDetailSection" class="mb-3" style="display: none;">
-                <div class="section-panel">
-                    <div class="section-panel-header section-panel-header--info">
-
             <!-- Recommended Feed Section (hidden by default) -->
             <div id="recommendedFeedSection" class="mb-3" style="display: none;">
                 <div class="section-panel">
@@ -869,6 +864,70 @@
     <script src="/static/js/ui.js"></script>
     <script src="/static/js/history.js"></script>
     <script src="/static/js/socket.js"></script>
+    <!-- Fullscreen Video Player for Recommended Feed -->
+    <div id="fullscreenPlayer" class="fullscreen-player" style="display: none;">
+        <div class="player-header">
+            <button class="player-close-btn" onclick="closeFullscreenPlayer()">
+                <i class="bi bi-x-lg"></i>
+            </button>
+            <div class="player-header-info">
+                <span id="playerVideoCount">0/0</span>
+            </div>
+        </div>
+
+        <div class="player-container" id="playerContainer">
+            <!-- Video slides Container -->
+            <div class="video-slides-wrapper" id="videoSlidesWrapper">
+                <!-- Video slides will be dynamically inserted here -->
+            </div>
+        </div>
+
+        <div class="player-sidebar">
+            <div class="player-avatar" id="playerAuthorAvatar"></div>
+            <div class="player-action-btn" onclick="likeCurrentVideo()">
+                <i class="bi bi-heart"></i>
+                <span id="playerLikeCount">0</span>
+            </div>
+            <div class="player-action-btn" onclick="commentCurrentVideo()">
+                <i class="bi bi-chat"></i>
+                <span id="playerCommentCount">0</span>
+            </div>
+            <div class="player-action-btn" onclick="shareCurrentVideo()">
+                <i class="bi bi-share"></i>
+                <span id="playerShareCount">0</span>
+            </div>
+            <div class="player-action-btn player-download-btn" onclick="downloadCurrentVideo()">
+                <i class="bi bi-download"></i>
+            </div>
+        </div>
+
+        <div class="player-info">
+            <div class="player-author-name" id="playerAuthorName">@用户名</div>
+            <div class="player-desc" id="playerVideoDesc">视频描述</div>
+            <div class="player-music">
+                <i class="bi bi-music-note-beamed"></i>
+                <span id="playerMusicInfo">背景音乐</span>
+            </div>
+        </div>
+
+        <!-- 视频进度条 -->
+        <div class="video-progress-container">
+            <div class="video-progress-bar" id="videoProgressBar">
+                <div class="video-progress-fill" id="videoProgressFill"></div>
+                <div class="video-progress-thumb" id="videoProgressThumb"></div>
+            </div>
+            <div class="video-time-info">
+                <span id="videoCurrentTime">0:00</span>
+                <span id="videoDuration">0:00</span>
+            </div>
+        </div>
+
+        <div class="player-nav-hint">
+            <i class="bi bi-chevron-up"></i>
+            <span>上下滑动切换</span>
+        </div>
+    </div>
+
     <script src="/static/js/app.js"></script>
 </body>
 
