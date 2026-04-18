@@ -17,6 +17,9 @@
             <button class="btn-back" id="back-btn" title="返回主页" style="display:none;">
                 <i class="bi bi-arrow-left"></i> <span class="d-none d-md-inline">返回主页</span>
             </button>
+            <button class="btn-icon btn-icon-text btn-history" id="download-history-btn" title="下载历史">
+                <i class="bi bi-clock-history"></i> <span class="d-none d-md-inline">下载历史</span>
+            </button>
             <a class="navbar-brand" href="#">
                 <i class="bi bi-play-circle-fill"></i> DY
             </a>
@@ -294,6 +297,49 @@
         </div>
     </div>
     <div id="settings-overlay" class="settings-overlay"></div>
+
+    <!-- Download History Drawer -->
+    <div id="download-history-overlay" class="history-overlay"></div>
+    <div id="download-history-drawer" class="history-drawer">
+        <div class="drawer-header">
+            <h6>下载历史</h6>
+            <button class="btn-icon" id="history-close"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="drawer-body">
+            <div class="history-section">
+                <label class="form-label">保存目录</label>
+                <div class="input-group mb-2">
+                    <input type="text" class="form-control" id="history-download-dir-input" placeholder="下载目录">
+                    <button class="btn btn-outline-secondary" type="button" id="history-select-download-dir-btn">
+                        <i class="bi bi-folder2-open"></i>
+                    </button>
+                </div>
+                <div class="d-flex gap-2 mb-3">
+                    <button class="btn btn-primary btn-sm flex-fill" id="history-save-config-btn">
+                        <i class="bi bi-check-lg"></i> 保存目录
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" id="history-refresh-btn">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="history-section">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="history-select-all">
+                        <label class="form-check-label" for="history-select-all">全选</label>
+                    </div>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-primary" id="history-batch-open-btn">打开</button>
+                        <button class="btn btn-outline-primary" id="history-batch-locate-btn">打开位置</button>
+                        <button class="btn btn-outline-danger" id="history-batch-delete-btn" disabled>删除选中</button>
+                    </div>
+                </div>
+                <div id="download-history-stats" class="small text-muted mb-2"></div>
+                <div id="download-history-list" class="history-list"></div>
+            </div>
+        </div>
+    </div>
 
     <!-- Bottom Bar (downloads + logs) -->
     <div id="bottom-bar" class="bottom-bar">
@@ -732,11 +778,16 @@
     <!-- Scripts -->
     <script src="/static/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <script>
+        window.SOCKET_TRANSPORTS = {{ ['polling'] if socketio_async_mode == 'threading' else ['websocket', 'polling'] | tojson }};
+        window.SOCKETIO_ASYNC_MODE = {{ socketio_async_mode | tojson }};
+    </script>
     <script src="/static/js/utils.js"></script>
     <script src="/static/js/storage.js"></script>
     <script src="/static/js/cookie.js"></script>
     <script src="/static/js/download.js"></script>
     <script src="/static/js/ui.js"></script>
+    <script src="/static/js/history.js"></script>
     <script src="/static/js/socket.js"></script>
     <script src="/static/js/app.js"></script>
 </body>

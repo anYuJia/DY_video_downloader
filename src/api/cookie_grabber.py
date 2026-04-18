@@ -170,7 +170,11 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
                                     f"{c['name']}={c['value']}" for c in cookies
                                 )
 
-                                _status("cookie_extracted", "Cookie 提取成功！登录态已保存，下次无需重新登录。")
+                                _status(
+                                    "cookie_extracted",
+                                    "Cookie 提取成功！登录态已保存，下次无需重新登录。",
+                                    {"cookie": cookie_str}
+                                )
                                 context.close()
                                 return {"success": True, "cookie": cookie_str}
                         else:
@@ -216,9 +220,12 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
             return {"success": False, "error": str(e)}
 
 
-def _status(event: str, message: str):
+def _status(event: str, message: str, extra: dict | None = None):
     """向 stderr 输出状态信息（JSON 格式），供父进程读取。"""
-    status = json.dumps({"event": event, "message": message}, ensure_ascii=False)
+    payload = {"event": event, "message": message}
+    if extra:
+        payload.update(extra)
+    status = json.dumps(payload, ensure_ascii=False)
     print(f"[cookie_grabber] {status}", file=sys.stderr, flush=True)
 
 
