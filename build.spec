@@ -4,6 +4,8 @@ import sys
 
 # 获取项目根目录，以便于寻址
 project_root = os.path.abspath('.')
+import pywebview
+pywebview_hooks = os.path.join(pywebview.__path__[0], 'pkg')
 
 block_cipher = None
 
@@ -46,6 +48,8 @@ hiddenimports = [
     'src.web.web_app',
     'src.api.cookie_grabber',
     'src.api.browser_worker',
+    'pywebview',
+    'pyobjc-framework-WebKit',
 ]
 
 a = Analysis(
@@ -54,7 +58,7 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=[],
+    hookspath=[pywebview_hooks] if os.path.isdir(pywebview_hooks) else [],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
@@ -75,7 +79,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
