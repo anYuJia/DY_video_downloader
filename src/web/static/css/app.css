@@ -473,13 +473,13 @@ body::before {
     bottom: 0;
     width: min(420px, 92vw);
     background: var(--bg-secondary);
-    border-right: 1px solid var(--glass-border);
+    border-right: none;
     z-index: 1070;
     transform: translateX(-100%);
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     flex-direction: column;
-    box-shadow: 8px 0 40px rgba(0, 0, 0, 0.35);
+    box-shadow: 12px 0 48px rgba(0, 0, 0, 0.4);
 }
 
 .history-drawer.open {
@@ -549,21 +549,22 @@ body::before {
 }
 
 .history-card {
-    border: 1px solid var(--glass-border);
+    border: none;
     background: var(--bg-card);
     border-radius: var(--radius-md);
     padding: 12px;
     transition: var(--transition);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 .history-card:hover {
-    border-color: var(--glass-border-hover);
     background: var(--bg-card-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 .history-card.selected {
-    border-color: rgba(254, 44, 85, 0.45);
-    box-shadow: inset 0 0 0 1px rgba(254, 44, 85, 0.18);
+    box-shadow: 0 0 20px rgba(254, 44, 85, 0.2), 0 6px 16px rgba(254, 44, 85, 0.1), inset 0 0 0 2px var(--accent);
 }
 
 .history-card-header {
@@ -1175,12 +1176,12 @@ textarea.form-control { resize: vertical; }
     overflow: hidden;
     height: 380px !important;
     background: var(--bg-card);
-    border: 1px solid var(--glass-border);
+    border: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 .video-card:hover {
-    transform: translateY(-4px);
-    box-shadow: var(--shadow-md);
-    border-color: var(--glass-border-hover);
+    transform: translateY(-5px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
 }
 
 .video-cover-container {
@@ -1279,8 +1280,7 @@ textarea.form-control { resize: vertical; }
    MULTI-SELECT
    ═══════════════════════════════════════ */
 .video-card.selected {
-    border-color: var(--accent) !important;
-    box-shadow: 0 0 20px var(--accent-glow), inset 0 0 0 1px var(--accent);
+    box-shadow: 0 0 20px var(--accent-glow), 0 8px 24px rgba(254, 44, 85, 0.2), inset 0 0 0 2px var(--accent);
 }
 .video-card.selected .video-select-overlay i {
     color: var(--accent) !important;
@@ -1352,9 +1352,9 @@ textarea.form-control { resize: vertical; }
    ═══════════════════════════════════════ */
 .modal-content {
     background: var(--bg-secondary);
-    border: 1px solid var(--glass-border);
+    border: none;
     border-radius: var(--radius-xl);
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.7), 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 .modal-header {
     border-bottom: 1px solid var(--glass-border);
@@ -1827,9 +1827,11 @@ textarea.form-control { resize: vertical; }
    ═══════════════════════════════════════ */
 .toast {
     background: var(--bg-tertiary);
-    border: 1px solid var(--glass-border);
+    border: none;
     border-radius: var(--radius-md);
     color: var(--text-primary);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), 0 2px 8px rgba(0, 0, 0, 0.08);
+    backdrop-filter: blur(10px);
 }
 .toast-header {
     background: transparent;
@@ -2517,4 +2519,166 @@ a:hover { color: var(--accent-hover); }
 
 .cookie-temp-features li i {
     font-size: 1rem;
+}
+
+/* ═══════════════════════════════════════
+   DROPDOWN MENU OPTIMIZATION
+   ═══════════════════════════════════════ */
+.dropdown-menu {
+    border: none;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), 0 2px 8px rgba(0, 0, 0, 0.08);
+    border-radius: var(--radius-md);
+    padding: 8px;
+}
+
+.dropdown-item {
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.dropdown-item:hover {
+    transform: translateX(4px);
+}
+
+.dropdown-divider {
+    margin: 8px 0;
+    border-top-color: var(--glass-border);
+}
+
+/* ═══════════════════════════════════════
+   SHORTCUT CARDS OPTIMIZATION
+   ═══════════════════════════════════════ */
+.shortcut-card {
+    border: none;
+    border-radius: var(--radius-md);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+    transition: all 0.3s ease;
+}
+
+.shortcut-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* ═══════════════════════════════════════
+   INPUT FIELDS OPTIMIZATION
+   ═══════════════════════════════════════ */
+.form-control {
+    border: none;
+    border-bottom: 2px solid var(--glass-border);
+    border-radius: 8px 8px 0 0;
+    background: var(--bg-card);
+    transition: all 0.3s ease;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.form-control:focus {
+    border-bottom-color: var(--accent);
+    box-shadow: 0 4px 12px rgba(254, 44, 85, 0.15), 0 2px 4px rgba(0, 0, 0, 0.06);
+    background: var(--bg-card-hover);
+}
+
+.form-control::placeholder {
+    color: var(--text-muted);
+    opacity: 0.6;
+}
+
+/* ═══════════════════════════════════════
+   BUTTON ENHANCEMENT
+   ═══════════════════════════════════════ */
+.btn {
+    border: none;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.btn:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.btn-outline-secondary,
+.btn-outline-primary,
+.btn-outline-danger,
+.btn-outline-success,
+.btn-outline-info {
+    border: 1px solid var(--glass-border);
+    background: var(--bg-card);
+}
+
+.btn-outline-secondary:hover,
+.btn-outline-primary:hover,
+.btn-outline-danger:hover,
+.btn-outline-success:hover,
+.btn-outline-info:hover {
+    border: none;
+}
+
+/* ═══════════════════════════════════════
+   SECTION PANEL OPTIMIZATION
+   ═══════════════════════════════════════ */
+.section-panel {
+    border: none;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* ═══════════════════════════════════════
+   STATUS INDICATOR ENHANCEMENT
+   ═══════════════════════════════════════ */
+.status-indicator {
+    box-shadow: 0 0 8px currentColor;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.status-ready {
+    box-shadow: 0 0 12px rgba(0, 214, 143, 0.4);
+}
+
+.status-working {
+    box-shadow: 0 0 12px rgba(124, 92, 252, 0.4);
+}
+
+.status-error {
+    box-shadow: 0 0 12px rgba(254, 44, 85, 0.4);
+}
+
+/* ═══════════════════════════════════════
+   LIGHT THEME ADJUSTMENTS
+   ═══════════════════════════════════════ */
+[data-theme="light"] .video-card {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .video-card:hover {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .history-card {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .history-card:hover {
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .modal-content {
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5), 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] .dropdown-menu {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .section-panel {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.03);
 }
