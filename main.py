@@ -47,7 +47,76 @@ if __name__ == '__main__':
         sys.exit(0)
 
     # ==========================================
-    # 常规主进程启动逻辑
+    # 常规主进程启动逻辑 (pywebview 原生窗口)
     # ==========================================
-    from src.web.web_app import main
-    main()
+    import socket
+    import threading
+    import time
+    import webview
+
+    from src.web.web_app import start_server, socketio
+
+    def find_free_port(start=5001, end=5010):
+        """查找可用端口"""
+        for port in range(start, end + 1):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.bind(('127.0.0.1', port))
+                return port
+            except OSError:
+                continue
+        return start  # fallback
+
+    def wait_for_server(port, timeout=30):
+        """等待Flask服务就绪"""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                import urllib.request
+                urllib.request.urlopen(f'http://localhost:{port}/', timeout=1)
+                return True
+            except Exception:
+                time.sleep(0.3)
+        return False
+
+    def on_closing():
+        """窗口关闭回调"""
+        try:
+            socketio.stop()
+        except Exception:
+            pass
+        os._exit(0)  # os is imported at top of main.py
+
+    # 查找可用端口
+    port = find_free_port()
+
+    # 在后台线程启动Flask服务
+    server_thread = threading.Thread(
+        target=start_server, kwargs={'port': port}, daemon=True
+    )
+    server_thread.start()
+
+    # 等待服务就绪
+    if not wait_for_server(port):
+        # 服务启动失败，用pywebview显示错误对话框
+        err_win = webview.create_window(
+            title='启动失败',
+            html='<h2>服务启动超时</h2><p>端口 {} 无法连接，请检查是否有其他程序占用。</p>'.format(port),
+            width=400, height=200,
+        )
+        webview.start()
+        os._exit(1)
+
+    # 创建pywebview窗口
+    window = webview.create_window(
+        title='抖音下载器',
+        url='http://localhost:{}'.format(port),
+        width=1280,
+        height=800,
+        resizable=True,
+        maximizable=True,
+    )
+    window.events.closing += on_closing
+
+    # 在主线程启动pywebview（阻塞）
+    webview.start()
