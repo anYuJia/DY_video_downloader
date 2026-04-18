@@ -383,10 +383,28 @@ def fetch_recommended_feed(cookie: str, count: int = 20, cursor: int = 0) -> dic
     with sync_playwright() as p:
         browser = None
         try:
-            browser = p.chromium.launch(headless=True, channel='chrome')  # 改为无头模式
+            # 使用Playwright内置Chromium，添加更多隐藏参数
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-gpu',
+                    '--disable-software-rasterizer',
+                    '--disable-extensions',
+                    '--disable-infobars',
+                    '--window-position=0,0',
+                    '--ignore-certificate-errors',
+                    '--ignore-certificate-errors-spki-list',
+                ]
+            )
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
-                viewport={"width": 1680, "height": 1050},
+                viewport={"width": 1920, "height": 1080},
+                java_script_enabled=True,
+                bypass_csp=True,
             )
 
             # 设置 cookie
