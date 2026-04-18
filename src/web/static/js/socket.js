@@ -12,6 +12,10 @@ function testWebSocketConnection() {
 function setupSocketIO() {
     _log('开始设置WebSocket连接...');
 
+    const transports = Array.isArray(window.SOCKET_TRANSPORTS) && window.SOCKET_TRANSPORTS.length
+        ? window.SOCKET_TRANSPORTS
+        : ['websocket', 'polling'];
+
     socket = io({
         reconnection: true,
         reconnectionAttempts: 5,
@@ -19,7 +23,7 @@ function setupSocketIO() {
         reconnectionDelayMax: 5000,
         timeout: 20000,
         autoConnect: true,
-        transports: ['websocket', 'polling']
+        transports: transports
     });
 
     socket.on('connect', function () {

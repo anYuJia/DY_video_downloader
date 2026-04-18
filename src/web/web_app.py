@@ -1,5 +1,10 @@
-from gevent import monkey
-monkey.patch_all()
+import platform
+
+IS_WINDOWS = platform.system().lower() == 'windows'
+
+if not IS_WINDOWS:
+    from gevent import monkey
+    monkey.patch_all()
 
 from flask import Flask, render_template, request, jsonify, Response
 from flask_socketio import SocketIO, emit
@@ -10,8 +15,10 @@ import sys
 import json
 import uuid
 import logging
+import subprocess
 import requests as http_requests
 from datetime import datetime
+from pathlib import Path
 
 # 配置日志
 logging.basicConfig(level=logging.DEBUG if os.environ.get('DEBUG_MODE', '').lower() in ('true', '1') else logging.INFO,
@@ -33,11 +40,12 @@ EnhancedDouyinDownloader = None
 
 app = Flask(__name__, template_folder=get_resource_path('src/web/templates'), static_folder=get_resource_path('src/web/static'))
 app.config['SECRET_KEY'] = 'douyin_downloader_secret_key'
+socketio_async_mode = 'threading' if IS_WINDOWS else 'gevent'
 # 修改SocketIO初始化，添加更多选项
 socketio = SocketIO(
     app, 
     cors_allowed_origins="*",
-    async_mode='gevent',  # 使用gevent模式
+    async_mode=socketio_async_mode,
     logger=socketio_debug,
     engineio_logger=socketio_debug,
     ping_timeout=60,  # 增加ping超时时间
@@ -54,6 +62,61 @@ active_tasks = {} # 用于存储活跃的 asyncio.Future 和 asyncio.Event
 # 全局 Loop 处理
 _global_loop = None
 _loop_thread = None
+
+
+def get_download_root() -> Path:
+    """返回实际下载根目录。"""
+    return Path(Config.DOWNLOAD_DIR).resolve()
+
+
+def _is_subpath(candidate: Path, root: Path) -> bool:
+    try:
+        candidate.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _safe_history_path(raw_path: str) -> Path:
+    if not raw_path:
+        raise ValueError('路径不能为空')
+
+    candidate = Path(raw_path).expanduser().resolve()
+    root = get_download_root()
+    if not _is_subpath(candidate, root):
+        raise ValueError('目标路径不在下载目录内')
+    return candidate
+
+
+def build_download_history() -> list[dict]:
+    root = get_download_root()
+    if not root.exists():
+        return []
+
+    items = []
+    for path in root.rglob('*'):
+        if not path.is_file():
+            continue
+        if path.name == 'download_record.json':
+            continue
+
+        stat = path.stat()
+        rel_path = path.relative_to(root)
+        parts = rel_path.parts
+        author = parts[0] if len(parts) > 1 else ''
+
+        items.append({
+            'name': path.name,
+            'path': str(path),
+            'relative_path': str(rel_path),
+            'author': author,
+            'size': stat.st_size,
+            'modified_at': int(stat.st_mtime),
+            'extension': path.suffix.lower(),
+        })
+
+    items.sort(key=lambda item: item['modified_at'], reverse=True)
+    return items
 
 def safe_get_url(obj, default=''):
     """安全地从 obj['url_list'] 中获取 URL，避免索引越界"""
@@ -193,7 +256,7 @@ def init_app():
 @app.route('/')
 def index():
     """主页"""
-    return render_template('index.html')
+    return render_template('index.html', socketio_async_mode=socketio.async_mode)
 
 
 @app.route('/api/config', methods=['GET'])
@@ -203,6 +266,7 @@ def get_config():
     return jsonify({
         'cookie_set': bool(Config.COOKIE),
         'download_dir': Config.BASE_DIR,
+        'download_root': str(get_download_root()),
         'cookie': Config.COOKIE if Config.COOKIE else ''
     })
 
@@ -232,13 +296,26 @@ def set_config():
 def select_directory():
     """打开系统文件夹选择器，返回用户选择的路径"""
     try:
-        # 使用 macOS 原生对话框 (osascript)
-        import subprocess
-
-        # 初始目录
         initial_dir = Config.BASE_DIR or os.path.expanduser('~')
 
-        # 使用 AppleScript 打开文件夹选择器
+        if IS_WINDOWS:
+            from tkinter import Tk, filedialog
+
+            root = Tk()
+            root.withdraw()
+            root.attributes('-topmost', True)
+            directory = filedialog.askdirectory(
+                initialdir=initial_dir,
+                title='选择下载目录'
+            )
+            root.destroy()
+
+            if directory:
+                return jsonify({'success': True, 'path': directory})
+            return jsonify({'success': False, 'message': '用户取消选择'})
+
+        import subprocess
+
         script = f'''
         tell application "System Events"
             activate
@@ -257,12 +334,118 @@ def select_directory():
         if result.returncode == 0 and result.stdout.strip():
             directory = result.stdout.strip()
             return jsonify({'success': True, 'path': directory})
-        else:
-            return jsonify({'success': False, 'message': '用户取消选择'})
-    except subprocess.TimeoutExpired:
-        return jsonify({'success': False, 'message': '选择超时'}), 500
+        return jsonify({'success': False, 'message': '用户取消选择'})
     except Exception as e:
         return jsonify({'success': False, 'message': f'选择失败：{str(e)}'}), 500
+
+
+@app.route('/api/download_history', methods=['GET'])
+def get_download_history():
+    """获取下载历史文件列表。"""
+    try:
+        root = get_download_root()
+        return jsonify({
+            'success': True,
+            'download_root': str(root),
+            'base_dir': Config.BASE_DIR,
+            'items': build_download_history()
+        })
+    except Exception as e:
+        logger.error(f"获取下载历史失败: {str(e)}")
+        return jsonify({'success': False, 'message': f'获取下载历史失败: {str(e)}'}), 500
+
+
+@app.route('/api/download_history/open', methods=['POST'])
+def open_download_history_file():
+    """打开下载文件。"""
+    try:
+        data = request.json or {}
+        file_path = _safe_history_path(data.get('path', ''))
+        if not file_path.exists() or not file_path.is_file():
+            return jsonify({'success': False, 'message': '文件不存在'}), 404
+
+        if IS_WINDOWS:
+            os.startfile(str(file_path))
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', str(file_path)])
+        else:
+            subprocess.Popen(['xdg-open', str(file_path)])
+
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"打开下载文件失败: {str(e)}")
+        return jsonify({'success': False, 'message': f'打开下载文件失败: {str(e)}'}), 500
+
+
+@app.route('/api/download_history/open_location', methods=['POST'])
+def open_download_history_location():
+    """打开文件所在目录。"""
+    try:
+        data = request.json or {}
+        file_path = _safe_history_path(data.get('path', ''))
+        if not file_path.exists():
+            return jsonify({'success': False, 'message': '文件不存在'}), 404
+
+        if IS_WINDOWS:
+            normalized_path = os.path.normpath(str(file_path))
+            subprocess.Popen(['explorer.exe', '/select,', normalized_path])
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', '-R', str(file_path)])
+        else:
+            subprocess.Popen(['xdg-open', str(file_path.parent)])
+
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"打开文件位置失败: {str(e)}")
+        return jsonify({'success': False, 'message': f'打开文件位置失败: {str(e)}'}), 500
+
+
+@app.route('/api/download_history/delete', methods=['POST'])
+def delete_download_history_files():
+    """删除下载文件，支持批量。"""
+    try:
+        data = request.json or {}
+        raw_paths = data.get('paths') or []
+        if not isinstance(raw_paths, list) or not raw_paths:
+            return jsonify({'success': False, 'message': '请选择至少一个文件'}), 400
+
+        deleted = []
+        missing = []
+
+        for raw_path in raw_paths:
+            try:
+                file_path = _safe_history_path(str(raw_path))
+            except ValueError:
+                missing.append(str(raw_path))
+                continue
+
+            if not file_path.exists() or not file_path.is_file():
+                missing.append(str(file_path))
+                continue
+
+            file_path.unlink()
+            deleted.append(str(file_path))
+
+            parent = file_path.parent
+            root = get_download_root()
+            while parent != root and parent.exists():
+                try:
+                    next(parent.iterdir())
+                    break
+                except StopIteration:
+                    parent.rmdir()
+                    parent = parent.parent
+
+        return jsonify({
+            'success': True,
+            'deleted_count': len(deleted),
+            'missing_count': len(missing),
+            'deleted': deleted,
+            'missing': missing
+        })
+    except Exception as e:
+        logger.error(f"删除下载文件失败: {str(e)}")
+        return jsonify({'success': False, 'message': f'删除下载文件失败: {str(e)}'}), 500
 @app.route('/api/media/proxy')
 def media_proxy():
     """代理抖音媒体资源，添加必要的Referer和Cookie头"""
@@ -1431,6 +1614,24 @@ def cookie_browser_login():
             cmd = [sys.executable, worker_path]
         
         req_data = json.dumps({"timeout": timeout, "browser": browser_type})
+        cookie_saved = False
+
+        def finalize_cookie_success(cookie: str):
+            nonlocal cookie_saved
+            if not cookie or cookie_saved:
+                return
+
+            cookie_saved = True
+            Config.COOKIE = cookie
+            Config.save_config(Config.COOKIE, Config.BASE_DIR)
+            init_app()
+
+            socketio.emit('cookie_login_status', {
+                'event': 'success',
+                'message': 'Cookie 获取成功！已自动保存。',
+                'cookie': cookie,
+            })
+            logger.info("通过浏览器登录成功获取 Cookie")
         
         try:
             _cookie_login_proc = subprocess.Popen(
@@ -1439,6 +1640,8 @@ def cookie_browser_login():
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 env=env,
             )
             
@@ -1453,9 +1656,14 @@ def cookie_browser_login():
                     try:
                         json_str = line.split('[cookie_grabber] ', 1)[1]
                         status_data = json.loads(json_str)
+                        if status_data.get('event') == 'cookie_extracted' and status_data.get('cookie'):
+                            finalize_cookie_success(status_data.get('cookie'))
+                            continue
+
                         socketio.emit('cookie_login_status', {
                             'event': status_data.get('event', ''),
                             'message': status_data.get('message', ''),
+                            'cookie': status_data.get('cookie', ''),
                         })
                     except (json.JSONDecodeError, IndexError):
                         pass
@@ -1470,17 +1678,7 @@ def cookie_browser_login():
                 result = {"success": False, "error": "无法解析返回结果"}
             
             if result.get("success") and result.get("cookie"):
-                cookie = result["cookie"]
-                Config.COOKIE = cookie
-                Config.save_config(Config.COOKIE, Config.BASE_DIR)
-                init_app()
-                
-                socketio.emit('cookie_login_status', {
-                    'event': 'success',
-                    'message': 'Cookie 获取成功！已自动保存。',
-                    'cookie': cookie,
-                })
-                logger.info("通过浏览器登录成功获取 Cookie")
+                finalize_cookie_success(result["cookie"])
             else:
                 error_msg = result.get("error", "未知错误")
                 socketio.emit('cookie_login_status', {
@@ -1545,6 +1743,7 @@ def main():
     
     # 先初始化socketio，然后再初始化应用
     logger.info("启动抖音下载器Web服务...")
+    logger.info(f"SocketIO async_mode: {socketio.async_mode}")
     
     # 从环境变量获取端口，默认为5001
     port = int(os.environ.get('PORT', 5001))
@@ -1568,7 +1767,17 @@ def main():
     browser_thread.start()
     
     # 启动socketio服务
-    socketio.run(app, host='0.0.0.0', port=port, debug=False)
+    run_kwargs = {
+        'app': app,
+        'host': '0.0.0.0',
+        'port': port,
+        'debug': False
+    }
+    if IS_WINDOWS and socketio.async_mode == 'threading':
+        run_kwargs['allow_unsafe_werkzeug'] = True
+
+    logger.info(f"Web服务开始监听: 0.0.0.0:{port}")
+    socketio.run(**run_kwargs)
 
 if __name__ == '__main__':
     main()

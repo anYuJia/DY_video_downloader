@@ -313,6 +313,8 @@ class DouyinAPI:
                 input=req_data,
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=90,  # 增加超时时间到 90 秒，允许用户完成验证操作
                 env=env,
             )
