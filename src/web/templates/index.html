@@ -105,6 +105,10 @@
                         <i class="bi bi-link-45deg"></i>
                         <span>粘贴链接</span>
                     </div>
+                    <div class="shortcut-card" onclick="showRecommendedFeed()">
+                        <i class="bi bi-collection-play"></i>
+                        <span>刷推荐</span>
+                    </div>
                     <div class="shortcut-card" onclick="document.getElementById('download-liked-btn').click()">
                         <i class="bi bi-heart"></i>
                         <span>点赞视频</span>
@@ -129,6 +133,38 @@
                     </div>
                     <div class="section-panel-body">
                         <div id="parsedVideosList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- User detail (hidden by default) -->
+            <div id="userDetailSection" class="mb-3" style="display: none;">
+                <div class="section-panel">
+                    <div class="section-panel-header section-panel-header--info">
+
+            <!-- Recommended Feed Section (hidden by default) -->
+            <div id="recommendedFeedSection" class="mb-3" style="display: none;">
+                <div class="section-panel">
+                    <div class="section-panel-header section-panel-header--accent">
+                        <div class="section-panel-title">
+                            <i class="bi bi-collection-play"></i> 推荐视频
+                        </div>
+                        <div class="section-panel-actions">
+                            <button class="btn btn-outline-light btn-sm" onclick="refreshRecommendedFeed()">
+                                <i class="bi bi-arrow-clockwise"></i> 刷新
+                            </button>
+                            <button class="btn btn-outline-light btn-sm" onclick="closeRecommendedFeed()">
+                                <i class="bi bi-x-lg"></i> 关闭
+                            </button>
+                        </div>
+                    </div>
+                    <div class="section-panel-body">
+                        <div id="recommendedFeedList" class="row g-3"></div>
+                        <div id="loadMoreRecommended" class="text-center mt-3" style="display:none;">
+                            <button class="btn btn-primary" onclick="loadMoreRecommendedFeed()">
+                                <i class="bi bi-arrow-down"></i> 加载更多
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -829,6 +865,7 @@
     <script src="/static/js/storage.js"></script>
     <script src="/static/js/cookie.js"></script>
     <script src="/static/js/download.js"></script>
+    <script src="/static/js/recommended.js"></script>
     <script src="/static/js/ui.js"></script>
     <script src="/static/js/history.js"></script>
     <script src="/static/js/socket.js"></script>

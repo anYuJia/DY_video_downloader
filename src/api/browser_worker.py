@@ -378,11 +378,117 @@ def get_temp_cookie() -> dict:
             }
 
 
+def fetch_recommended_feed(cookie: str, count: int = 20, cursor: int = 0) -> dict:
+    """获取推荐视频流"""
+    with sync_playwright() as p:
+        browser = None
+        try:
+            browser = p.chromium.launch(headless=False, channel='chrome')
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+                viewport={"width": 1680, "height": 1050},
+            )
+
+            # 设置 cookie
+            if cookie:
+                cookies = []
+                for item in cookie.split(';'):
+                    if '=' in item:
+                        key, value = item.strip().split('=', 1)
+                        cookies.append({
+                            "name": key,
+                            "value": value,
+                            "domain": ".douyin.com",
+                            "path": "/"
+                        })
+                context.add_cookies(cookies)
+
+            page = context.new_page()
+
+            # 拦截 API 响应
+            api_result = {"data": None}
+
+            def handle_response(response):
+                url = response.url
+                # 捕获推荐视频 API
+                if 'aweme/v1/web/feed' in url or 'aweme/v1/web/recommend' in url:
+                    try:
+                        if response.status == 200:
+                            body = response.body()
+                            if body and len(body) > 0:
+                                data = json.loads(body)
+                                api_result["data"] = data
+                                print(f"[fetch_recommended_feed] 捕获到推荐 API: {url[:100]}", file=sys.stderr)
+                    except Exception as e:
+                        print(f"[fetch_recommended_feed] 解析响应失败: {e}", file=sys.stderr)
+
+            page.on("response", handle_response)
+
+            # 访问推荐页面
+            recommend_url = "https://www.douyin.com/?recommend=1"
+            print(f"[fetch_recommended_feed] 访问推荐页面: {recommend_url}", file=sys.stderr)
+            page.goto(recommend_url, wait_until="load", timeout=30000)
+
+            # 等待 API 响应
+            print(f"[fetch_recommended_feed] 等待 API 响应...", file=sys.stderr)
+            start_wait = time.time()
+            max_wait = 10  # 最多等待 10 秒
+
+            for i in range(max_wait):
+                if api_result["data"] is not None:
+                    aweme_list = api_result["data"].get("aweme_list", [])
+                    if aweme_list and len(aweme_list) > 0:
+                        print(f"[fetch_recommended_feed] 成功获取 {len(aweme_list)} 个推荐视频", file=sys.stderr)
+                        break
+
+                page.wait_for_timeout(1000)
+
+                # 滚动页面触发加载
+                if i == 3:
+                    page.evaluate("window.scrollBy(0, 500)")
+                elif i == 5:
+                    page.evaluate("window.scrollBy(0, 500)")
+
+            browser.close()
+
+            if api_result["data"]:
+                return {
+                    "success": True,
+                    "aweme_list": api_result["data"].get("aweme_list", []),
+                    "cursor": api_result["data"].get("cursor", 0),
+                    "has_more": api_result["data"].get("has_more", False)
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "未能获取推荐视频"
+                }
+
+        except Exception as e:
+            print(f"[fetch_recommended_feed] 错误: {e}", file=sys.stderr)
+            if browser:
+                try:
+                    browser.close()
+                except:
+                    pass
+            return {
+                "success": False,
+                "message": str(e)
+            }
+
+
 if __name__ == '__main__':
     req = json.loads(sys.stdin.read())
     try:
+        # 处理获取推荐视频的请求
+        if req.get('action') == 'get_recommended_feed':
+            result = fetch_recommended_feed(
+                req.get('cookie', ''),
+                req.get('count', 20),
+                req.get('cursor', 0)
+            )
         # 处理获取临时 cookie 的请求
-        if req.get('action') == 'get_temp_cookie':
+        elif req.get('action') == 'get_temp_cookie':
             result = get_temp_cookie()
         # 优先用导航模式（拦截真实浏览器请求）
         elif req.get('params') and req.get('api_path'):
@@ -394,4 +500,5 @@ if __name__ == '__main__':
         print(json.dumps(result, ensure_ascii=False))
     except Exception as e:
         print(json.dumps({"error": str(e)}))
+
 

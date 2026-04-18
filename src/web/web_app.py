@@ -1975,6 +1975,121 @@ def cookie_generate_temp():
         })
 
 
+@app.route('/api/recommended_feed', methods=['POST'])
+def get_recommended_feed():
+    """获取推荐视频流"""
+    try:
+        import subprocess
+        import json
+
+        data = request.json or {}
+        count = data.get('count', 20)
+        cursor = data.get('cursor', 0)
+
+        # 获取当前配置的 cookie
+        cookie = config.cookie if config and hasattr(config, 'cookie') else ''
+
+        if not cookie:
+            return jsonify({
+                'success': False,
+                'message': '请先登录抖音账号'
+            })
+
+        # 调用 browser_worker 获取推荐视频
+        worker_path = os.path.join(os.path.dirname(__file__), '..', 'api', 'browser_worker.py')
+
+        proc = subprocess.run(
+            [sys.executable, worker_path],
+            input=json.dumps({
+                "action": "get_recommended_feed",
+                "cookie": cookie,
+                "count": count,
+                "cursor": cursor
+            }),
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            timeout=60,
+        )
+
+        if proc.returncode != 0:
+            logger.error(f"获取推荐视频失败: {proc.stderr}")
+            return jsonify({
+                'success': False,
+                'message': '获取推荐视频失败: ' + proc.stderr[:200]
+            })
+
+        result = json.loads(proc.stdout)
+
+        if result.get('success'):
+            aweme_list = result.get('aweme_list', [])
+
+            # 格式化视频信息
+            videos = []
+            for aweme in aweme_list:
+                try:
+                    video_info = {
+                        'aweme_id': aweme.get('aweme_id', ''),
+                        'desc': aweme.get('desc', ''),
+                        'create_time': aweme.get('create_time', 0),
+                        'author': {
+                            'uid': aweme.get('author', {}).get('uid', ''),
+                            'nickname': aweme.get('author', {}).get('nickname', ''),
+                            'avatar_thumb': aweme.get('author', {}).get('avatar_thumb', {}).get('url_list', [''])[0],
+                            'sec_uid': aweme.get('author', {}).get('sec_uid', ''),
+                        },
+                        'statistics': {
+                            'digg_count': aweme.get('statistics', {}).get('digg_count', 0),
+                            'comment_count': aweme.get('statistics', {}).get('comment_count', 0),
+                            'share_count': aweme.get('statistics', {}).get('share_count', 0),
+                            'play_count': aweme.get('statistics', {}).get('play_count', 0),
+                        },
+                        'video': {
+                            'cover': aweme.get('video', {}).get('cover', {}).get('url_list', [''])[0],
+                            'dynamic_cover': aweme.get('video', {}).get('dynamic_cover', {}).get('url_list', [''])[0],
+                            'play_addr': aweme.get('video', {}).get('play_addr', {}).get('url_list', [''])[0],
+                            'width': aweme.get('video', {}).get('width', 0),
+                            'height': aweme.get('video', {}).get('height', 0),
+                            'duration': aweme.get('video', {}).get('duration', 0),
+                        },
+                        'music': {
+                            'title': aweme.get('music', {}).get('title', ''),
+                            'author': aweme.get('music', {}).get('author', ''),
+                            'cover': aweme.get('music', {}).get('cover_large', {}).get('url_list', [''])[0],
+                        }
+                    }
+                    videos.append(video_info)
+                except Exception as e:
+                    logger.error(f"解析视频信息失败: {e}")
+                    continue
+
+            return jsonify({
+                'success': True,
+                'videos': videos,
+                'cursor': result.get('cursor', 0),
+                'has_more': result.get('has_more', False),
+                'count': len(videos)
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': result.get('message', '获取失败')
+            })
+
+    except subprocess.TimeoutExpired:
+        logger.error("获取推荐视频超时")
+        return jsonify({
+            'success': False,
+            'message': '获取推荐视频超时，请重试'
+        })
+    except Exception as e:
+        logger.exception(f"获取推荐视频异常: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'获取失败: {str(e)}'
+        })
+
+
 # 添加一个定时发送心跳的函数
 def send_heartbeat():
     """定时发送心跳消息"""
