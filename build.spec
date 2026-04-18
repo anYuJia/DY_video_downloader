@@ -4,8 +4,8 @@ import sys
 
 # 获取项目根目录，以便于寻址
 project_root = os.path.abspath('.')
-import pywebview
-pywebview_hooks = os.path.join(pywebview.__path__[0], 'pkg')
+import webview as _pywebview
+pywebview_hooks = os.path.join(_pywebview.__path__[0], 'pkg')
 
 block_cipher = None
 
@@ -48,7 +48,9 @@ hiddenimports = [
     'src.web.web_app',
     'src.api.cookie_grabber',
     'src.api.browser_worker',
-    'pywebview',
+    'webview',
+    'webview.platforms',
+    'webview.platforms.cocoa',
 ]
 
 # macOS WebKit bridge (only available on macOS)
