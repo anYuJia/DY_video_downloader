@@ -3,6 +3,7 @@ import requests
 import requests.adapters
 import urllib3.util.retry
 import urllib.parse
+import urllib.request
 import os
 import execjs
 import re
@@ -201,7 +202,7 @@ class DouyinAPI:
         random_str = ''.join(random.choices(charset, k=16))
         return f"verify_0{random_str}"
 
-    async def common_request(self, uri: str, params: dict, headers: dict, host: str = None, skip_sign: bool = False) -> tuple[dict, bool]:
+    async def common_request(self, uri: str, params: dict, headers: dict, host: str = None, skip_sign: bool = False, method: str = 'GET') -> tuple[dict, bool]:
         """
         请求 douyin
         :param uri: 请求路径
@@ -209,6 +210,7 @@ class DouyinAPI:
         :param headers: 请求头
         :param host: 可选的自定义host
         :param skip_sign: 跳过a_bogus签名（部分接口不需要）
+        :param method: 请求方法 ('GET' 或 'POST')
         :return: 返回数据和是否成功
         """
         base_host = host or self.host
@@ -230,9 +232,14 @@ class DouyinAPI:
 
         if self.debug_mode:
             print(f'\033[94m[API] 请求URL: {url}\033[0m')
+            print(f'\033[94m[API] 请求方法: {method}\033[0m')
             print(f'\033[94m[API] 请求参数: {params}\033[0m')
-            
-        response = await asyncio.to_thread(_api_session.get, url, params=params, headers=headers)
+
+        # 根据方法选择 GET 或 POST
+        if method.upper() == 'POST':
+            response = await asyncio.to_thread(_api_session.post, url, data=params, headers=headers)
+        else:
+            response = await asyncio.to_thread(_api_session.get, url, params=params, headers=headers)
         if self.debug_mode:
             print(f'[DEBUG] response.status_code={response.status_code}, len(response.content)={len(response.content)}, len(response.text)={len(response.text)}')
             sys.stderr.write(f'*** [API] 普通请求响应：status={response.status_code}, content_len={len(response.content)} ***\n')
@@ -292,6 +299,16 @@ class DouyinAPI:
     async def browser_request(self, uri: str, params: dict) -> tuple[dict, bool]:
         """使用Playwright子进程发起真实浏览器请求，通过页面导航拦截真实API响应"""
         try:
+            # 检测 Playwright 是否安装
+            from src.utils.playwright_checker import check_playwright_installed
+            is_installed, message = check_playwright_installed()
+
+            if not is_installed:
+                error_msg = f"Playwright 未正确安装: {message}\n请运行: python -m src.utils.playwright_checker --install"
+                if self.debug_mode:
+                    print(f"\033[91m[API] {error_msg}\033[0m")
+                return {'error': 'playwright_not_installed', 'message': message}, False
+
             if self.debug_mode:
                 print(f"\033[94m[API] 启动浏览器子进程(导航模式)...\033[0m")
 
@@ -362,3 +379,297 @@ class DouyinAPI:
             if self.debug_mode:
                 print(f"\033[91m[API] 浏览器请求异常: {e}\033[0m")
             return {}, False
+
+    async def get_recommended_feed(self, count: int = 20, cursor: int = 0) -> tuple[dict, bool]:
+        """获取推荐视频流
+        
+        Args:
+            count: 获取数量
+            cursor: 分页游标
+            
+        Returns:
+            tuple[dict, bool]: (响应数据, 是否成功)
+        """
+        if self.debug_mode:
+            print(f"\033[94m[API] 获取推荐视频流: count={count}, cursor={cursor}\033[0m")
+        
+        # 准备请求参数 - 使用真实浏览器捕获的参数
+        params = {
+            'module_id': '3003101',  # 推荐模块ID
+            'count': str(count),
+            'pull_type': '0',  # 刷新类型
+            'refresh_index': '1',  # 刷新索引
+            'refer_type': '10',  # 引用类型
+            'filterGids': '',
+            'presented_ids': '',
+            'refer_id': '',
+            'tag_id': '',
+            'use_lite_type': '2',
+            'Seo-Flag': '0',
+            'pre_log_id': '',
+            'pre_item_ids': '',
+            'pre_room_ids': '',
+            'pre_item_from': 'sati',
+            'xigua_user': '0',
+            'awemePcRecRawData': '{"is_xigua_user":0,"danmaku_switch_status":0,"is_client":false}',
+        }
+        
+        # 自定义请求头
+        headers = {
+            "Referer": "https://www.douyin.com/?recommend=1"
+        }
+        
+        # 使用 POST 请求 - 重要！
+        # 推荐接口需要 POST 请求，不是 GET
+        resp, success = await self.common_request(
+            '/aweme/v2/web/module/feed/',
+            params,
+            headers,
+            skip_sign=False,  # 需要签名
+            method='POST'  # 使用 POST 方法
+        )
+
+        if success and resp.get('aweme_list'):
+            aweme_count = len(resp.get('aweme_list', []))
+            if self.debug_mode:
+                print(f"\033[92m[API] 获取推荐视频成功: {aweme_count} 个\033[0m")
+
+            # 检查是否有视频没有播放地址
+            valid_count = 0
+            for aweme in resp.get('aweme_list', []):
+                video_data = aweme.get('video', {})
+                play_addr = video_data.get('play_addr', {})
+                if isinstance(play_addr, dict):
+                    url_list = play_addr.get('url_list', [])
+                    if url_list and url_list[0]:
+                        valid_count += 1
+
+            if self.debug_mode and valid_count < aweme_count:
+                print(f"\033[93m[API] 有效视频: {valid_count}/{aweme_count}\033[0m")
+
+            return resp, True
+
+        if self.debug_mode:
+            print(f"\033[91m[API] 获取推荐视频失败\033[0m")
+            if resp:
+                print(f"\033[91m[API] 响应: {resp}\033[0m")
+
+        return resp, False
+
+    async def get_temp_cookie(self) -> dict:
+        """获取临时 Cookie（无需登录）
+
+        Returns:
+            dict: {
+                'success': bool,
+                'cookie': str (如果成功),
+                'message': str
+            }
+        """
+        try:
+            if self.debug_mode:
+                print(f"\033[94m[API] 获取临时 Cookie...\033[0m")
+
+            # 方法1: 尝试使用纯 HTTP 请求获取 Cookie（不需要 Playwright）
+            cookie_str = await self._get_temp_cookie_http()
+
+            if cookie_str:
+                return {
+                    'success': True,
+                    'cookie': cookie_str,
+                    'message': '成功获取临时 Cookie（HTTP方式）'
+                }
+
+            # 方法2: 如果 HTTP 方式失败，回退到 Playwright
+            if self.debug_mode:
+                print(f"\033[93m[API] HTTP 方式获取失败，使用 Playwright 回退\033[0m")
+
+            # 检测 Playwright 是否安装
+            from src.utils.playwright_checker import check_playwright_installed
+            is_installed, check_message = check_playwright_installed()
+
+            if not is_installed:
+                error_msg = f"Playwright 未正确安装: {check_message}\n请运行: python -m src.utils.playwright_checker --install"
+                if self.debug_mode:
+                    print(f"\033[91m[API] {error_msg}\033[0m")
+                return {
+                    'success': False,
+                    'message': f'Playwright 未安装: {check_message}'
+                }
+
+            # 使用 Playwright 子进程获取临时 cookie
+            from src.config.config import IS_FROZEN
+
+            env = os.environ.copy()
+            env['RUN_WORKER'] = 'browser_worker'
+            env['PYTHONIOENCODING'] = 'utf-8'
+
+            if IS_FROZEN:
+                cmd = [sys.executable]
+            else:
+                worker_path = os.path.join(os.path.dirname(__file__), 'browser_worker.py')
+                cmd = [sys.executable, worker_path]
+
+            req_data = json.dumps({
+                "action": "get_temp_cookie"
+            })
+
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                input=req_data,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=30,
+                env=env,
+            )
+
+            if proc.returncode != 0:
+                if self.debug_mode:
+                    print(f"\033[91m[API] 获取临时 Cookie 失败: {proc.stderr[:200]}\033[0m")
+                return {
+                    'success': False,
+                    'message': '获取临时 Cookie 失败: ' + proc.stderr[:200]
+                }
+
+            result = json.loads(proc.stdout)
+
+            if self.debug_mode:
+                print(f"\033[92m[API] 获取临时 Cookie 成功\033[0m")
+
+            return result
+
+        except Exception as e:
+            if self.debug_mode:
+                print(f"\033[91m[API] 获取临时 Cookie 异常: {e}\033[0m")
+            return {
+                'success': False,
+                'message': str(e)
+            }
+
+    async def _get_temp_cookie_http(self) -> str:
+        """使用纯 HTTP 请求获取临时 Cookie（不需要 Playwright）
+
+        Returns:
+            str: Cookie 字符串，失败返回空字符串
+        """
+        try:
+            if self.debug_mode:
+                print(f"\033[94m[API] 使用 HTTP 方式获取临时 Cookie\033[0m")
+
+            # 准备请求头
+            headers = {
+                'User-Agent': self.common_headers['User-Agent'],
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            }
+
+            # 创建一个 session 来自动处理 Cookie
+            session = requests.Session()
+
+            # 发送请求
+            response = await asyncio.to_thread(
+                session.get,
+                'https://www.douyin.com/',
+                headers=headers,
+                timeout=10
+            )
+
+            # 从 session.cookies 中提取 Cookie
+            cookies = []
+            for cookie in session.cookies:
+                cookies.append(f"{cookie.name}={cookie.value}")
+
+            if cookies:
+                cookie_str = '; '.join(cookies)
+                if self.debug_mode:
+                    print(f"\033[92m[API] HTTP 方式获取到 {len(cookies)} 个 Cookie\033[0m")
+                    print(f"\033[94m[API] Cookie: {cookie_str[:100]}...\033[0m")
+                return cookie_str
+
+            if self.debug_mode:
+                print(f"\033[93m[API] HTTP 方式未获取到 Cookie\033[0m")
+            return ''
+
+        except Exception as e:
+            if self.debug_mode:
+                print(f"\033[91m[API] HTTP 获取 Cookie 失败: {e}\033[0m")
+            return ''
+
+    @staticmethod
+    def get_browser_cookies() -> dict:
+        """从浏览器中读取抖音 Cookie（支持 Chrome, Edge, Firefox）
+
+        Returns:
+            dict: {
+                'success': bool,
+                'cookie': str (如果成功),
+                'message': str,
+                'browser': str (浏览器名称)
+            }
+        """
+        try:
+            import browser_cookie3
+            import platform
+
+            browsers = []
+
+            # 根据平台选择浏览器
+            system = platform.system()
+            if system == 'Darwin':  # macOS
+                browsers = [
+                    ('Chrome', browser_cookie3.chrome),
+                    ('Edge', browser_cookie3.edge),
+                    ('Firefox', browser_cookie3.firefox),
+                    ('Safari', browser_cookie3.safari),
+                ]
+            elif system == 'Windows':
+                browsers = [
+                    ('Chrome', browser_cookie3.chrome),
+                    ('Edge', browser_cookie3.edge),
+                    ('Firefox', browser_cookie3.firefox),
+                ]
+            elif system == 'Linux':
+                browsers = [
+                    ('Chrome', browser_cookie3.chrome),
+                    ('Firefox', browser_cookie3.firefox),
+                ]
+
+            for browser_name, browser_func in browsers:
+                try:
+                    cookies = browser_func(domain_name='douyin.com')
+
+                    if cookies:
+                        cookie_str = '; '.join([f"{c.name}={c.value}" for c in cookies])
+                        return {
+                            'success': True,
+                            'cookie': cookie_str,
+                            'message': f'成功从 {browser_name} 浏览器读取到 {len(cookies)} 个 Cookie',
+                            'browser': browser_name,
+                            'count': len(cookies)
+                        }
+                except Exception as e:
+                    # 该浏览器未安装或无法访问，继续尝试下一个
+                    continue
+
+            return {
+                'success': False,
+                'message': '未能从任何浏览器读取到抖音 Cookie，请确保已在浏览器中登录抖音'
+            }
+
+        except ImportError:
+            return {
+                'success': False,
+                'message': '缺少 browser-cookie3 模块，请运行: pip install browser-cookie3'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f'读取浏览器 Cookie 失败: {str(e)}'
+            }
+
