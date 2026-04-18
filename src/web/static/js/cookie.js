@@ -504,3 +504,105 @@ function checkLoginRequired(element) {
     }
     return true;
 }
+
+// 从浏览器读取 Cookie
+function loadCookieFromBrowser() {
+    const statusContainer = document.getElementById('cookie-modal-validation');
+    const statusIcon = document.getElementById('cookie-modal-status-icon');
+    const statusText = document.getElementById('cookie-modal-status-text');
+
+    if (statusContainer) {
+        statusContainer.style.display = 'block';
+        statusIcon.className = 'bi bi-hourglass-split text-primary me-1';
+        statusText.className = 'text-primary';
+        statusText.textContent = '正在从浏览器读取 Cookie...';
+    }
+
+    fetch('/api/cookie/from_browser', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const cookieInput = document.getElementById('cookie-modal-input');
+            if (cookieInput) {
+                cookieInput.value = data.cookie;
+            }
+
+            if (statusContainer) {
+                statusIcon.className = 'bi bi-check-circle-fill text-success me-1';
+                statusText.className = 'text-success';
+                statusText.textContent = `成功从 ${data.browser} 读取 ${data.count} 个 Cookie`;
+            }
+
+            showToast(`已从 ${data.browser} 浏览器读取 Cookie`, 'success');
+        } else {
+            if (statusContainer) {
+                statusIcon.className = 'bi bi-x-circle-fill text-danger me-1';
+                statusText.className = 'text-danger';
+                statusText.textContent = data.message || '读取失败';
+            }
+            showToast(data.message || '读取失败', 'error');
+        }
+    })
+    .catch(error => {
+        if (statusContainer) {
+            statusIcon.className = 'bi bi-x-circle-fill text-danger me-1';
+            statusText.className = 'text-danger';
+            statusText.textContent = '读取失败: ' + error.message;
+        }
+        showToast('读取失败: ' + error.message, 'error');
+    });
+}
+
+// 生成临时 Cookie
+function generateTempCookie() {
+    const statusContainer = document.getElementById('cookie-modal-validation');
+    const statusIcon = document.getElementById('cookie-modal-status-icon');
+    const statusText = document.getElementById('cookie-modal-status-text');
+
+    if (statusContainer) {
+        statusContainer.style.display = 'block';
+        statusIcon.className = 'bi bi-hourglass-split text-primary me-1';
+        statusText.className = 'text-primary';
+        statusText.textContent = '正在生成临时 Cookie...';
+    }
+
+    fetch('/api/cookie/generate_temp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const cookieInput = document.getElementById('cookie-modal-input');
+            if (cookieInput) {
+                cookieInput.value = data.cookie;
+            }
+
+            if (statusContainer) {
+                statusIcon.className = 'bi bi-check-circle-fill text-success me-1';
+                statusText.className = 'text-success';
+                statusText.textContent = data.message || '临时 Cookie 生成成功';
+            }
+
+            showToast(data.message || '临时 Cookie 生成成功', 'success');
+        } else {
+            if (statusContainer) {
+                statusIcon.className = 'bi bi-x-circle-fill text-danger me-1';
+                statusText.className = 'text-danger';
+                statusText.textContent = data.message || '生成失败';
+            }
+            showToast(data.message || '生成失败', 'error');
+        }
+    })
+    .catch(error => {
+        if (statusContainer) {
+            statusIcon.className = 'bi bi-x-circle-fill text-danger me-1';
+            statusText.className = 'text-danger';
+            statusText.textContent = '生成失败: ' + error.message;
+        }
+        showToast('生成失败: ' + error.message, 'error');
+    });
+}

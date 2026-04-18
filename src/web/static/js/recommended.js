@@ -18,6 +18,11 @@ let lastScrollTime = 0;       // 滚动防抖
 let isLoadingMore = false;    // 是否正在加载更多
 let currentVideoElement = null; // 当前视频元素引用
 
+// 智能预加载配置
+const PRELOAD_THRESHOLD = 10;  // 剩余视频少于10条时预加载
+const INITIAL_LOAD_COUNT = 20; // 首次加载数量
+const LOAD_MORE_COUNT = 20;    // 每次加载更多数量
+
 async function showRecommendedFeed() {
     console.log('[showRecommendedFeed] 开始加载推荐视频');
 
@@ -38,7 +43,7 @@ async function showRecommendedFeed() {
     document.getElementById('recommendedFeedList').textContent = '';
 
     // 加载视频
-    await loadRecommendedFeed();
+    await loadRecommendedFeed(INITIAL_LOAD_COUNT);
 }
 
 function closeRecommendedFeed() {
@@ -48,7 +53,7 @@ function closeRecommendedFeed() {
     recommendedCursor = 0;
 }
 
-async function loadRecommendedFeed() {
+async function loadRecommendedFeed(count = LOAD_MORE_COUNT) {
     // 防止重复加载
     if (isLoadingMore) {
         console.log('[loadRecommendedFeed] 正在加载中，跳过');
@@ -57,14 +62,14 @@ async function loadRecommendedFeed() {
 
     try {
         isLoadingMore = true;
-        console.log('[loadRecommendedFeed] 开始请求 API');
+        console.log('[loadRecommendedFeed] 开始请求 API, count:', count);
         updateStatus('working', '加载中...');
 
         const response = await fetch('/api/recommended_feed', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                count: 20,
+                count: count,
                 cursor: recommendedCursor
             })
         });
@@ -74,19 +79,24 @@ async function loadRecommendedFeed() {
 
         if (data.success) {
             const previousCount = recommendedVideos.length;
-            recommendedVideos = recommendedVideos.concat(data.videos);
+            const newVideos = data.videos || [];
+
+            // 合并新视频
+            recommendedVideos = recommendedVideos.concat(newVideos);
             recommendedCursor = data.cursor;
             hasMoreRecommended = data.has_more;
 
-            console.log('[loadRecommendedFeed] 总视频数:', recommendedVideos.length);
+            console.log('[loadRecommendedFeed] 总视频数:', recommendedVideos.length, '新增:', newVideos.length);
 
             // 如果是从推荐卡片页面加载，显示卡片
             if (!isPlayerOpen) {
-                displayRecommendedVideos(data.videos);
+                displayRecommendedVideos(newVideos);
 
                 // 显示/隐藏加载更多按钮
                 document.getElementById('loadMoreRecommended').style.display =
                     hasMoreRecommended ? 'block' : 'none';
+            } else {
+                console.log('[loadRecommendedFeed] 播放器模式，暂不更新列表页面');
             }
 
             updateStatus('ready', '就绪');
@@ -108,11 +118,11 @@ async function refreshRecommendedFeed() {
     recommendedVideos = [];
     recommendedCursor = 0;
     document.getElementById('recommendedFeedList').textContent = '';
-    await loadRecommendedFeed();
+    await loadRecommendedFeed(INITIAL_LOAD_COUNT);
 }
 
 async function loadMoreRecommendedFeed() {
-    await loadRecommendedFeed();
+    await loadRecommendedFeed(LOAD_MORE_COUNT);
 }
 
 function displayRecommendedVideos(videos) {
@@ -295,6 +305,27 @@ function closeFullscreenPlayer() {
     }
 
     document.getElementById('fullscreenPlayer').style.display = 'none';
+
+    // 确保列表页面显示所有已加载的视频
+    syncListWithLoadedVideos();
+}
+
+// 同步列表页面显示所有已加载的视频
+function syncListWithLoadedVideos() {
+    const container = document.getElementById('recommendedFeedList');
+    if (!container) return;
+
+    const existingCardCount = container.children.length;
+    const loadedVideoCount = recommendedVideos.length;
+
+    console.log('[syncListWithLoadedVideos] 列表现有卡片:', existingCardCount, '已加载视频:', loadedVideoCount);
+
+    if (loadedVideoCount > existingCardCount) {
+        // 添加缺失的视频卡片
+        const missingVideos = recommendedVideos.slice(existingCardCount);
+        console.log('[syncListWithLoadedVideos] 添加缺失视频:', missingVideos.length, '个');
+        displayRecommendedVideos(missingVideos);
+    }
 }
 
 function renderCurrentVideo() {
@@ -584,10 +615,30 @@ function formatVideoTime(seconds) {
 }
 
 function checkAndLoadMore() {
-    // 如果当前播放到倒数第二个视频，开始预加载
-    if (currentPlayerIndex >= recommendedVideos.length - 2 && hasMoreRecommended && !isLoadingMore) {
-        console.log('[checkAndLoadMore] 预加载更多视频');
-        loadRecommendedFeed();
+    // 计算剩余视频数量
+    const remainingVideos = recommendedVideos.length - currentPlayerIndex - 1;
+    console.log('[checkAndLoadMore] 剩余视频数量:', remainingVideos, '当前索引:', currentPlayerIndex, '总数:', recommendedVideos.length);
+
+    // 如果剩余视频少于阈值，预加载更多
+    if (remainingVideos < PRELOAD_THRESHOLD && hasMoreRecommended && !isLoadingMore) {
+        console.log('[checkAndLoadMore] 剩余视频不足，开始预加载');
+        loadRecommendedFeedAndSyncList();
+    }
+}
+
+// 加载更多视频并同步更新列表页面
+async function loadRecommendedFeedAndSyncList() {
+    if (isLoadingMore) return;
+
+    const previousCount = recommendedVideos.length;
+
+    await loadRecommendedFeed(LOAD_MORE_COUNT);
+
+    // 如果在播放器模式，需要同步更新列表页面
+    if (isPlayerOpen && recommendedVideos.length > previousCount) {
+        const newVideos = recommendedVideos.slice(previousCount);
+        console.log('[loadRecommendedFeedAndSyncList] 同步更新列表，新增:', newVideos.length, '个视频');
+        displayRecommendedVideos(newVideos);
     }
 }
 
@@ -763,8 +814,17 @@ function playNextVideo() {
         console.log('[playNextVideo] 到达底部，加载更多视频');
         showToast('加载更多视频...', 'info');
 
-        // 异步加载，加载成功后自动切换
-        loadRecommendedFeed().then(() => {
+        // 异步加载，加载成功后自动切换并同步列表
+        const previousCount = recommendedVideos.length;
+        loadRecommendedFeed(LOAD_MORE_COUNT).then(() => {
+            // 同步更新列表页面
+            if (recommendedVideos.length > previousCount) {
+                const newVideos = recommendedVideos.slice(previousCount);
+                console.log('[playNextVideo] 同步更新列表，新增:', newVideos.length, '个视频');
+                displayRecommendedVideos(newVideos);
+            }
+
+            // 切换到下一个视频
             if (currentPlayerIndex < recommendedVideos.length - 1) {
                 currentPlayerIndex++;
                 renderCurrentVideo();
@@ -828,18 +888,28 @@ async function downloadCurrentVideo() {
     }
 
     try {
-        showToast('开始下载...', 'info');
+        showToast('添加到下载队列...', 'info');
 
-        // 使用代理URL下载
-        const proxyPlayAddr = proxyUrl(playAddr);
-        const link = document.createElement('a');
-        link.href = proxyPlayAddr;
-        link.download = `${video.author?.nickname || '视频'}_${video.aweme_id}.mp4`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        // 使用统一的下载接口，直接传入视频信息
+        const response = await fetch('/api/download_single_video', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                aweme_id: video.aweme_id,
+                desc: video.desc || '视频',
+                media_urls: [playAddr],  // 视频URL列表
+                raw_media_type: 'video',
+                author_name: video.author?.nickname || '未知作者'
+            })
+        });
 
-        showToast('下载已开始', 'success');
+        const data = await response.json();
+
+        if (data.success) {
+            showToast('已添加到下载队列', 'success');
+        } else {
+            showToast(data.message || '下载失败', 'error');
+        }
     } catch (error) {
         console.error('下载视频失败:', error);
         showToast('下载失败', 'error');
@@ -853,13 +923,28 @@ async function downloadRecommendedVideo(awemeId) {
         return;
     }
 
+    const videoData = video.video || {};
+    const playAddr = videoData.play_addr;
+
+    if (!playAddr) {
+        showToast('无法获取视频下载地址', 'error');
+        return;
+    }
+
     // 添加到下载队列
     try {
-        const response = await fetch('/api/download_video', {
+        showToast('添加到下载队列...', 'info');
+
+        // 使用统一的下载接口，直接传入视频信息
+        const response = await fetch('/api/download_single_video', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                aweme_id: awemeId
+                aweme_id: awemeId,
+                desc: video.desc || '视频',
+                media_urls: [playAddr],  // 视频URL列表
+                raw_media_type: 'video',
+                author_name: video.author?.nickname || '未知作者'
             })
         });
 
