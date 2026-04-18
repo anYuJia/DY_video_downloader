@@ -293,6 +293,7 @@ class DouyinAPI:
             
             env = os.environ.copy()
             env['RUN_WORKER'] = 'browser_worker'
+            env['PYTHONIOENCODING'] = 'utf-8'
             
             if IS_FROZEN:
                 cmd = [sys.executable]

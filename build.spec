@@ -18,8 +18,11 @@ datas = [
 # 核心依赖项与可能被动态加载的模块
 hiddenimports = [
     'engineio.async_drivers.gevent',
+    'engineio.async_drivers.threading',
     'gevent',
+    'geventwebsocket',
     'greenlet',
+    'simple_websocket',
     'playwright',
     'flask',
     'flask_socketio',
