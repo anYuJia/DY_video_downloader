@@ -103,7 +103,7 @@ async function refreshDownloadHistory() {
         const totalSize = _downloadHistoryItems.reduce((sum, item) => sum + (Number(item.size) || 0), 0);
         if (stats) {
             const summaryText = _downloadHistoryRoots.length > 1
-                ? `共 ${_downloadHistoryItems.length} 个文件，累计 ${formatBytes(totalSize)}，同时显示 ${_downloadHistoryRoots.length} 个目录的历史文件`
+                ? `共 ${_downloadHistoryItems.length} 个文件，累计 ${formatBytes(totalSize)}，同时显示 ${_downloadHistoryRoots.length} 个目录的历史`
                 : `共 ${_downloadHistoryItems.length} 个文件，累计 ${formatBytes(totalSize)}`;
             const fullPath = result.download_root || '-';
             stats.innerHTML = `
