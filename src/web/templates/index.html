@@ -287,11 +287,28 @@
             
             <div class="mb-3">
                 <div class="d-flex justify-content-between align-items-center">
-                    <label class="form-label">Cookie</label>
+                    <label class="form-label mb-0">Cookie</label>
                     <a href="https://cn.bing.com/search?pglt=419&q=%E5%A6%82%E4%BD%95%E8%8E%B7%E5%8F%96%E6%8A%96%E9%9F%B3cookie" target="_blank" class="text-decoration-none small">
                         如何获取cookie
                     </a>
                 </div>
+
+                <!-- Cookie 登录选项 -->
+                <div class="mb-2">
+                    <div class="btn-group w-100" role="group">
+                        <button type="button" class="btn btn-outline-primary btn-sm" id="cookie-login-btn" onclick="showCookieSetupModal()">
+                            <i class="bi bi-box-arrow-in-right me-1"></i>登录账号
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="cookie-temp-btn" onclick="generateTempCookieDirect()">
+                            <i class="bi bi-eye me-1"></i>不登录
+                        </button>
+                    </div>
+                    <small class="text-muted d-block mt-1">
+                        <i class="bi bi-info-circle"></i>
+                        登录后可使用所有功能；不登录仅可使用基本功能
+                    </small>
+                </div>
+
                 <textarea class="form-control" id="cookie-input" rows="4" placeholder="粘贴抖音Cookie"></textarea>
                 <div id="cookie-validation-status" class="mt-2" style="display:none;">
                     <div id="cookie-status-indicator" class="d-flex align-items-center">

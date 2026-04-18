@@ -435,7 +435,58 @@ function handleCookieLoginStatus(data) {
     }
 }
 
-// 生成临时 Cookie
+// 生成临时 Cookie（直接在设置面板中）
+function generateTempCookieDirect() {
+    const cookieInput = document.getElementById('cookie-input');
+    const statusContainer = document.getElementById('cookie-validation-status');
+    const statusIcon = document.getElementById('cookie-status-icon');
+    const statusText = document.getElementById('cookie-status-text');
+
+    statusContainer.style.display = 'block';
+    statusIcon.className = 'bi bi-hourglass-split text-primary me-1';
+    statusText.className = 'text-primary';
+    statusText.textContent = '正在生成临时 Cookie...';
+
+    fetch('/api/cookie/generate_temp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            statusIcon.className = 'bi bi-check-circle-fill text-success me-1';
+            statusText.className = 'text-success';
+            statusText.textContent = '临时 Cookie 生成成功！（未登录，部分功能受限）';
+
+            // 保存到输入框
+            cookieInput.value = data.cookie;
+
+            // 保存到配置
+            return fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cookie: data.cookie })
+            });
+        } else {
+            throw new Error(data.message || '生成失败');
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast('临时 Cookie 已保存！', 'success');
+            updateStatus('ready', '已配置（未登录）');
+        }
+    })
+    .catch(error => {
+        statusIcon.className = 'bi bi-x-circle-fill text-danger me-1';
+        statusText.className = 'text-danger';
+        statusText.textContent = '生成失败: ' + error.message;
+        showToast('临时 Cookie 生成失败', 'error');
+    });
+}
+
+// 生成临时 Cookie（在弹窗中）
 function generateTempCookie() {
     const statusContainer = document.getElementById('cookie-modal-validation');
     const statusIcon = document.getElementById('cookie-modal-status-icon');
