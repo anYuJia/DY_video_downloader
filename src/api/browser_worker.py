@@ -307,11 +307,59 @@ def browser_fetch_via_navigation(cookie: str, api_path: str, params: dict, user_
         return {"error": "no_api_response_captured"}
 
 
+def get_temp_cookie() -> dict:
+    """获取临时 cookie（未登录状态访问抖音主页）"""
+    with sync_playwright() as p:
+        browser = None
+        try:
+            browser = p.chromium.launch(headless=False, channel='chrome')
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+                viewport={"width": 1680, "height": 1050},
+            )
+
+            page = context.new_page()
+
+            # 访问抖音主页
+            print("[get_temp_cookie] 访问抖音主页...", file=sys.stderr)
+            page.goto("https://www.douyin.com/", wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(5000)
+
+            # 获取 cookie
+            cookies = context.cookies("https://www.douyin.com")
+            cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+
+            print(f"[get_temp_cookie] 获取到 {len(cookies)} 个 cookie", file=sys.stderr)
+
+            browser.close()
+
+            return {
+                "success": True,
+                "cookie": cookie_str,
+                "message": f"成功获取 {len(cookies)} 个临时 cookie"
+            }
+
+        except Exception as e:
+            print(f"[get_temp_cookie] 错误: {e}", file=sys.stderr)
+            if browser:
+                try:
+                    browser.close()
+                except:
+                    pass
+            return {
+                "success": False,
+                "message": str(e)
+            }
+
+
 if __name__ == '__main__':
     req = json.loads(sys.stdin.read())
     try:
+        # 处理获取临时 cookie 的请求
+        if req.get('action') == 'get_temp_cookie':
+            result = get_temp_cookie()
         # 优先用导航模式（拦截真实浏览器请求）
-        if req.get('params') and req.get('api_path'):
+        elif req.get('params') and req.get('api_path'):
             result = browser_fetch_via_navigation(
                 req['cookie'], req['api_path'], req['params'], req['user_agent']
             )
@@ -320,3 +368,4 @@ if __name__ == '__main__':
         print(json.dumps(result, ensure_ascii=False))
     except Exception as e:
         print(json.dumps({"error": str(e)}))
+

@@ -2487,3 +2487,25 @@ a:hover { color: var(--accent-hover); }
     0%, 100% { opacity: 1; }
     50% { opacity: 0.7; }
 }
+
+/* Cookie temporary tab styles */
+.cookie-temp-info {
+    margin-bottom: 1rem;
+}
+
+.cookie-temp-features {
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0;
+}
+
+.cookie-temp-features li {
+    padding: 0.5rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.cookie-temp-features li i {
+    font-size: 1rem;
+}

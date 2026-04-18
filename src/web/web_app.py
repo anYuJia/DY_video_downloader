@@ -1919,6 +1919,62 @@ def cookie_browser_login_cancel():
     return jsonify({'success': False, 'message': '没有正在进行的浏览器登录'})
 
 
+@app.route('/api/cookie/generate_temp', methods=['POST'])
+def cookie_generate_temp():
+    """生成临时 Cookie（未登录状态）"""
+    try:
+        import subprocess
+        import json
+
+        # 调用 browser_worker.py 获取临时 cookie
+        worker_path = os.path.join(os.path.dirname(__file__), '..', 'api', 'browser_worker.py')
+
+        # 使用子进程运行 browser_worker
+        proc = subprocess.run(
+            [sys.executable, worker_path],
+            input=json.dumps({
+                "action": "get_temp_cookie"
+            }),
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            timeout=30,
+        )
+
+        if proc.returncode != 0:
+            logger.error(f"生成临时 cookie 失败: {proc.stderr}")
+            return jsonify({
+                'success': False,
+                'message': '生成临时 Cookie 失败: ' + proc.stderr[:200]
+            })
+
+        result = json.loads(proc.stdout)
+        if result.get('success'):
+            return jsonify({
+                'success': True,
+                'cookie': result.get('cookie', ''),
+                'message': '临时 Cookie 生成成功'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': result.get('message', '生成失败')
+            })
+
+    except subprocess.TimeoutExpired:
+        logger.error("生成临时 cookie 超时")
+        return jsonify({
+            'success': False,
+            'message': '生成临时 Cookie 超时，请重试'
+        })
+    except Exception as e:
+        logger.exception(f"生成临时 cookie 异常: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'生成失败: {str(e)}'
+        })
+
+
 # 添加一个定时发送心跳的函数
 def send_heartbeat():
     """定时发送心跳消息"""

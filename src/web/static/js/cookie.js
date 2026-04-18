@@ -8,11 +8,12 @@ let _browserLoginTimer = null;
 
 function validateCookie(cookieString) {
     if (!cookieString || cookieString.trim() === '') {
-        return { isValid: false, status: 'empty', message: '请输入Cookie', missingParams: [] };
+        return { isValid: false, status: 'empty', message: '请输入Cookie', missingParams: [], loginType: 'none' };
     }
 
     const requiredParams = ['sessionid'];
-    const recommendedParams = ['ttwid', 'passport_csrf_token', 's_v_web_id'];
+    const tempParams = ['ttwid', 's_v_web_id'];
+    const recommendedParams = ['passport_csrf_token', 'UIFID'];
 
     const cookiePairs = cookieString.split(';').reduce((acc, pair) => {
         const [key, ...valueParts] = pair.trim().split('=');
@@ -20,28 +21,43 @@ function validateCookie(cookieString) {
         return acc;
     }, {});
 
+    // 检查是否已登录（有 sessionid）
+    const hasLoginCookie = requiredParams.some(param => cookiePairs[param]);
+
+    // 检查是否有临时 cookie
+    const hasTempCookie = tempParams.some(param => cookiePairs[param]);
+
     const missingRequired = requiredParams.filter(param => !cookiePairs[param]);
     const missingRecommended = recommendedParams.filter(param => !cookiePairs[param]);
 
-    if (missingRequired.length > 0) {
+    if (hasLoginCookie) {
+        // 已登录状态
+        return {
+            isValid: true,
+            status: 'logged_in',
+            message: '已登录，可使用所有功能',
+            missingParams: [],
+            loginType: 'full'
+        };
+    } else if (hasTempCookie) {
+        // 临时 cookie（未登录）
+        return {
+            isValid: true,
+            status: 'temp_cookie',
+            message: '未登录，部分功能受限（无法获取喜欢列表）',
+            missingParams: missingRequired,
+            loginType: 'temp'
+        };
+    } else {
+        // 无效 cookie
         return {
             isValid: false,
             status: 'invalid',
-            message: '缺少必需参数: ' + missingRequired.join(', '),
-            missingParams: missingRequired
+            message: 'Cookie 无效，请登录或获取临时 Cookie',
+            missingParams: missingRequired,
+            loginType: 'none'
         };
     }
-
-    if (missingRecommended.length > 0) {
-        return {
-            isValid: true,
-            status: 'partial',
-            message: 'Cookie有效，但缺少建议参数: ' + missingRecommended.join(', '),
-            missingParams: missingRecommended
-        };
-    }
-
-    return { isValid: true, status: 'valid', message: 'Cookie验证通过', missingParams: [] };
 }
 
 function setupCookieValidation() {
@@ -71,18 +87,22 @@ function updateCookieValidationUI(validation) {
     statusContainer.style.display = 'block';
 
     switch (validation.status) {
-        case 'valid':
+        case 'logged_in':
             statusIcon.className = 'bi bi-check-circle-fill text-success me-1';
             statusText.className = 'text-success';
             statusText.textContent = validation.message;
             missingContainer.style.display = 'none';
+            // 启用所有功能
+            updateFeatureAvailability(true);
             break;
-        case 'partial':
+        case 'temp_cookie':
             statusIcon.className = 'bi bi-exclamation-triangle-fill text-warning me-1';
             statusText.className = 'text-warning';
             statusText.textContent = validation.message;
             missingContainer.style.display = 'block';
-            missingList.textContent = validation.missingParams.join(', ');
+            missingList.textContent = '无法使用：点赞获取、作者获取';
+            // 限制部分功能
+            updateFeatureAvailability(false);
             break;
         case 'invalid':
             statusIcon.className = 'bi bi-x-circle-fill text-danger me-1';
@@ -90,8 +110,55 @@ function updateCookieValidationUI(validation) {
             statusText.textContent = validation.message;
             missingContainer.style.display = 'block';
             missingList.textContent = validation.missingParams.join(', ');
+            // 禁用所有功能
+            updateFeatureAvailability(false);
             break;
     }
+}
+
+function updateFeatureAvailability(isLoggedIn) {
+    // 获取需要登录的功能按钮
+    const likedBtn = document.getElementById('download-liked-btn');
+    const authorsBtn = document.getElementById('download-liked-authors-btn');
+
+    if (likedBtn) {
+        likedBtn.disabled = !isLoggedIn;
+        if (!isLoggedIn) {
+            likedBtn.title = '需要登录后才能使用此功能';
+            likedBtn.setAttribute('data-requires-login', 'true');
+        } else {
+            likedBtn.title = '';
+            likedBtn.removeAttribute('data-requires-login');
+        }
+    }
+
+    if (authorsBtn) {
+        authorsBtn.disabled = !isLoggedIn;
+        if (!isLoggedIn) {
+            authorsBtn.title = '需要登录后才能使用此功能';
+            authorsBtn.setAttribute('data-requires-login', 'true');
+        } else {
+            authorsBtn.title = '';
+            authorsBtn.removeAttribute('data-requires-login');
+        }
+    }
+
+    // 更新快捷卡片
+    const shortcutCards = document.querySelectorAll('.shortcut-card');
+    shortcutCards.forEach(card => {
+        const onclickAttr = card.getAttribute('onclick');
+        if (onclickAttr && (onclickAttr.includes('download-liked-btn') || onclickAttr.includes('download-liked-authors-btn'))) {
+            if (!isLoggedIn) {
+                card.style.opacity = '0.5';
+                card.style.cursor = 'not-allowed';
+                card.setAttribute('data-requires-login', 'true');
+            } else {
+                card.style.opacity = '1';
+                card.style.cursor = 'pointer';
+                card.removeAttribute('data-requires-login');
+            }
+        }
+    });
 }
 
 function showCookieSetupModal() {
@@ -366,4 +433,73 @@ function handleCookieLoginStatus(data) {
             resultIcon.style.display = 'none';
             break;
     }
+}
+
+// 生成临时 Cookie
+function generateTempCookie() {
+    const statusContainer = document.getElementById('cookie-modal-validation');
+    const statusIcon = document.getElementById('cookie-modal-status-icon');
+    const statusText = document.getElementById('cookie-modal-status-text');
+
+    statusContainer.style.display = 'block';
+    statusIcon.className = 'bi bi-hourglass-split text-primary me-1';
+    statusText.className = 'text-primary';
+    statusText.textContent = '正在生成临时 Cookie...';
+
+    fetch('/api/cookie/generate_temp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            statusIcon.className = 'bi bi-check-circle-fill text-success me-1';
+            statusText.className = 'text-success';
+            statusText.textContent = '临时 Cookie 生成成功！';
+
+            // 保存到主 cookie 输入框
+            document.getElementById('cookie-input').value = data.cookie;
+
+            // 保存到配置
+            return fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cookie: data.cookie })
+            });
+        } else {
+            throw new Error(data.message || '生成失败');
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast('临时 Cookie 已保存！', 'success');
+            updateStatus('ready', '已配置（未登录）');
+
+            // 关闭 modal
+            setTimeout(() => {
+                if (_cookieSetupModal) _cookieSetupModal.hide();
+            }, 1000);
+        }
+    })
+    .catch(error => {
+        statusIcon.className = 'bi bi-x-circle-fill text-danger me-1';
+        statusText.className = 'text-danger';
+        statusText.textContent = '生成失败: ' + error.message;
+        showToast('临时 Cookie 生成失败', 'error');
+    });
+}
+
+// 检查功能是否需要登录
+function checkLoginRequired(element) {
+    if (element.hasAttribute('data-requires-login')) {
+        const isLoggedIn = !element.disabled;
+        if (!isLoggedIn) {
+            showToast('此功能需要登录后才能使用，请在 Cookie 设置中登录账号', 'warning');
+            // 打开 cookie 设置 modal
+            showCookieSetupModal();
+            return false;
+        }
+    }
+    return true;
 }

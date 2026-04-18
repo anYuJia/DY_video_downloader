@@ -62,8 +62,20 @@ function setupEventListeners() {
 
     var likedBtn = document.getElementById('download-liked-btn');
     var likedAuthorsBtn = document.getElementById('download-liked-authors-btn');
-    if (likedBtn) likedBtn.addEventListener('click', handleLikedVideosClick);
-    if (likedAuthorsBtn) likedAuthorsBtn.addEventListener('click', handleLikedAuthorsClick);
+    if (likedBtn) likedBtn.addEventListener('click', function(e) {
+        if (!checkLoginRequired(likedBtn)) {
+            e.preventDefault();
+            return;
+        }
+        handleLikedVideosClick();
+    });
+    if (likedAuthorsBtn) likedAuthorsBtn.addEventListener('click', function(e) {
+        if (!checkLoginRequired(likedAuthorsBtn)) {
+            e.preventDefault();
+            return;
+        }
+        handleLikedAuthorsClick();
+    });
 
     document.getElementById('clear-log-btn').addEventListener('click', clearLog);
     document.getElementById('scroll-to-bottom-btn').addEventListener('click', scrollToBottom);

@@ -728,16 +728,39 @@
                 <div class="modal-body">
                     <!-- Tab navigation -->
                     <div class="cookie-tab-nav">
-                        <button class="cookie-tab-btn active" data-tab="manual" onclick="switchCookieTab('manual')">
-                            <i class="bi bi-clipboard-plus"></i> 手动填入
+                        <button class="cookie-tab-btn active" data-tab="temp" onclick="switchCookieTab('temp')">
+                            <i class="bi bi-eye"></i> 不登录
                         </button>
                         <button class="cookie-tab-btn" data-tab="browser" onclick="switchCookieTab('browser')">
-                            <i class="bi bi-globe2"></i> 浏览器登录
+                            <i class="bi bi-box-arrow-in-right"></i> 登录账号
+                        </button>
+                        <button class="cookie-tab-btn" data-tab="manual" onclick="switchCookieTab('manual')">
+                            <i class="bi bi-clipboard-plus"></i> 手动填入
+                        </button>
+                    </div>
+
+                    <!-- Temp cookie tab -->
+                    <div class="cookie-tab-panel active" id="cookie-tab-temp">
+                        <div class="cookie-temp-info">
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle-fill me-2"></i>
+                                <strong>不登录模式说明：</strong>
+                            </div>
+                            <ul class="cookie-temp-features">
+                                <li><i class="bi bi-check-circle-fill text-success"></i> 可以搜索用户</li>
+                                <li><i class="bi bi-check-circle-fill text-success"></i> 可以查看用户主页</li>
+                                <li><i class="bi bi-check-circle-fill text-success"></i> 可以下载公开视频</li>
+                                <li><i class="bi bi-x-circle-fill text-danger"></i> <strong>无法</strong>获取点赞视频列表</li>
+                                <li><i class="bi bi-x-circle-fill text-danger"></i> <strong>无法</strong>获取点赞作者列表</li>
+                            </ul>
+                        </div>
+                        <button class="btn btn-primary w-100 mt-3" onclick="generateTempCookie()">
+                            <i class="bi bi-lightning-fill"></i> 生成临时 Cookie
                         </button>
                     </div>
 
                     <!-- Manual tab -->
-                    <div class="cookie-tab-panel active" id="cookie-tab-manual">
+                    <div class="cookie-tab-panel" id="cookie-tab-manual">
                         <div class="cookie-manual-hint">
                             <i class="bi bi-info-circle"></i>
                             从浏览器开发者工具复制抖音的 Cookie 并粘贴到下方
@@ -766,6 +789,10 @@
                                 <option value="edge">Microsoft Edge</option>
                                 <option value="chromium">Chromium（内置）</option>
                             </select>
+                        </div>
+                        <div class="alert alert-warning mb-3">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                            <strong>登录后可使用所有功能</strong>，包括获取点赞视频和作者列表
                         </div>
                         <div class="cookie-browser-desc">
                             <div class="cookie-browser-step">
