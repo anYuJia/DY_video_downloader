@@ -16,6 +16,7 @@ import json
 import uuid
 import logging
 import subprocess
+import shutil
 import requests as http_requests
 from datetime import datetime
 from pathlib import Path
@@ -69,6 +70,32 @@ def get_download_root() -> Path:
     return Path(Config.DOWNLOAD_DIR).resolve()
 
 
+def get_all_download_roots() -> list[Path]:
+    """返回当前及历史下载目录列表。"""
+    roots = []
+    seen = set()
+
+    for raw_path in [Config.DOWNLOAD_DIR, *getattr(Config, 'HISTORY_DIRS', [])]:
+        if not raw_path:
+            continue
+        path = Path(raw_path).resolve()
+        key = str(path).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(path)
+
+    return roots
+
+
+def get_root_for_path(candidate: Path) -> Path | None:
+    """返回某个下载文件所属的根目录。"""
+    for root in get_all_download_roots():
+        if _is_subpath(candidate, root):
+            return root
+    return None
+
+
 def _is_subpath(candidate: Path, root: Path) -> bool:
     try:
         candidate.resolve().relative_to(root.resolve())
@@ -82,41 +109,88 @@ def _safe_history_path(raw_path: str) -> Path:
         raise ValueError('路径不能为空')
 
     candidate = Path(raw_path).expanduser().resolve()
-    root = get_download_root()
-    if not _is_subpath(candidate, root):
-        raise ValueError('目标路径不在下载目录内')
+    roots = get_all_download_roots()
+    if not any(_is_subpath(candidate, root) for root in roots):
+        raise ValueError('目标路径不在下载目录范围内')
     return candidate
 
 
 def build_download_history() -> list[dict]:
-    root = get_download_root()
-    if not root.exists():
-        return []
-
     items = []
-    for path in root.rglob('*'):
-        if not path.is_file():
-            continue
-        if path.name == 'download_record.json':
+    for root in get_all_download_roots():
+        if not root.exists():
             continue
 
-        stat = path.stat()
-        rel_path = path.relative_to(root)
-        parts = rel_path.parts
-        author = parts[0] if len(parts) > 1 else ''
+        for path in root.rglob('*'):
+            if not path.is_file():
+                continue
+            if path.name == 'download_record.json':
+                continue
 
-        items.append({
-            'name': path.name,
-            'path': str(path),
-            'relative_path': str(rel_path),
-            'author': author,
-            'size': stat.st_size,
-            'modified_at': int(stat.st_mtime),
-            'extension': path.suffix.lower(),
-        })
+            stat = path.stat()
+            rel_path = path.relative_to(root)
+            parts = rel_path.parts
+            author = parts[0] if len(parts) > 1 else ''
+
+            items.append({
+                'name': path.name,
+                'path': str(path),
+                'relative_path': str(rel_path),
+                'root_path': str(root),
+                'author': author,
+                'size': stat.st_size,
+                'modified_at': int(stat.st_mtime),
+                'extension': path.suffix.lower(),
+            })
 
     items.sort(key=lambda item: item['modified_at'], reverse=True)
     return items
+
+
+def move_directory_contents(source_dir: Path, target_dir: Path) -> int:
+    """将源目录中的内容合并移动到目标目录。"""
+    moved_count = 0
+    if not source_dir.exists() or not source_dir.is_dir():
+        return moved_count
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    for child in source_dir.iterdir():
+        destination = target_dir / child.name
+        if destination.exists():
+            if child.is_dir() and destination.is_dir():
+                moved_count += move_directory_contents(child, destination)
+                try:
+                    child.rmdir()
+                except OSError:
+                    pass
+                continue
+
+            stem = destination.stem
+            suffix = destination.suffix
+            counter = 1
+            while destination.exists():
+                destination = target_dir / f"{stem}_{counter}{suffix}"
+                counter += 1
+
+        shutil.move(str(child), str(destination))
+        moved_count += 1
+
+    return moved_count
+
+
+def _unique_destination_path(destination: Path) -> Path:
+    if not destination.exists():
+        return destination
+
+    stem = destination.stem
+    suffix = destination.suffix
+    counter = 1
+    candidate = destination
+    while candidate.exists():
+        candidate = destination.parent / f"{stem}_{counter}{suffix}"
+        counter += 1
+    return candidate
 
 def safe_get_url(obj, default=''):
     """安全地从 obj['url_list'] 中获取 URL，避免索引越界"""
@@ -267,6 +341,7 @@ def get_config():
         'cookie_set': bool(Config.COOKIE),
         'download_dir': Config.BASE_DIR,
         'download_root': str(get_download_root()),
+        'download_roots': [str(root) for root in get_all_download_roots()],
         'cookie': Config.COOKIE if Config.COOKIE else ''
     })
 
@@ -276,18 +351,52 @@ def set_config():
     global api, downloader, user_manager
     try:
         data = request.json
+        previous_download_dir = str(get_download_root())
+        previous_all_roots = [str(root) for root in get_all_download_roots()]
         
         if 'cookie' in data:
             Config.COOKIE = data['cookie'].replace('\n', '').replace('\r', '').strip()
         if 'download_dir' in data:
             Config.BASE_DIR = data['download_dir']
-            
-        Config.save_config(Config.COOKIE, Config.BASE_DIR)
+            Config.DOWNLOAD_DIR = Config.BASE_DIR
+
+        move_existing_files = bool(data.get('move_existing_files'))
+        history_dirs = list(getattr(Config, 'HISTORY_DIRS', []))
+        new_download_dir = str(get_download_root())
+
+        if previous_download_dir.lower() != new_download_dir.lower():
+            if move_existing_files:
+                moved_count = 0
+                for old_root in previous_all_roots:
+                    if os.path.abspath(old_root).lower() == os.path.abspath(new_download_dir).lower():
+                        continue
+                    moved_count += move_directory_contents(Path(old_root), Path(new_download_dir))
+
+                history_dirs = [
+                    path for path in history_dirs
+                    if os.path.abspath(path).lower() not in {
+                        os.path.abspath(root).lower() for root in previous_all_roots
+                    }
+                ]
+            else:
+                moved_count = 0
+                history_dirs.extend(previous_all_roots)
+        else:
+            moved_count = 0
+
+        Config.HISTORY_DIRS = Config.normalize_history_dirs(history_dirs)
+        Config.save_config(Config.COOKIE, Config.BASE_DIR, Config.HISTORY_DIRS)
         
         # 重新初始化API和下载器
         init_app()
         
-        return jsonify({'success': True, 'message': '配置保存成功'})
+        return jsonify({
+            'success': True,
+            'message': '配置保存成功',
+            'moved_count': moved_count,
+            'download_root': str(get_download_root()),
+            'download_roots': [str(root) for root in get_all_download_roots()]
+        })
     except Exception as e:
         return jsonify({'success': False, 'message': f'配置保存失败: {str(e)}'}), 500
 
@@ -347,6 +456,7 @@ def get_download_history():
         return jsonify({
             'success': True,
             'download_root': str(root),
+            'download_roots': [str(item) for item in get_all_download_roots()],
             'base_dir': Config.BASE_DIR,
             'items': build_download_history()
         })
@@ -454,6 +564,78 @@ def delete_download_history_files():
     except Exception as e:
         logger.error(f"删除下载文件失败: {str(e)}")
         return jsonify({'success': False, 'message': f'删除下载文件失败: {str(e)}'}), 500
+
+
+@app.route('/api/download_history/move_selected', methods=['POST'])
+def move_selected_download_history_files():
+    """将选中的下载文件迁移到新的下载目录。"""
+    try:
+        data = request.json or {}
+        raw_paths = data.get('paths') or []
+        target_dir_raw = (data.get('target_dir') or '').strip()
+
+        if not isinstance(raw_paths, list) or not raw_paths:
+            return jsonify({'success': False, 'message': '请选择至少一个文件'}), 400
+        if not target_dir_raw:
+            return jsonify({'success': False, 'message': '目标目录不能为空'}), 400
+
+        target_dir = Path(target_dir_raw).expanduser().resolve()
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        moved = []
+        missing = []
+
+        for raw_path in raw_paths:
+            try:
+                file_path = _safe_history_path(str(raw_path))
+            except ValueError:
+                missing.append(str(raw_path))
+                continue
+
+            if not file_path.exists() or not file_path.is_file():
+                missing.append(str(file_path))
+                continue
+
+            root = get_root_for_path(file_path)
+            if root is None:
+                missing.append(str(file_path))
+                continue
+
+            relative_path = file_path.relative_to(root)
+            destination = _unique_destination_path(target_dir / relative_path)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(file_path), str(destination))
+            moved.append(str(destination))
+
+            parent = file_path.parent
+            while parent != root and parent.exists():
+                try:
+                    next(parent.iterdir())
+                    break
+                except StopIteration:
+                    parent.rmdir()
+                    parent = parent.parent
+
+        Config.HISTORY_DIRS = Config.normalize_history_dirs([
+            *getattr(Config, 'HISTORY_DIRS', []),
+            *(str(root) for root in get_all_download_roots() if str(root).lower() != str(target_dir).lower())
+        ])
+        Config.BASE_DIR = str(target_dir)
+        Config.DOWNLOAD_DIR = Config.BASE_DIR
+        Config.save_config(Config.COOKIE, Config.BASE_DIR, Config.HISTORY_DIRS)
+        init_app()
+
+        return jsonify({
+            'success': True,
+            'moved_count': len(moved),
+            'missing_count': len(missing),
+            'moved': moved,
+            'missing': missing,
+            'download_root': str(get_download_root())
+        })
+    except Exception as e:
+        logger.error(f"迁移选中文件失败: {str(e)}")
+        return jsonify({'success': False, 'message': f'迁移选中文件失败: {str(e)}'}), 500
 @app.route('/api/media/proxy')
 def media_proxy():
     """代理抖音媒体资源，添加必要的Referer和Cookie头"""
