@@ -160,8 +160,34 @@ def browser_fetch_via_navigation(cookie: str, api_path: str, params: dict, user_
         if 'discover/search' in api_path or 'general/search' in api_path:
             keyword = params.get('keyword', '')
             search_url = f"https://www.douyin.com/search/{urllib.parse.quote(keyword)}?type=user"
-            page.goto(search_url, wait_until="domcontentloaded", timeout=20000)
-            page.wait_for_timeout(5000)
+            print(f"[browser_worker] navigating to search page: {search_url}", file=sys.stderr)
+            page.goto(search_url, wait_until="load", timeout=25000)
+
+            # 等待 API 响应被捕获或超时（最多 60 秒）
+            # 这样用户有足够时间完成滑块验证
+            print(f"[browser_worker] 等待搜索 API 响应，最多 60 秒...", file=sys.stderr)
+            start_wait = time.time()
+            max_wait = 60  # 最大等待时间（秒）
+
+            for i in range(max_wait):
+                # 检查是否捕获到有效的 API 响应
+                if api_result["data"] is not None:
+                    user_list = api_result["data"].get("user_list", [])
+                    if user_list and len(user_list) > 0:
+                        # 有效响应，退出等待
+                        print(f"[browser_worker] 已捕获搜索 API 响应！(after {int(time.time()-start_wait)}s)", file=sys.stderr)
+                        break
+
+                # 等待 1 秒
+                page.wait_for_timeout(1000)
+
+                # 每5秒打印一次状态
+                if i % 5 == 0 and i > 0:
+                    print(f"[browser_worker] 等待中... ({int(time.time()-start_wait)}s)", file=sys.stderr)
+
+            # Print all API URLs seen
+            api_urls = [u for u in all_urls if 'aweme' in u or 'api' in u]
+            print(f"[browser_worker] API URLs seen ({len(api_urls)}): {api_urls[:10]}", file=sys.stderr)
         elif 'user/profile' in api_path:
             # 对于用户详情，访问用户主页
             sec_uid = params.get('sec_user_id', '')

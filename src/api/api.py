@@ -265,8 +265,14 @@ class DouyinAPI:
         user_list = json_response.get('user_list', [])
         if nil_info.get('search_nil_type') == 'verify_check' and len(user_list) == 0:
             if self.debug_mode:
-                print(f'\033[91m[API] 触发滑块验证！需要用户手动验证\033[0m')
-            return {'_need_verify': True}, False
+                print(f'\033[91m[API] 触发滑块验证！尝试使用浏览器模式重试...\033[0m')
+
+            # 使用浏览器模式重试
+            sys.stderr.write(f'*** [API] 触发验证，自动切换到浏览器模式 ***\n')
+            sys.stderr.flush()
+            print(f'[API] 触发验证，自动切换到浏览器模式...')
+            browser_result = await self.browser_request(uri, params)
+            return browser_result
 
         # 检测视频详情接口返回空数据（可能是视频不存在或 API 限流）
         if uri and 'aweme/detail' in uri and json_response.get('aweme_detail') is None:
