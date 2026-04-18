@@ -403,6 +403,66 @@ def set_config():
         return jsonify({'success': False, 'message': f'配置保存失败: {str(e)}'}), 500
 
 
+@app.route('/api/playwright/status', methods=['GET'])
+def playwright_status():
+    """检测 Playwright 安装状态"""
+    try:
+        from src.utils.playwright_checker import check_playwright_installed, get_platform_info
+        is_installed, message = check_playwright_installed()
+        info = get_platform_info()
+
+        return jsonify({
+            'success': True,
+            'installed': is_installed,
+            'message': message,
+            'platform': info['system'],
+            'is_china': info['is_china']
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'installed': False,
+            'message': f'检测失败: {str(e)}'
+        })
+
+
+@app.route('/api/playwright/install', methods=['POST'])
+def playwright_install():
+    """安装 Playwright 依赖"""
+    try:
+        from src.utils.playwright_checker import install_playwright_dependencies
+        import threading
+
+        data = request.json or {}
+        use_mirror = data.get('use_mirror')  # None=自动, True=国内镜像, False=官方源
+
+        def install_in_background():
+            try:
+                success, message = install_playwright_dependencies(use_mirror=use_mirror)
+                socketio.emit('playwright_install_complete', {
+                    'success': success,
+                    'message': message
+                })
+            except Exception as e:
+                socketio.emit('playwright_install_complete', {
+                    'success': False,
+                    'message': str(e)
+                })
+
+        thread = threading.Thread(target=install_in_background, daemon=True)
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'message': '开始安装 Playwright，请稍候...'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'启动安装失败: {str(e)}'
+        })
+
+
 @app.route('/api/select_directory', methods=['POST'])
 def select_directory():
     """打开系统文件夹选择器，返回用户选择的路径"""
@@ -1923,37 +1983,18 @@ def cookie_browser_login_cancel():
 def cookie_generate_temp():
     """生成临时 Cookie（未登录状态）"""
     try:
-        import subprocess
-        import json
+        # 使用统一的 API 接口获取临时 cookie
+        from src.api.api import DouyinAPI
 
-        # 调用 browser_worker.py 获取临时 cookie
-        worker_path = os.path.join(os.path.dirname(__file__), '..', 'api', 'browser_worker.py')
+        # 创建临时的 API 实例（无需 cookie）
+        api = DouyinAPI(cookie='')
+        result = run_async(api.get_temp_cookie())
 
-        # 使用子进程运行 browser_worker
-        proc = subprocess.run(
-            [sys.executable, worker_path],
-            input=json.dumps({
-                "action": "get_temp_cookie"
-            }),
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            timeout=30,
-        )
-
-        if proc.returncode != 0:
-            logger.error(f"生成临时 cookie 失败: {proc.stderr}")
-            return jsonify({
-                'success': False,
-                'message': '生成临时 Cookie 失败: ' + proc.stderr[:200]
-            })
-
-        result = json.loads(proc.stdout)
         if result.get('success'):
             return jsonify({
                 'success': True,
                 'cookie': result.get('cookie', ''),
-                'message': '临时 Cookie 生成成功'
+                'message': result.get('message', '临时 Cookie 生成成功')
             })
         else:
             return jsonify({
@@ -1961,18 +2002,43 @@ def cookie_generate_temp():
                 'message': result.get('message', '生成失败')
             })
 
-    except subprocess.TimeoutExpired:
-        logger.error("生成临时 cookie 超时")
-        return jsonify({
-            'success': False,
-            'message': '生成临时 Cookie 超时，请重试'
-        })
     except Exception as e:
         logger.exception(f"生成临时 cookie 异常: {e}")
         return jsonify({
             'success': False,
             'message': f'生成失败: {str(e)}'
         })
+
+
+@app.route('/api/cookie/from_browser', methods=['POST'])
+def cookie_from_browser():
+    """从浏览器读取已登录的 Cookie"""
+    try:
+        from src.api.api import DouyinAPI
+
+        result = DouyinAPI.get_browser_cookies()
+
+        if result.get('success'):
+            return jsonify({
+                'success': True,
+                'cookie': result.get('cookie', ''),
+                'message': result.get('message', '读取成功'),
+                'browser': result.get('browser', ''),
+                'count': result.get('count', 0)
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': result.get('message', '读取失败')
+            })
+
+    except Exception as e:
+        logger.exception(f"从浏览器读取 Cookie 异常: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'读取失败: {str(e)}'
+        })
+
 
 
 @app.route('/api/recommended_feed', methods=['POST'])
@@ -2024,8 +2090,11 @@ def get_recommended_feed():
         if result.get('success'):
             aweme_list = result.get('aweme_list', [])
 
+            logger.info(f"[推荐视频] API 返回 {len(aweme_list)} 个视频")
+
             # 格式化视频信息
             videos = []
+            skipped_count = 0
             for aweme in aweme_list:
                 try:
                     # 提取视频播放地址
@@ -2035,6 +2104,12 @@ def get_recommended_feed():
                         play_addr = play_addr_data.get('url_list', [''])[0]
                     else:
                         play_addr = play_addr_data if play_addr_data else ''
+
+                    # 跳过没有播放地址的视频
+                    if not play_addr:
+                        skipped_count += 1
+                        logger.debug(f"跳过视频 {aweme.get('aweme_id')}: 无播放地址")
+                        continue
 
                     # 提取封面
                     cover_data = video_data.get('cover', {})
@@ -2069,10 +2144,10 @@ def get_recommended_feed():
                             'sec_uid': author_data.get('sec_uid', ''),
                         },
                         'statistics': {
-                            'digg_count': aweme.get('statistics', {}).get('digg_count', 0),
-                            'comment_count': aweme.get('statistics', {}).get('comment_count', 0),
-                            'share_count': aweme.get('statistics', {}).get('share_count', 0),
-                            'play_count': aweme.get('statistics', {}).get('play_count', 0),
+                            'digg_count': (aweme.get('statistics') or {}).get('digg_count', 0),
+                            'comment_count': (aweme.get('statistics') or {}).get('comment_count', 0),
+                            'share_count': (aweme.get('statistics') or {}).get('share_count', 0),
+                            'play_count': (aweme.get('statistics') or {}).get('play_count', 0),
                         },
                         'video': {
                             'cover': cover,
@@ -2083,22 +2158,20 @@ def get_recommended_feed():
                             'duration': video_data.get('duration', 0),
                         },
                         'music': {
-                            'title': aweme.get('music', {}).get('title', ''),
-                            'author': aweme.get('music', {}).get('author', ''),
-                            'cover': aweme.get('music', {}).get('cover_large', {}).get('url_list', [''])[0] if isinstance(aweme.get('music', {}).get('cover_large', {}), dict) else '',
+                            'title': (aweme.get('music') or {}).get('title', ''),
+                            'author': (aweme.get('music') or {}).get('author', ''),
+                            'cover': (aweme.get('music') or {}).get('cover_large', {}).get('url_list', [''])[0] if isinstance((aweme.get('music') or {}).get('cover_large'), dict) else '',
                         }
                     }
 
-                    # 调试日志
-                    if not play_addr:
-                        logger.warning(f"视频 {aweme.get('aweme_id')} 没有播放地址")
-                    elif len(videos) == 0:
-                        logger.info(f"第一个视频播放地址: {play_addr[:100]}...")
-
                     videos.append(video_info)
                 except Exception as e:
+                    import traceback
                     logger.error(f"解析视频信息失败: {e}")
+                    logger.error(traceback.format_exc())
                     continue
+
+            logger.info(f"[推荐视频] 返回 {len(videos)} 个有效视频, 跳过 {skipped_count} 个无效视频")
 
             return jsonify({
                 'success': True,
@@ -2140,48 +2213,22 @@ def download_video_by_aweme_id():
         if not user_manager:
             return jsonify({'success': False, 'message': '请先初始化'}), 400
 
-        # 获取视频详情
-        cookie = Config.COOKIE if Config.COOKIE else ''
-        if not cookie:
-            return jsonify({'success': False, 'message': '请先登录抖音账号'}), 400
+        # 使用统一的 API 接口获取视频详情
+        detail = run_async(user_manager.get_video_detail(aweme_id))
 
-        # 调用 browser_worker 获取视频详情
-        import subprocess
-        worker_path = os.path.join(os.path.dirname(__file__), '..', 'api', 'browser_worker.py')
-
-        proc = subprocess.run(
-            [sys.executable, worker_path],
-            input=json.dumps({
-                "action": "get_video_detail",
-                "cookie": cookie,
-                "aweme_id": aweme_id
-            }),
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            timeout=30,
-        )
-
-        if proc.returncode != 0:
+        if not detail:
             return jsonify({'success': False, 'message': '获取视频详情失败'}), 500
 
-        result = json.loads(proc.stdout)
+        # 获取媒体信息
+        media_type = detail.get('media_type', 'video')
+        media_urls = detail.get('media_urls', [])
 
-        if not result.get('success'):
-            return jsonify({'success': False, 'message': result.get('message', '获取视频详情失败')}), 500
-
-        aweme_detail = result.get('aweme_detail', {})
-        author = aweme_detail.get('author', {})
-        video = aweme_detail.get('video', {})
-
-        # 获取视频 URL
-        play_addr = video.get('play_addr', {}).get('url_list', [''])
-        if not play_addr or not play_addr[0]:
+        if not media_urls:
             return jsonify({'success': False, 'message': '无法获取视频下载地址'}), 500
 
         # 生成文件名
-        author_name = author.get('nickname', '未知作者')
-        desc = aweme_detail.get('desc', '未知作品')[:50]
+        author_name = detail.get('author', {}).get('nickname', '未知作者')
+        desc = detail.get('desc', '未知作品')[:50]
         name = f"{author_name}_{desc}_{aweme_id}"
 
         # 添加到下载队列
@@ -2189,11 +2236,26 @@ def download_video_by_aweme_id():
 
         async def do_download():
             try:
-                success = user_manager.downloader.download_video(
-                    play_addr[0], name, aweme_id,
-                    cancel_event=asyncio.Event(),
-                    socketio=socketio, task_id=task_id
-                )
+                # 根据媒体类型选择下载方式
+                if media_type == 'video':
+                    # 单个视频
+                    success = user_manager.downloader.download_video(
+                        media_urls[0], name, aweme_id,
+                        cancel_event=asyncio.Event(),
+                        socketio=socketio, task_id=task_id
+                    )
+                else:
+                    # 图文或混合内容 - 下载第一个
+                    if isinstance(media_urls[0], tuple):
+                        url = media_urls[0][1]
+                    else:
+                        url = media_urls[0]
+
+                    success = user_manager.downloader.download_video(
+                        url, name, aweme_id,
+                        cancel_event=asyncio.Event(),
+                        socketio=socketio, task_id=task_id
+                    )
 
                 if success:
                     socketio.emit('download_complete', {
