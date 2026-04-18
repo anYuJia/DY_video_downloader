@@ -136,6 +136,42 @@ function updateFeatureAvailability(isLoggedIn) {
     });
 }
 
+// 直接在设置面板中启动浏览器登录
+function startBrowserLoginDirect() {
+    if (_browserLoginActive) return;
+    _browserLoginActive = true;
+
+    const statusContainer = document.getElementById('cookie-validation-status');
+    const statusIcon = document.getElementById('cookie-status-icon');
+    const statusText = document.getElementById('cookie-status-text');
+
+    statusContainer.style.display = 'block';
+    statusIcon.className = 'bi bi-hourglass-split text-primary me-1';
+    statusText.className = 'text-primary';
+    statusText.textContent = '正在启动浏览器...';
+
+    fetch('/api/cookie/browser_login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            timeout: 300,
+            browser: 'chrome'
+        })
+    }).then(function(response) { return response.json(); }).then(function(data) {
+        if (!data.success) {
+            statusIcon.className = 'bi bi-x-circle-fill text-danger me-1';
+            statusText.className = 'text-danger';
+            statusText.textContent = data.message || '启动失败';
+            _browserLoginActive = false;
+        }
+    }).catch(function(error) {
+        statusIcon.className = 'bi bi-x-circle-fill text-danger me-1';
+        statusText.className = 'text-danger';
+        statusText.textContent = '启动失败: ' + error.message;
+        _browserLoginActive = false;
+    });
+}
+
 function showCookieSetupModal() {
     const modalEl = document.getElementById('cookieSetupModal');
     if (!modalEl) return;
@@ -356,19 +392,35 @@ function handleCookieLoginStatus(data) {
     var spinner = document.getElementById('cookie-browser-spinner');
     var resultIcon = document.getElementById('cookie-browser-result-icon');
 
-    if (!statusEl) return;
-    statusEl.style.display = 'flex';
-    statusText.textContent = data.message || '';
+    // 同时更新设置面板的状态
+    var settingsStatusContainer = document.getElementById('cookie-validation-status');
+    var settingsStatusIcon = document.getElementById('cookie-status-icon');
+    var settingsStatusText = document.getElementById('cookie-status-text');
+
+    if (statusEl) {
+        statusEl.style.display = 'flex';
+        statusText.textContent = data.message || '';
+    }
 
     switch (data.event) {
         case 'success':
-            statusEl.className = 'cookie-browser-status status-success';
-            spinner.style.display = 'none';
-            resultIcon.style.display = 'block';
-            resultIcon.className = 'bi bi-check-circle-fill text-success';
+            if (statusEl) {
+                statusEl.className = 'cookie-browser-status status-success';
+                spinner.style.display = 'none';
+                resultIcon.style.display = 'block';
+                resultIcon.className = 'bi bi-check-circle-fill text-success';
+            }
             resetBrowserLoginUI();
             if (data.cookie) {
                 document.getElementById('cookie-input').value = data.cookie;
+
+                // 更新设置面板状态
+                if (settingsStatusContainer) {
+                    settingsStatusContainer.style.display = 'block';
+                    settingsStatusIcon.className = 'bi bi-check-circle-fill text-success me-1';
+                    settingsStatusText.className = 'text-success';
+                    settingsStatusText.textContent = '登录成功，Cookie 已保存！';
+                }
             }
             updateStatus('ready', '已配置');
             showToast('Cookie 获取成功！', 'success');
@@ -379,33 +431,62 @@ function handleCookieLoginStatus(data) {
 
         case 'failed':
         case 'error':
-            statusEl.className = 'cookie-browser-status status-error';
-            spinner.style.display = 'none';
-            resultIcon.style.display = 'block';
-            resultIcon.className = 'bi bi-x-circle-fill text-danger';
+            if (statusEl) {
+                statusEl.className = 'cookie-browser-status status-error';
+                spinner.style.display = 'none';
+                resultIcon.style.display = 'block';
+                resultIcon.className = 'bi bi-x-circle-fill text-danger';
+            }
+            if (settingsStatusContainer) {
+                settingsStatusContainer.style.display = 'block';
+                settingsStatusIcon.className = 'bi bi-x-circle-fill text-danger me-1';
+                settingsStatusText.className = 'text-danger';
+                settingsStatusText.textContent = data.message || '登录失败';
+            }
             resetBrowserLoginUI();
             break;
 
         case 'cancelled':
-            statusEl.className = 'cookie-browser-status status-error';
-            spinner.style.display = 'none';
-            resultIcon.style.display = 'block';
-            resultIcon.className = 'bi bi-dash-circle-fill text-warning';
+            if (statusEl) {
+                statusEl.className = 'cookie-browser-status status-error';
+                spinner.style.display = 'none';
+                resultIcon.style.display = 'block';
+                resultIcon.className = 'bi bi-dash-circle-fill text-warning';
+            }
+            if (settingsStatusContainer) {
+                settingsStatusContainer.style.display = 'block';
+                settingsStatusIcon.className = 'bi bi-dash-circle-fill text-warning me-1';
+                settingsStatusText.className = 'text-warning';
+                settingsStatusText.textContent = '已取消';
+            }
             resetBrowserLoginUI();
             break;
 
         case 'timeout':
-            statusEl.className = 'cookie-browser-status status-error';
-            spinner.style.display = 'none';
-            resultIcon.style.display = 'block';
-            resultIcon.className = 'bi bi-clock-fill text-warning';
+            if (statusEl) {
+                statusEl.className = 'cookie-browser-status status-error';
+                spinner.style.display = 'none';
+                resultIcon.style.display = 'block';
+                resultIcon.className = 'bi bi-clock-fill text-warning';
+            }
+            if (settingsStatusContainer) {
+                settingsStatusContainer.style.display = 'block';
+                settingsStatusIcon.className = 'bi bi-clock-fill text-warning me-1';
+                settingsStatusText.className = 'text-warning';
+                settingsStatusText.textContent = '登录超时';
+            }
             resetBrowserLoginUI();
             break;
 
         default:
-            statusEl.className = 'cookie-browser-status';
-            spinner.style.display = 'block';
-            resultIcon.style.display = 'none';
+            if (statusEl) {
+                statusEl.className = 'cookie-browser-status';
+                spinner.style.display = 'block';
+                resultIcon.style.display = 'none';
+            }
+            if (settingsStatusContainer && settingsStatusText) {
+                settingsStatusText.textContent = data.message || '等待中...';
+            }
             break;
     }
 }

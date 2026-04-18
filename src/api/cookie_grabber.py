@@ -91,7 +91,7 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
 
             # 轮询检测登录状态
             start_time = time.time()
-            poll_interval = 2  # 每 2 秒检查一次
+            poll_interval = 1  # 每 1 秒检查一次（从 2 秒优化为 1 秒）
             consecutive_not_verified = 0  # 连续未检测到验证的次数
 
             while time.time() - start_time < timeout:
@@ -110,7 +110,7 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
                     page_url = page.url
                     page_content = page.content()
 
-                    # 更广泛的验证检测
+                    # 更广泛的验证检测（优化：减少内容检查长度）
                     has_verification = (
                         '验证' in page_title or
                         '登录' in page_title or
@@ -118,11 +118,11 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
                         '手机号' in page_title or
                         'security' in page_url.lower() or
                         '扫码' in page_title or
-                        '验证' in page_content[:1000] or  # 检查页面内容前 1000 字符
-                        '登录' in page_content[:1000] or
+                        '验证' in page_content[:500] or  # 从 1000 减少到 500
+                        '登录' in page_content[:500] or
                         'login' in page_url.lower() or
                         '二维码' in page_title or
-                        '请登录' in page_content[:1000]
+                        '请登录' in page_content[:500]
                     )
 
                     if has_verification:
@@ -163,11 +163,11 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
                            '登录' not in page_title:
                             # 连续检测到主页，确认登录成功
                             consecutive_not_verified += 1
-                            if consecutive_not_verified >= 3:  # 连续 3 次检测到主页，确认登录成功
+                            if consecutive_not_verified >= 2:  # 从 3 次优化为 2 次
                                 _status("login_detected", "检测到登录成功，正在提取 Cookie...")
 
                                 # 等待一小段时间让所有 Cookie 稳定
-                                time.sleep(2)
+                                time.sleep(1)  # 从 2 秒优化为 1 秒
 
                                 # 再次获取最新 Cookie
                                 cookies = context.cookies("https://www.douyin.com")
