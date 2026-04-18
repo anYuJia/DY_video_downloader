@@ -84,6 +84,15 @@ temp/
 *.bak
 *.backup
 *.orig
+*.old
+
+# 调试和测试截图
+debug-*.png
+*-test*.png
+ui-*.png
+
+# Playwright MCP
+.playwright-mcp/
 
 # 压缩文件
 *.zip
