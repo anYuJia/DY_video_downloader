@@ -1987,7 +1987,7 @@ def get_recommended_feed():
         cursor = data.get('cursor', 0)
 
         # 获取当前配置的 cookie
-        cookie = config.cookie if config and hasattr(config, 'cookie') else ''
+        cookie = Config.COOKIE if Config.COOKIE else ''
 
         if not cookie:
             return jsonify({
