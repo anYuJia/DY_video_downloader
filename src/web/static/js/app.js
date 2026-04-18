@@ -68,7 +68,8 @@ function setupEventListeners() {
     document.getElementById('clear-log-btn').addEventListener('click', clearLog);
     document.getElementById('scroll-to-bottom-btn').addEventListener('click', scrollToBottom);
 
-    document.getElementById('storage-manage-btn').addEventListener('click', function () {
+    document.getElementById('storage-manage-btn').addEventListener('click', function (e) {
+        e.stopPropagation(); // prevent dropdown from toggling
         var modal = new bootstrap.Modal(document.getElementById('storageManageModal'));
         modal.show();
         refreshStorageData();
@@ -86,6 +87,7 @@ function setupEventListeners() {
         e.stopPropagation();
         toggleBottomBar();
     });
+    document.getElementById('bottom-bar-overlay').addEventListener('click', closeBottomBar);
 
     document.querySelectorAll('.bottom-tabs .tab-btn').forEach(function(btn) {
         btn.addEventListener('click', function (e) {

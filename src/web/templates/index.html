@@ -13,50 +13,73 @@
 <body>
     <!-- Unified top bar -->
     <nav class="navbar">
-        <div class="container-fluid px-3">
-            <button class="btn-back" id="back-btn" title="返回主页" style="display:none;">
-                <i class="bi bi-arrow-left"></i> <span class="d-none d-md-inline">返回主页</span>
+        <div class="container-fluid px-3 nav-layout">
+            <!-- Back button (shown when browsing user detail) -->
+            <button class="btn-nav-icon" id="back-btn" title="返回主页" style="display:none;">
+                <i class="bi bi-arrow-left"></i>
             </button>
-            <button class="btn-icon btn-icon-text btn-history" id="download-history-btn" title="下载历史">
-                <i class="bi bi-clock-history"></i> <span class="d-none d-md-inline">下载历史</span>
-            </button>
+
+            <!-- Left: Logo -->
             <a class="navbar-brand" href="#">
                 <i class="bi bi-play-circle-fill"></i> DY
             </a>
-            <div class="nav-search">
-                <div class="input-group">
+
+            <!-- Center: Search + Link input -->
+            <div class="nav-center">
+                <div class="input-group nav-search-input">
                     <input type="text" class="form-control" id="search-input" placeholder="搜索用户...">
                     <button class="btn btn-primary" id="search-btn"><i class="bi bi-search"></i></button>
                 </div>
-            </div>
-            <div class="nav-divider"></div>
-            <div class="tool-item" id="link-tool">
-                <div class="input-group" id="drop-zone">
+                <div class="input-group nav-link-input">
                     <input type="text" class="form-control" id="link-input" placeholder="粘贴抖音链接">
-                    <button class="btn btn-success" id="download-link-btn"><i class="bi bi-link-45deg"></i> 解析</button>
+                    <button class="btn btn-success" id="download-link-btn"><i class="bi bi-link-45deg"></i></button>
                 </div>
             </div>
-            <div class="nav-divider"></div>
-            <div class="tool-item-compact">
-                <span class="tool-label"><i class="bi bi-heart-fill"></i> 点赞</span>
-                <input type="number" class="form-control form-control-sm count-input" id="liked-videos-count" value="20" min="1" max="100">
-                <button class="btn btn-sm btn-primary" id="download-liked-btn">获取</button>
-            </div>
-            <div class="tool-item-compact">
-                <span class="tool-label"><i class="bi bi-people-fill"></i> 作者</span>
-                <input type="number" class="form-control form-control-sm count-input" id="liked-authors-count" value="20" min="1" max="100">
-                <button class="btn btn-sm btn-outline-primary" id="download-liked-authors-btn">获取</button>
-            </div>
-            <button class="btn-icon btn-icon-text" id="storage-manage-btn" title="本地数据">
-                <i class="bi bi-database"></i> <span class="d-none d-md-inline">本地数据</span>
-            </button>
+
+            <!-- Right: Actions -->
             <div class="nav-actions">
+                <!-- Download History - prominent button -->
+                <button class="btn-nav-action btn-history-new" id="download-history-btn" title="下载历史">
+                    <i class="bi bi-clock-history"></i>
+                    <span class="d-none d-sm-inline">历史</span>
+                    <span class="history-badge" id="history-count-badge" style="display:none;">0</span>
+                </button>
+
+                <!-- More dropdown: liked + authors -->
+                <div class="dropdown">
+                    <button class="btn-nav-action btn-more" data-bs-toggle="dropdown" title="更多">
+                        <i class="bi bi-three-dots"></i>
+                        <span class="d-none d-sm-inline">更多</span>
+                    </button>
+                    <div class="dropdown-menu dropdown-menu-end nav-dropdown">
+                        <div class="dropdown-section">
+                            <div class="dropdown-item-compact">
+                                <span class="dropdown-item-label"><i class="bi bi-heart-fill"></i> 点赞获取</span>
+                                <input type="number" class="form-control form-control-sm count-input" id="liked-videos-count" value="20" min="1" max="100">
+                                <button class="btn btn-sm btn-primary" id="download-liked-btn">获取</button>
+                            </div>
+                            <div class="dropdown-item-compact">
+                                <span class="dropdown-item-label"><i class="bi bi-people-fill"></i> 作者获取</span>
+                                <input type="number" class="form-control form-control-sm count-input" id="liked-authors-count" value="20" min="1" max="100">
+                                <button class="btn btn-sm btn-outline-primary" id="download-liked-authors-btn">获取</button>
+                            </div>
+                        </div>
+                        <div class="dropdown-divider"></div>
+                        <button class="dropdown-item" id="storage-manage-btn">
+                            <i class="bi bi-database me-2"></i>本地数据
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Status indicator -->
                 <span class="status-badge">
                     <span id="status-indicator" class="status-indicator status-ready"></span>
-                    <span id="status-text">就绪</span>
+                    <span class="d-none d-sm-inline" id="status-text">就绪</span>
                 </span>
-                <button class="btn-icon btn-icon-text" id="settings-toggle" title="系统设置">
-                    <i class="bi bi-gear"></i> <span class="d-none d-md-inline">系统设置</span>
+
+                <!-- Settings -->
+                <button class="btn-nav-icon" id="settings-toggle" title="系统设置">
+                    <i class="bi bi-gear"></i>
                 </button>
             </div>
         </div>
@@ -345,6 +368,7 @@
     </div>
 
     <!-- Bottom Bar (downloads + logs) -->
+    <div id="bottom-bar-overlay" class="bottom-bar-overlay"></div>
     <div id="bottom-bar" class="bottom-bar">
         <div class="bottom-bar-header" id="bottom-bar-toggle">
             <div class="d-flex align-items-center gap-3">

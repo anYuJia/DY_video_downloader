@@ -88,7 +88,7 @@ body::before {
 }
 
 /* ═══════════════════════════════════════
-   NAVBAR — single unified top bar
+   NAVBAR — redesigned compact layout
    ═══════════════════════════════════════ */
 .navbar {
     position: fixed;
@@ -96,25 +96,27 @@ body::before {
     left: 0;
     right: 0;
     height: var(--navbar-h);
-    background: rgba(8, 8, 13, 0.88) !important;
+    background: rgba(8, 8, 13, 0.92) !important;
     backdrop-filter: var(--blur);
     -webkit-backdrop-filter: var(--blur);
     border-bottom: 1px solid var(--glass-border);
     z-index: 1050;
-    display: flex;
-    align-items: center;
 }
 
 [data-theme="light"] .navbar {
-    background: rgba(245, 245, 247, 0.88) !important;
+    background: rgba(245, 245, 247, 0.92) !important;
 }
 
-.navbar .container-fluid {
-    display: flex;
+/* Navbar layout: logo | center inputs | actions */
+.nav-layout {
+    display: flex !important;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
+    width: 100%;
+    max-width: 100%;
 }
 
+/* Logo */
 .navbar-brand {
     font-family: 'Outfit', sans-serif;
     font-weight: 700;
@@ -129,66 +131,121 @@ body::before {
     display: flex;
     align-items: center;
     gap: 6px;
+    flex-shrink: 0;
 }
 
 .navbar-brand i {
     -webkit-text-fill-color: var(--accent);
     filter: drop-shadow(0 0 8px var(--accent-glow));
+    font-size: 1.2rem;
 }
 
-.nav-search {
+/* Center: search + link inputs side by side */
+.nav-center {
     flex: 1;
-    max-width: 320px;
-    min-width: 160px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
 }
 
-.nav-search .input-group {
-    height: 36px;
+.nav-search-input,
+.nav-link-input {
+    height: 34px;
+    flex: 1;
+    min-width: 0;
 }
 
-.nav-search .form-control {
-    height: 36px;
-    font-size: 0.9rem;
+.nav-search-input .form-control,
+.nav-link-input .form-control {
+    height: 34px;
+    font-size: 0.85rem;
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--glass-border);
 }
 
-.nav-search .btn {
-    height: 36px;
-    padding: 0 14px;
-    font-size: 0.9rem;
+.nav-search-input .btn,
+.nav-link-input .btn {
+    height: 34px;
+    padding: 0 12px;
+    font-size: 0.85rem;
 }
 
+.nav-link-input .form-control {
+    border-left: none;
+    border-right: none;
+}
+
+/* Right actions group */
 .nav-actions {
     display: flex;
     align-items: center;
-    gap: 12px;
-    white-space: nowrap;
+    gap: 4px;
+    flex-shrink: 0;
 }
 
-.status-badge {
+/* Generic nav action button (icon + text) */
+.btn-nav-action {
     display: flex;
     align-items: center;
-    font-size: 0.82rem;
-    color: var(--text-secondary);
-    background: rgba(255, 255, 255, 0.04);
+    gap: 6px;
+    height: 34px;
+    padding: 0 12px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--glass-border);
-    padding: 6px 12px;
-    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+    white-space: nowrap;
+    position: relative;
 }
 
-.btn-icon {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid var(--glass-border);
-    color: var(--text-secondary);
-    width: 36px;
-    height: 36px;
-    border-radius: var(--radius-sm);
+.btn-nav-action:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: var(--text-primary);
+    border-color: var(--glass-border-hover);
+}
+
+.btn-nav-icon {
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--glass-border);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+    font-size: 1rem;
     cursor: pointer;
     transition: var(--transition);
-    font-size: 1.05rem;
+}
+
+.btn-nav-icon:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: var(--text-primary);
+    border-color: var(--glass-border-hover);
+}
+
+/* Generic icon button (used in drawers, bottom bar, etc.) */
+.btn-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
     padding: 0;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--glass-border);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: var(--transition);
 }
 
 .btn-icon:hover {
@@ -197,154 +254,151 @@ body::before {
     border-color: var(--glass-border-hover);
 }
 
-.btn-icon-text {
-    width: auto;
+/* History button */
+.btn-history-new {
     padding: 0 14px;
-    gap: 8px;
 }
 
-.btn-icon-text span {
-    font-size: 0.82rem;
-    font-weight: 500;
-}
-
-.btn-history {
-    background: linear-gradient(135deg, rgba(124, 92, 252, 0.32), rgba(254, 44, 85, 0.22));
-    border-color: rgba(167, 145, 255, 0.55);
-    color: #ffffff;
-    box-shadow: 0 0 0 1px rgba(167, 145, 255, 0.12), 0 10px 24px rgba(124, 92, 252, 0.18);
-}
-
-.btn-history:hover {
-    background: linear-gradient(135deg, rgba(124, 92, 252, 0.48), rgba(254, 44, 85, 0.32));
-    border-color: rgba(196, 182, 255, 0.82);
-    color: #ffffff;
-    box-shadow: 0 0 0 1px rgba(196, 182, 255, 0.2), 0 14px 32px rgba(124, 92, 252, 0.28);
-    transform: translateY(-1px);
-}
-
-.btn-history i {
-    color: #f3efff;
-    filter: drop-shadow(0 0 8px rgba(196, 182, 255, 0.35));
-}
-
-/* Back button */
-.btn-back {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid var(--glass-border);
-    color: var(--text-secondary);
+.history-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 16px;
+    height: 16px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 700;
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
-    transition: var(--transition);
-    font-size: 0.95rem;
-    padding: 0 14px;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+/* More button */
+.btn-more {
+    padding: 0 10px;
+}
+
+/* Dropdown menu */
+.nav-dropdown {
+    background: rgba(14, 14, 21, 0.98);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    padding: 6px;
+    min-width: 280px;
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(20px);
+}
+
+[data-theme="light"] .nav-dropdown {
+    background: rgba(255, 255, 255, 0.98);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+.dropdown-section {
+    padding: 4px 0;
+}
+
+.dropdown-item-compact {
+    display: flex;
+    align-items: center;
     gap: 8px;
-    width: auto;
-    height: 36px;
+    padding: 8px 10px;
     border-radius: var(--radius-sm);
-    margin-right: 12px;
+    transition: var(--transition);
 }
 
-.btn-back:hover {
-    background: rgba(254, 44, 85, 0.15);
-    color: var(--accent);
-    border-color: var(--accent);
+.dropdown-item-compact:hover {
+    background: rgba(255, 255, 255, 0.06);
 }
 
-.btn-back span {
-    font-size: 0.85rem;
-    font-weight: 500;
+[data-theme="light"] .dropdown-item-compact:hover {
+    background: rgba(0, 0, 0, 0.04);
 }
 
-/* Vertical divider between navbar sections */
-.nav-divider {
-    width: 1px;
-    height: 24px;
-    background: var(--glass-border);
-    flex-shrink: 0;
-}
-
-/* ═══════════════════════════════════════
-   TOOL ITEMS — inline in navbar
-   ═══════════════════════════════════════ */
-
-.tool-item {
-    flex: 0 1 300px;
-    min-width: 180px;
-}
-
-.tool-item .input-group {
-    height: 36px;
-}
-
-.tool-item .form-control {
-    height: 36px;
-    font-size: 0.88rem;
-}
-
-.tool-item .btn {
-    height: 36px;
-    padding: 0 12px;
-    font-size: 0.85rem;
-}
-
-.count-input {
-    width: 48px !important;
-    height: 30px !important;
-    padding: 0 4px !important;
-    text-align: center;
-    font-size: 0.8rem !important;
-    border: 1px solid var(--glass-border) !important;
-    background: rgba(255, 255, 255, 0.06) !important;
-    color: var(--text-primary) !important;
-    border-radius: 6px !important;
-}
-
-.count-input:focus {
-    border-color: var(--accent) !important;
-    outline: none;
-    box-shadow: 0 0 0 2px var(--accent-glow) !important;
-}
-
-.tool-item-compact {
+.dropdown-item-label {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 2px 10px 2px 12px;
-    border-radius: 8px;
-    border: 1px solid var(--glass-border);
-    background: var(--bg-card);
-    height: 36px;
-}
-
-.tool-item-compact .tool-label {
-    font-size: 0.78rem;
+    font-size: 0.82rem;
     color: var(--text-secondary);
-    white-space: nowrap;
-    font-weight: 500;
+    min-width: 90px;
+    flex-shrink: 0;
 }
 
-.tool-item-compact .tool-label i {
+.dropdown-item-label i {
     color: var(--accent);
-    margin-right: 2px;
+    font-size: 0.85rem;
 }
 
-.tool-item-compact .count-input {
-    width: 44px !important;
-    height: 26px !important;
-    margin: 0 !important;
+.dropdown-item-compact .count-input {
+    width: 52px !important;
+    height: 28px !important;
     font-size: 0.78rem !important;
-    border-radius: 5px !important;
 }
 
-.tool-item-compact .btn {
-    height: 26px;
+.dropdown-item-compact .btn {
+    height: 28px;
     padding: 0 10px;
     font-size: 0.75rem;
     border-radius: 5px;
-    font-weight: 500;
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: var(--glass-border);
+    margin: 6px 0;
+}
+
+.nav-dropdown .dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    transition: var(--transition);
+    cursor: pointer;
+}
+
+.nav-dropdown .dropdown-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+}
+
+.nav-dropdown .dropdown-item i {
+    color: var(--accent);
+}
+
+/* Status badge */
+.status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--glass-border);
+    padding: 0 10px;
+    height: 34px;
+    border-radius: var(--radius-sm);
+}
+
+/* Responsive: collapse inputs on small screens */
+@media (max-width: 900px) {
+    .nav-link-input { display: none; }
+    .nav-search-input { max-width: 280px; }
+}
+
+@media (max-width: 640px) {
+    .navbar-brand span { display: none; }
+    .btn-nav-action span { display: none !important; }
+    .status-badge { padding: 0 8px; }
+    .nav-search-input { max-width: 160px; }
 }
 
 /* ═══════════════════════════════════════
@@ -577,6 +631,24 @@ body::before {
 }
 
 /* ═══════════════════════════════════════
+   BOTTOM BAR OVERLAY
+   ═══════════════════════════════════════ */
+.bottom-bar-overlay {
+    position: fixed;
+    inset: 0;
+    background: transparent;
+    z-index: 1044;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.bottom-bar-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* ═══════════════════════════════════════
    BOTTOM BAR — fixed at bottom, collapsible
    ═══════════════════════════════════════ */
 .bottom-bar {
@@ -585,18 +657,22 @@ body::before {
     left: 0;
     right: 0;
     height: var(--bottombar-h);
-    background: rgba(10, 10, 16, 0.95);
-    backdrop-filter: var(--blur);
-    -webkit-backdrop-filter: var(--blur);
+    background: var(--bg-primary);
     border-top: 1px solid var(--glass-border);
     z-index: 1045;
     transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     flex-direction: column;
+    -webkit-app-region: no-drag;
 }
 
 .bottom-bar.expanded {
     height: var(--bottombar-expanded);
+}
+
+[data-theme="light"] .bottom-bar {
+    background: var(--bg-primary);
+    border-top-color: rgba(0, 0, 0, 0.08);
 }
 
 .bottom-bar-header {
@@ -605,9 +681,10 @@ body::before {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 16px;
+    padding: 0 12px;
     cursor: pointer;
     user-select: none;
+    -webkit-app-region: no-drag;
 }
 
 .bottom-bar-title {
@@ -616,15 +693,19 @@ body::before {
     color: var(--text-secondary);
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
 }
 
 .mini-progress {
-    width: 120px;
+    width: 100px;
     height: 3px;
     background: rgba(255, 255, 255, 0.06);
     border-radius: 2px;
     overflow: hidden;
+}
+
+[data-theme="light"] .mini-progress {
+    background: rgba(0, 0, 0, 0.06);
 }
 
 .mini-progress-bar {
@@ -665,16 +746,7 @@ body::before {
     background: rgba(0, 0, 0, 0.05);
 }
 
-.bottom-bar {
-    background: rgba(8, 8, 13, 0.95);
-    border-top: 1px solid var(--glass-border);
-}
-
-[data-theme="light"] .bottom-bar {
-    background: rgba(245, 245, 247, 0.95);
-}
-
-.bottom-bar-body {
+.tab-panel {
     flex: 1;
     overflow: hidden;
     display: none;
@@ -690,6 +762,28 @@ body::before {
 
 #bottom-bar-expand i {
     transition: transform 0.3s ease;
+}
+
+/* Bottom bar expand button */
+#bottom-bar-expand {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--glass-border);
+    color: var(--text-secondary);
+    width: 34px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition);
+    font-size: 1rem;
+    padding: 0;
+}
+
+#bottom-bar-expand:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: var(--text-primary);
 }
 
 .tab-panel {

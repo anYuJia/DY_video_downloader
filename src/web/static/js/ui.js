@@ -231,7 +231,19 @@ function closeSettingsDrawer() {
 }
 
 function toggleBottomBar() {
-    document.getElementById('bottom-bar').classList.toggle('expanded');
+    var bottomBar = document.getElementById('bottom-bar');
+    var overlay = document.getElementById('bottom-bar-overlay');
+    var isExpanded = bottomBar.classList.toggle('expanded');
+    if (isExpanded) {
+        overlay.classList.add('open');
+    } else {
+        overlay.classList.remove('open');
+    }
+}
+
+function closeBottomBar() {
+    document.getElementById('bottom-bar').classList.remove('expanded');
+    document.getElementById('bottom-bar-overlay').classList.remove('open');
 }
 
 // ═══════════════════════════════════════════════
