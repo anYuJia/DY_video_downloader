@@ -7,6 +7,14 @@ project_root = os.path.abspath('.')
 import webview as _pywebview
 pywebview_hooks = os.path.join(_pywebview.__path__[0], 'pkg')
 
+# 图标文件路径
+if sys.platform == 'darwin':
+    icon_path = os.path.join(project_root, 'icons/icon.icns')
+elif sys.platform == 'win32':
+    icon_path = os.path.join(project_root, 'icons/icon.ico')
+else:
+    icon_path = None
+
 block_cipher = None
 
 # 需要被一同打包进程序结构里的相关资源文件
@@ -90,6 +98,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=icon_path,
 )
 coll = COLLECT(
     exe,
