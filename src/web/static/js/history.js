@@ -1,6 +1,7 @@
 let _downloadHistoryItems = [];
 let _downloadHistorySelected = new Set();
 let _downloadHistoryRoot = '';
+let _downloadHistoryRoots = [];
 
 document.addEventListener('DOMContentLoaded', function () {
     initDownloadHistoryUI();
@@ -13,6 +14,7 @@ function initDownloadHistoryUI() {
     const refreshBtn = document.getElementById('history-refresh-btn');
     const chooseDirBtn = document.getElementById('history-select-download-dir-btn');
     const saveDirBtn = document.getElementById('history-save-config-btn');
+    const moveSelectedBtn = document.getElementById('history-move-selected-btn');
     const selectAll = document.getElementById('history-select-all');
     const batchOpenBtn = document.getElementById('history-batch-open-btn');
     const batchLocateBtn = document.getElementById('history-batch-locate-btn');
@@ -24,6 +26,7 @@ function initDownloadHistoryUI() {
     if (refreshBtn) refreshBtn.addEventListener('click', refreshDownloadHistory);
     if (chooseDirBtn) chooseDirBtn.addEventListener('click', chooseDownloadHistoryDirectory);
     if (saveDirBtn) saveDirBtn.addEventListener('click', saveDownloadHistoryDirectory);
+    if (moveSelectedBtn) moveSelectedBtn.addEventListener('click', moveSelectedDownloadHistoryFiles);
     if (selectAll) selectAll.addEventListener('change', toggleDownloadHistorySelectAll);
     if (batchOpenBtn) batchOpenBtn.addEventListener('click', function () { batchOpenDownloadHistory('open'); });
     if (batchLocateBtn) batchLocateBtn.addEventListener('click', function () { batchOpenDownloadHistory('open_location'); });
@@ -91,6 +94,7 @@ async function refreshDownloadHistory() {
 
         _downloadHistoryItems = Array.isArray(result.items) ? result.items : [];
         _downloadHistoryRoot = result.download_root || '';
+        _downloadHistoryRoots = Array.isArray(result.download_roots) ? result.download_roots : [];
         _downloadHistorySelected.clear();
 
         const historyInput = document.getElementById('history-download-dir-input');
@@ -98,13 +102,67 @@ async function refreshDownloadHistory() {
 
         const totalSize = _downloadHistoryItems.reduce((sum, item) => sum + (Number(item.size) || 0), 0);
         if (stats) {
-            stats.textContent = `共 ${_downloadHistoryItems.length} 个文件，累计 ${formatBytes(totalSize)}，当前目录：${result.download_root || '-'}`;
+            const summaryText = _downloadHistoryRoots.length > 1
+                ? `共 ${_downloadHistoryItems.length} 个文件，累计 ${formatBytes(totalSize)}，同时显示 ${_downloadHistoryRoots.length} 个目录的历史文件`
+                : `共 ${_downloadHistoryItems.length} 个文件，累计 ${formatBytes(totalSize)}`;
+            const fullPath = result.download_root || '-';
+            stats.innerHTML = `
+                <div class="history-stats-summary">${escapeHtml(summaryText)}</div>
+                <div class="history-stats-path">
+                    <span class="history-stats-label">当前目录：</span>
+                    ${renderHistoryPathSegments(fullPath)}
+                    <button class="btn btn-outline-secondary btn-sm history-copy-btn" type="button"
+                            onclick="copyDownloadHistoryPath('${encodeURIComponent(fullPath)}')">
+                        <i class="bi bi-clipboard"></i> 复制
+                    </button>
+                </div>
+            `;
+            stats.title = summaryText + ' | 当前目录：' + fullPath;
         }
 
         renderDownloadHistory();
     } catch (error) {
         list.innerHTML = `<div class="history-empty">加载失败：${escapeHtml(error.message || '未知错误')}</div>`;
         showToast('加载下载历史失败', 'error');
+    }
+}
+
+function renderHistoryPathSegments(pathText) {
+    if (!pathText || pathText === '-') {
+        return '<span class="history-path-segment">-</span>';
+    }
+
+    const normalized = String(pathText).replace(/\//g, '\\');
+    const hasDrive = /^[A-Za-z]:\\/.test(normalized);
+    const parts = normalized.split('\\').filter(Boolean);
+    const segments = [];
+
+    if (hasDrive) {
+        const drive = normalized.slice(0, 2);
+        segments.push(`<span class="history-path-segment">${escapeHtml(drive)}</span>`);
+        if (parts.length > 1) {
+            segments.push('<span class="history-path-separator">\\</span>');
+        }
+        parts.shift();
+    }
+
+    parts.forEach((part, index) => {
+        segments.push(`<span class="history-path-segment">${escapeHtml(part)}</span>`);
+        if (index < parts.length - 1) {
+            segments.push('<span class="history-path-separator">\\</span>');
+        }
+    });
+
+    return segments.join('');
+}
+
+async function copyDownloadHistoryPath(encodedPath) {
+    const fullPath = decodeURIComponent(encodedPath);
+    try {
+        await navigator.clipboard.writeText(fullPath);
+        showToast('已复制当前目录路径', 'success');
+    } catch (error) {
+        showToast('复制失败，请手动复制', 'error');
     }
 }
 
@@ -317,9 +375,60 @@ async function saveDownloadHistoryDirectory() {
         }
 
         if (mainDirInput) mainDirInput.value = historyInput.value.trim();
-        showToast('下载目录已保存', 'success');
+        showToast('下载目录已保存，历史列表仍会显示旧目录文件', 'success');
         await refreshDownloadHistory();
     } catch (error) {
         showToast(error.message || '保存目录失败', 'error');
+    }
+}
+
+async function moveSelectedDownloadHistoryFiles() {
+    const selected = Array.from(_downloadHistorySelected);
+    const historyInput = document.getElementById('history-download-dir-input');
+    const mainCookieInput = document.getElementById('cookie-input');
+    const mainDirInput = document.getElementById('download-dir-input');
+
+    if (!historyInput || !historyInput.value.trim()) {
+        showToast('请先选择新的下载目录', 'warning');
+        return;
+    }
+    if (!selected.length) {
+        showToast('请先在下载历史中勾选要迁移的文件', 'warning');
+        return;
+    }
+    if (!confirm(`确定将选中的 ${selected.length} 个文件迁移到新目录吗？`)) return;
+
+    try {
+        const saveResp = await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                cookie: mainCookieInput ? mainCookieInput.value.trim() : '',
+                download_dir: historyInput.value.trim()
+            })
+        });
+        const saveResult = await saveResp.json();
+        if (!saveResult.success) {
+            throw new Error(saveResult.message || '保存新目录失败');
+        }
+
+        const moveResp = await fetch('/api/download_history/move_selected', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                target_dir: historyInput.value.trim(),
+                paths: selected
+            })
+        });
+        const moveResult = await moveResp.json();
+        if (!moveResult.success) {
+            throw new Error(moveResult.message || '迁移失败');
+        }
+
+        if (mainDirInput) mainDirInput.value = historyInput.value.trim();
+        showToast(`已迁移 ${moveResult.moved_count || 0} 个文件到新目录`, 'success');
+        await refreshDownloadHistory();
+    } catch (error) {
+        showToast(error.message || '迁移失败', 'error');
     }
 }
