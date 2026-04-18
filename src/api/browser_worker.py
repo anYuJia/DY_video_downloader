@@ -8,6 +8,11 @@ import urllib.parse
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 
 def browser_fetch(cookie: str, url: str, user_agent: str) -> dict:
     with sync_playwright() as p:

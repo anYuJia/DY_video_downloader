@@ -1796,6 +1796,7 @@ def cookie_browser_login():
         
         env = os.environ.copy()
         env['RUN_WORKER'] = 'cookie_grabber'
+        env['PYTHONIOENCODING'] = 'utf-8'
         
         if IS_FROZEN:
             cmd = [sys.executable]  # 执行打包后的文件自身，通过环境变量进入分发器
