@@ -1925,39 +1925,19 @@ def send_heartbeat():
     
 
 
-def main():
-    """启动Web服务"""
+def start_server(port=None):
+    """启动Flask/SocketIO服务（在后台线程中调用）"""
     import os
-    import webbrowser
-    import threading
-    import time
-    
-    # 先初始化socketio，然后再初始化应用
+
     logger.info("启动抖音下载器Web服务...")
     logger.info(f"SocketIO async_mode: {socketio.async_mode}")
-    
-    # 从环境变量获取端口，默认为5001
-    port = int(os.environ.get('PORT', 5001))
-    url = f"http://localhost:{port}"
-    logger.info(f"访问地址: {url}")
-    
+
+    if port is None:
+        port = int(os.environ.get('PORT', 5001))
+
     # 初始化应用
     init_app()
-    
-    # 延迟打开浏览器的函数
-    def open_browser():
-        time.sleep(1.5)  # 等待服务器启动
-        try:
-            webbrowser.open(url)
-            logger.info(f"已自动打开浏览器: {url}")
-        except Exception as e:
-            logger.warning(f"自动打开浏览器失败: {str(e)}")
-    
-    # 在新线程中打开浏览器
-    browser_thread = threading.Thread(target=open_browser, daemon=True)
-    browser_thread.start()
-    
-    # 启动socketio服务
+
     run_kwargs = {
         'app': app,
         'host': '0.0.0.0',
@@ -1969,6 +1949,32 @@ def main():
 
     logger.info(f"Web服务开始监听: 0.0.0.0:{port}")
     socketio.run(**run_kwargs)
+
+
+def main():
+    """启动Web服务（兼容旧版命令行启动方式）"""
+    import os
+    import webbrowser
+    import threading
+    import time
+
+    port = int(os.environ.get('PORT', 5001))
+    url = f"http://localhost:{port}"
+
+    # 在后台线程启动服务
+    server_thread = threading.Thread(target=start_server, kwargs={'port': port}, daemon=True)
+    server_thread.start()
+
+    # 等待服务就绪
+    time.sleep(1.5)
+    try:
+        webbrowser.open(url)
+        logger.info(f"已自动打开浏览器: {url}")
+    except Exception as e:
+        logger.warning(f"自动打开浏览器失败: {str(e)}")
+
+    # 阻塞主线程，等待服务线程结束
+    server_thread.join()
 
 if __name__ == '__main__':
     main()
