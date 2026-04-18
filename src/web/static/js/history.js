@@ -1,5 +1,6 @@
 let _downloadHistoryItems = [];
 let _downloadHistorySelected = new Set();
+let _downloadHistoryRoot = '';
 
 document.addEventListener('DOMContentLoaded', function () {
     initDownloadHistoryUI();
@@ -89,6 +90,7 @@ async function refreshDownloadHistory() {
         }
 
         _downloadHistoryItems = Array.isArray(result.items) ? result.items : [];
+        _downloadHistoryRoot = result.download_root || '';
         _downloadHistorySelected.clear();
 
         const historyInput = document.getElementById('history-download-dir-input');
@@ -203,6 +205,22 @@ async function openDownloadHistoryLocation(encodedPath) {
 async function batchOpenDownloadHistory(action) {
     const selected = Array.from(_downloadHistorySelected);
     if (!selected.length) return;
+
+    if (action === 'open_location') {
+        const parentDirs = Array.from(new Set(selected.map(path => {
+            const normalized = String(path || '').replace(/[\\/]+$/, '');
+            return normalized.replace(/[\\/][^\\/]+$/, '');
+        }).filter(Boolean)));
+
+        const targetPath = parentDirs.length === 1 ? parentDirs[0] : _downloadHistoryRoot;
+        if (!targetPath) {
+            showToast('无法确定要打开的目录', 'error');
+            return;
+        }
+
+        await postHistoryAction('/api/download_history/open_location', { path: targetPath }, '已打开目录');
+        return;
+    }
 
     for (const path of selected) {
         await postHistoryAction(`/api/download_history/${action}`, { path: path });

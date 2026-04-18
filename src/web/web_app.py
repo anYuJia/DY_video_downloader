@@ -386,13 +386,21 @@ def open_download_history_location():
         if not file_path.exists():
             return jsonify({'success': False, 'message': '文件不存在'}), 404
 
+        open_dir = file_path if file_path.is_dir() else file_path.parent
+
         if IS_WINDOWS:
-            normalized_path = os.path.normpath(str(file_path))
-            subprocess.Popen(['explorer.exe', '/select,', normalized_path])
+            if file_path.is_dir():
+                subprocess.Popen(['explorer.exe', os.path.normpath(str(open_dir))])
+            else:
+                normalized_path = os.path.normpath(str(file_path))
+                subprocess.Popen(['explorer.exe', '/select,', normalized_path])
         elif sys.platform == 'darwin':
-            subprocess.Popen(['open', '-R', str(file_path)])
+            if file_path.is_dir():
+                subprocess.Popen(['open', str(open_dir)])
+            else:
+                subprocess.Popen(['open', '-R', str(file_path)])
         else:
-            subprocess.Popen(['xdg-open', str(file_path.parent)])
+            subprocess.Popen(['xdg-open', str(open_dir)])
 
         return jsonify({'success': True})
     except Exception as e:
