@@ -295,17 +295,12 @@
 
                 <!-- Cookie 登录选项 -->
                 <div class="mb-2">
-                    <div class="btn-group w-100" role="group">
-                        <button type="button" class="btn btn-outline-primary btn-sm" id="cookie-login-btn" onclick="showCookieSetupModal()">
-                            <i class="bi bi-box-arrow-in-right me-1"></i>登录账号
-                        </button>
-                        <button type="button" class="btn btn-outline-secondary btn-sm" id="cookie-temp-btn" onclick="generateTempCookieDirect()">
-                            <i class="bi bi-eye me-1"></i>不登录
-                        </button>
-                    </div>
+                    <button type="button" class="btn btn-primary w-100" id="cookie-login-btn" onclick="showCookieSetupModal()">
+                        <i class="bi bi-box-arrow-in-right me-1"></i>登录抖音账号
+                    </button>
                     <small class="text-muted d-block mt-1">
                         <i class="bi bi-info-circle"></i>
-                        登录后可使用所有功能且更稳定；不登录可能触发验证
+                        登录后可使用所有功能
                     </small>
                 </div>
 
@@ -745,10 +740,7 @@
                 <div class="modal-body">
                     <!-- Tab navigation -->
                     <div class="cookie-tab-nav">
-                        <button class="cookie-tab-btn active" data-tab="temp" onclick="switchCookieTab('temp')">
-                            <i class="bi bi-eye"></i> 不登录
-                        </button>
-                        <button class="cookie-tab-btn" data-tab="browser" onclick="switchCookieTab('browser')">
+                        <button class="cookie-tab-btn active" data-tab="browser" onclick="switchCookieTab('browser')">
                             <i class="bi bi-box-arrow-in-right"></i> 登录账号
                         </button>
                         <button class="cookie-tab-btn" data-tab="manual" onclick="switchCookieTab('manual')">
@@ -756,49 +748,8 @@
                         </button>
                     </div>
 
-                    <!-- Temp cookie tab -->
-                    <div class="cookie-tab-panel active" id="cookie-tab-temp">
-                        <div class="cookie-temp-info">
-                            <div class="alert alert-info">
-                                <i class="bi bi-info-circle-fill me-2"></i>
-                                <strong>不登录模式说明：</strong>
-                            </div>
-                            <ul class="cookie-temp-features">
-                                <li><i class="bi bi-check-circle-fill text-success"></i> 可以搜索用户</li>
-                                <li><i class="bi bi-check-circle-fill text-success"></i> 可以查看用户主页</li>
-                                <li><i class="bi bi-check-circle-fill text-success"></i> 可以下载公开视频</li>
-                                <li><i class="bi bi-x-circle-fill text-danger"></i> <strong>无法</strong>获取点赞视频列表</li>
-                                <li><i class="bi bi-x-circle-fill text-danger"></i> <strong>无法</strong>获取点赞作者列表</li>
-                            </ul>
-                        </div>
-                        <button class="btn btn-primary w-100 mt-3" onclick="generateTempCookie()">
-                            <i class="bi bi-lightning-fill"></i> 生成临时 Cookie
-                        </button>
-                    </div>
-
-                    <!-- Manual tab -->
-                    <div class="cookie-tab-panel" id="cookie-tab-manual">
-                        <div class="cookie-manual-hint">
-                            <i class="bi bi-info-circle"></i>
-                            从浏览器开发者工具复制抖音的 Cookie 并粘贴到下方
-                        </div>
-                        <textarea class="form-control cookie-textarea" id="cookie-modal-input" rows="6" placeholder="粘贴抖音 Cookie..."></textarea>
-                        <div id="cookie-modal-validation" class="mt-2" style="display:none;">
-                            <div class="d-flex align-items-center">
-                                <i id="cookie-modal-status-icon" class="bi me-1"></i>
-                                <small id="cookie-modal-status-text"></small>
-                            </div>
-                        </div>
-                        <button class="btn btn-primary w-100 mt-3" id="cookie-modal-save-btn" onclick="saveCookieFromModal()">
-                            <i class="bi bi-check-lg"></i> 保存 Cookie
-                        </button>
-                        <button class="btn btn-outline-secondary w-100 mt-2" id="cookie-test-btn" onclick="testCookieValidity()">
-                            测试有效性
-                        </button>
-                    </div>
-
                     <!-- Browser login tab -->
-                    <div class="cookie-tab-panel" id="cookie-tab-browser">
+                    <div class="cookie-tab-panel active" id="cookie-tab-browser">
                         <div class="cookie-browser-selector">
                             <label class="form-label">选择浏览器</label>
                             <select class="form-select" id="cookie-browser-type">
@@ -807,9 +758,9 @@
                                 <option value="chromium">Chromium（内置）</option>
                             </select>
                         </div>
-                        <div class="alert alert-warning mb-3">
-                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                            <strong>登录后可使用所有功能</strong>，包括获取点赞视频和作者列表
+                        <div class="alert alert-success mb-3">
+                            <i class="bi bi-check-circle-fill me-2"></i>
+                            <strong>登录后可使用所有功能</strong>
                         </div>
                         <div class="cookie-browser-desc">
                             <div class="cookie-browser-step">
@@ -840,6 +791,27 @@
                                 <i class="bi bi-x-circle"></i> 取消
                             </button>
                         </div>
+                    </div>
+
+                    <!-- Manual tab -->
+                    <div class="cookie-tab-panel" id="cookie-tab-manual">
+                        <div class="cookie-manual-hint">
+                            <i class="bi bi-info-circle"></i>
+                            从浏览器开发者工具复制抖音的 Cookie 并粘贴到下方
+                        </div>
+                        <textarea class="form-control cookie-textarea" id="cookie-modal-input" rows="6" placeholder="粘贴抖音 Cookie..."></textarea>
+                        <div id="cookie-modal-validation" class="mt-2" style="display:none;">
+                            <div class="d-flex align-items-center">
+                                <i id="cookie-modal-status-icon" class="bi me-1"></i>
+                                <small id="cookie-modal-status-text"></small>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary w-100 mt-3" id="cookie-modal-save-btn" onclick="saveCookieFromModal()">
+                            <i class="bi bi-check-lg"></i> 保存 Cookie
+                        </button>
+                        <button class="btn btn-outline-secondary w-100 mt-2" id="cookie-test-btn" onclick="testCookieValidity()">
+                            测试有效性
+                        </button>
                     </div>
                 </div>
             </div>

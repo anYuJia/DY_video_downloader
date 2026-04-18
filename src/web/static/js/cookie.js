@@ -12,8 +12,7 @@ function validateCookie(cookieString) {
     }
 
     const requiredParams = ['sessionid'];
-    const tempParams = ['ttwid', 's_v_web_id'];
-    const recommendedParams = ['passport_csrf_token', 'UIFID'];
+    const recommendedParams = ['ttwid', 's_v_web_id'];
 
     const cookiePairs = cookieString.split(';').reduce((acc, pair) => {
         const [key, ...valueParts] = pair.trim().split('=');
@@ -24,12 +23,6 @@ function validateCookie(cookieString) {
     // 检查是否已登录（有 sessionid）
     const hasLoginCookie = requiredParams.some(param => cookiePairs[param]);
 
-    // 检查是否有临时 cookie
-    const hasTempCookie = tempParams.some(param => cookiePairs[param]);
-
-    const missingRequired = requiredParams.filter(param => !cookiePairs[param]);
-    const missingRecommended = recommendedParams.filter(param => !cookiePairs[param]);
-
     if (hasLoginCookie) {
         // 已登录状态
         return {
@@ -39,22 +32,13 @@ function validateCookie(cookieString) {
             missingParams: [],
             loginType: 'full'
         };
-    } else if (hasTempCookie) {
-        // 临时 cookie（未登录）
-        return {
-            isValid: true,
-            status: 'temp_cookie',
-            message: '未登录，部分功能受限（无法获取喜欢列表）',
-            missingParams: missingRequired,
-            loginType: 'temp'
-        };
     } else {
         // 无效 cookie
         return {
             isValid: false,
             status: 'invalid',
-            message: 'Cookie 无效，请登录或获取临时 Cookie',
-            missingParams: missingRequired,
+            message: '请登录抖音账号',
+            missingParams: requiredParams,
             loginType: 'none'
         };
     }
@@ -95,21 +79,12 @@ function updateCookieValidationUI(validation) {
             // 启用所有功能
             updateFeatureAvailability(true);
             break;
-        case 'temp_cookie':
-            statusIcon.className = 'bi bi-exclamation-triangle-fill text-warning me-1';
-            statusText.className = 'text-warning';
-            statusText.textContent = validation.message;
-            missingContainer.style.display = 'block';
-            missingList.textContent = '无法使用：点赞获取、作者获取';
-            // 限制部分功能
-            updateFeatureAvailability(false);
-            break;
         case 'invalid':
             statusIcon.className = 'bi bi-x-circle-fill text-danger me-1';
             statusText.className = 'text-danger';
             statusText.textContent = validation.message;
             missingContainer.style.display = 'block';
-            missingList.textContent = validation.missingParams.join(', ');
+            missingList.textContent = '请登录抖音账号';
             // 禁用所有功能
             updateFeatureAvailability(false);
             break;
@@ -433,112 +408,6 @@ function handleCookieLoginStatus(data) {
             resultIcon.style.display = 'none';
             break;
     }
-}
-
-// 生成临时 Cookie（直接在设置面板中）
-function generateTempCookieDirect() {
-    const cookieInput = document.getElementById('cookie-input');
-    const statusContainer = document.getElementById('cookie-validation-status');
-    const statusIcon = document.getElementById('cookie-status-icon');
-    const statusText = document.getElementById('cookie-status-text');
-
-    statusContainer.style.display = 'block';
-    statusIcon.className = 'bi bi-hourglass-split text-primary me-1';
-    statusText.className = 'text-primary';
-    statusText.textContent = '正在生成临时 Cookie...';
-
-    fetch('/api/cookie/generate_temp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            statusIcon.className = 'bi bi-check-circle-fill text-success me-1';
-            statusText.className = 'text-success';
-            statusText.textContent = '临时 Cookie 生成成功！（未登录，部分功能受限）';
-
-            // 保存到输入框
-            cookieInput.value = data.cookie;
-
-            // 保存到配置
-            return fetch('/api/config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cookie: data.cookie })
-            });
-        } else {
-            throw new Error(data.message || '生成失败');
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showToast('临时 Cookie 已保存！', 'success');
-            updateStatus('ready', '已配置（未登录）');
-        }
-    })
-    .catch(error => {
-        statusIcon.className = 'bi bi-x-circle-fill text-danger me-1';
-        statusText.className = 'text-danger';
-        statusText.textContent = '生成失败: ' + error.message;
-        showToast('临时 Cookie 生成失败', 'error');
-    });
-}
-
-// 生成临时 Cookie（在弹窗中）
-function generateTempCookie() {
-    const statusContainer = document.getElementById('cookie-modal-validation');
-    const statusIcon = document.getElementById('cookie-modal-status-icon');
-    const statusText = document.getElementById('cookie-modal-status-text');
-
-    statusContainer.style.display = 'block';
-    statusIcon.className = 'bi bi-hourglass-split text-primary me-1';
-    statusText.className = 'text-primary';
-    statusText.textContent = '正在生成临时 Cookie...';
-
-    fetch('/api/cookie/generate_temp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            statusIcon.className = 'bi bi-check-circle-fill text-success me-1';
-            statusText.className = 'text-success';
-            statusText.textContent = '临时 Cookie 生成成功！';
-
-            // 保存到主 cookie 输入框
-            document.getElementById('cookie-input').value = data.cookie;
-
-            // 保存到配置
-            return fetch('/api/config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cookie: data.cookie })
-            });
-        } else {
-            throw new Error(data.message || '生成失败');
-        }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showToast('临时 Cookie 已保存！', 'success');
-            updateStatus('ready', '已配置（未登录）');
-
-            // 关闭 modal
-            setTimeout(() => {
-                if (_cookieSetupModal) _cookieSetupModal.hide();
-            }, 1000);
-        }
-    })
-    .catch(error => {
-        statusIcon.className = 'bi bi-x-circle-fill text-danger me-1';
-        statusText.className = 'text-danger';
-        statusText.textContent = '生成失败: ' + error.message;
-        showToast('临时 Cookie 生成失败', 'error');
-    });
 }
 
 // 检查功能是否需要登录
