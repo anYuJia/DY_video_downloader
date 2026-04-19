@@ -1080,21 +1080,6 @@ function updateUnifiedPlayerInfo() {
         countEl.textContent = `${unifiedPlayerState.currentIndex + 1}/${unifiedPlayerState.videos.length}`;
     }
 
-    // Avatar
-    const avatarEl = document.getElementById('unifiedAuthorAvatar');
-    if (avatarEl) {
-        if (author.avatar_thumb) {
-            const img = document.createElement('img');
-            img.src = author.avatar_thumb;
-            img.alt = author.nickname || '用户';
-            img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%;';
-            avatarEl.innerHTML = '';
-            avatarEl.appendChild(img);
-        } else {
-            avatarEl.textContent = (author.nickname || '用')[0];
-        }
-    }
-
     const avatarSmallEl = document.getElementById('unifiedAuthorAvatarSmall');
     if (avatarSmallEl) {
         avatarSmallEl.src = author.avatar_thumb || '/static/default-avatar.svg';
@@ -1103,11 +1088,6 @@ function updateUnifiedPlayerInfo() {
     const nameEl = document.getElementById('unifiedAuthorName');
     if (nameEl) {
         nameEl.textContent = `@${author.nickname || '用户'}`;
-    }
-
-    const timeEl = document.getElementById('unifiedPublishTime');
-    if (timeEl) {
-        timeEl.textContent = video.create_time ? formatRelativeTime(video.create_time * 1000) : '';
     }
 
     const descEl = document.getElementById('unifiedVideoDesc');
@@ -1119,23 +1099,124 @@ function updateUnifiedPlayerInfo() {
     const commentCount = formatNumber(stats.comment_count || 0);
     const shareCount = formatNumber(stats.share_count || 0);
 
-    const likeEl = document.getElementById('unifiedLikeCount');
-    const commentEl = document.getElementById('unifiedCommentCount');
-    const shareEl = document.getElementById('unifiedShareCount');
-    const likeStatEl = document.getElementById('unifiedLikeCountStat');
-    const commentStatEl = document.getElementById('unifiedCommentCountStat');
-    const shareStatEl = document.getElementById('unifiedShareCountStat');
+    // 更新底部点赞收藏按钮的计数
+    const likeCountEl = document.getElementById('likeCount');
+    const favoriteCountEl = document.getElementById('favoriteCount');
 
-    if (likeEl) likeEl.textContent = likeCount;
-    if (commentEl) commentEl.textContent = commentCount;
-    if (shareEl) shareEl.textContent = shareCount;
-    if (likeStatEl) likeStatEl.textContent = likeCount;
-    if (commentStatEl) commentStatEl.textContent = commentCount;
-    if (shareStatEl) shareStatEl.textContent = shareCount;
+    if (likeCountEl) likeCountEl.textContent = likeCount;
+    if (favoriteCountEl) favoriteCountEl.textContent = likeCount; // 收藏数暂时用点赞数
+
+    // 重置点赞收藏状态
+    const likeBtn = document.getElementById('likeBtn');
+    const favoriteBtn = document.getElementById('favoriteBtn');
+
+    if (likeBtn) likeBtn.classList.remove('liked');
+    if (favoriteBtn) favoriteBtn.classList.remove('favorited');
 
     const musicEl = document.getElementById('unifiedMusicInfo');
     if (musicEl) {
         musicEl.textContent = music.title || '原声';
+    }
+
+    // 更新音乐面板信息
+    const musicTitleEl = document.getElementById('unifiedMusicTitle');
+    const musicAuthorEl = document.getElementById('unifiedMusicAuthor');
+    const musicPlayerEl = document.getElementById('musicPlayer');
+
+    if (musicTitleEl) {
+        musicTitleEl.textContent = music.title || '背景音乐';
+    }
+    if (musicAuthorEl) {
+        musicAuthorEl.textContent = music.author || '';
+    }
+    if (musicPlayerEl && (music.play_url || video.bgm_url)) {
+        musicPlayerEl.src = '/api/media/proxy?url=' + encodeURIComponent(music.play_url || video.bgm_url);
+    }
+}
+
+// 切换音乐面板
+function toggleMusicPanel() {
+    const panel = document.getElementById('playerMusicPanel');
+    if (!panel) return;
+
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        setTimeout(() => panel.classList.add('show'), 10);
+    } else {
+        panel.classList.remove('show');
+        setTimeout(() => panel.style.display = 'none', 300);
+    }
+}
+
+// 下载音乐
+function downloadMusic() {
+    const video = unifiedPlayerState.currentVideo;
+    if (!video) return;
+
+    const music = video.music || {};
+    const bgmUrl = music.play_url || video.bgm_url;
+
+    if (!bgmUrl) {
+        showToast('没有可下载的音乐', 'warning');
+        return;
+    }
+
+    // 创建下载链接
+    const link = document.createElement('a');
+    link.href = '/api/media/proxy?url=' + encodeURIComponent(bgmUrl);
+    link.download = `music_${video.aweme_id}.mp3`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    showToast('开始下载音乐', 'success');
+}
+
+// 切换点赞状态
+function toggleLike() {
+    const likeBtn = document.getElementById('likeBtn');
+    const likeCountEl = document.getElementById('likeCount');
+
+    if (!likeBtn || !likeCountEl) return;
+
+    const isLiked = likeBtn.classList.contains('liked');
+
+    if (isLiked) {
+        // 取消点赞
+        likeBtn.classList.remove('liked');
+        const currentCount = parseInt(likeCountEl.textContent.replace(/[^\d]/g, '')) || 0;
+        likeCountEl.textContent = formatNumber(Math.max(0, currentCount - 1));
+        showToast('已取消点赞', 'info');
+    } else {
+        // 点赞
+        likeBtn.classList.add('liked');
+        const currentCount = parseInt(likeCountEl.textContent.replace(/[^\d]/g, '')) || 0;
+        likeCountEl.textContent = formatNumber(currentCount + 1);
+        showToast('已点赞', 'success');
+    }
+}
+
+// 切换收藏状态
+function toggleFavorite() {
+    const favoriteBtn = document.getElementById('favoriteBtn');
+    const favoriteCountEl = document.getElementById('favoriteCount');
+
+    if (!favoriteBtn || !favoriteCountEl) return;
+
+    const isFavorited = favoriteBtn.classList.contains('favorited');
+
+    if (isFavorited) {
+        // 取消收藏
+        favoriteBtn.classList.remove('favorited');
+        const currentCount = parseInt(favoriteCountEl.textContent.replace(/[^\d]/g, '')) || 0;
+        favoriteCountEl.textContent = formatNumber(Math.max(0, currentCount - 1));
+        showToast('已取消收藏', 'info');
+    } else {
+        // 收藏
+        favoriteBtn.classList.add('favorited');
+        const currentCount = parseInt(favoriteCountEl.textContent.replace(/[^\d]/g, '')) || 0;
+        favoriteCountEl.textContent = formatNumber(currentCount + 1);
+        showToast('已收藏', 'success');
     }
 }
 
@@ -1193,6 +1274,13 @@ function closeUnifiedPlayer() {
         unifiedPlayerState.videoElement = null;
     }
 
+    // 停止音乐播放器
+    const musicPlayer = document.getElementById('musicPlayer');
+    if (musicPlayer) {
+        musicPlayer.pause();
+        musicPlayer.src = '';
+    }
+
     // 清空视频容器中的所有内容
     const wrapper = document.getElementById('unifiedVideoSlidesWrapper');
     if (wrapper) {
@@ -1210,11 +1298,16 @@ function closeUnifiedPlayer() {
     const volumePanel = document.getElementById('volumePanel');
     const ratePanel = document.getElementById('ratePanel');
     const detailPanel = document.getElementById('playerDetailPanel');
+    const musicPanel = document.getElementById('playerMusicPanel');
     const player = document.getElementById('unifiedPlayer');
 
     if (volumePanel) volumePanel.style.display = 'none';
     if (ratePanel) ratePanel.style.display = 'none';
     if (detailPanel) detailPanel.style.display = 'none';
+    if (musicPanel) {
+        musicPanel.classList.remove('show');
+        musicPanel.style.display = 'none';
+    }
     if (player) player.style.display = 'none';
 }
 

@@ -875,41 +875,6 @@
             <div class="player-header-center">
                 <span id="unifiedVideoCount">0/0</span>
             </div>
-            <div class="player-header-controls">
-                <!-- Volume Control -->
-                <div class="player-control-group">
-                    <button class="player-control-btn" id="volumeBtn" onclick="toggleVolumePanel()">
-                        <i class="bi bi-volume-up-fill"></i>
-                    </button>
-                    <div class="player-volume-panel" id="volumePanel" style="display: none;">
-                        <input type="range" id="volumeSlider" min="0" max="100" value="100"
-                               oninput="setVolume(this.value)">
-                        <button class="player-mute-btn" onclick="toggleMute()">
-                            <i class="bi bi-volume-mute-fill"></i> 静音
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Playback Rate Control -->
-                <div class="player-control-group">
-                    <button class="player-control-btn" id="rateBtn" onclick="toggleRatePanel()">
-                        <span id="currentRate">1x</span>
-                    </button>
-                    <div class="player-rate-panel" id="ratePanel" style="display: none;">
-                        <button onclick="setPlaybackRate(0.5)">0.5x</button>
-                        <button onclick="setPlaybackRate(0.75)">0.75x</button>
-                        <button onclick="setPlaybackRate(1)" class="active">1x</button>
-                        <button onclick="setPlaybackRate(1.25)">1.25x</button>
-                        <button onclick="setPlaybackRate(1.5)">1.5x</button>
-                        <button onclick="setPlaybackRate(2)">2x</button>
-                    </div>
-                </div>
-
-                <!-- Info Toggle -->
-                <button class="player-control-btn" id="infoBtn" onclick="toggleInfoPanel()">
-                    <i class="bi bi-info-circle"></i>
-                </button>
-            </div>
         </div>
 
         <!-- Main Video Container -->
@@ -919,75 +884,112 @@
             </div>
         </div>
 
-        <!-- Right Sidebar Actions -->
-        <div class="unified-player-sidebar">
-            <div class="player-avatar" id="unifiedAuthorAvatar"></div>
-            <div class="player-action-btn" onclick="likeCurrentVideo()">
-                <i class="bi bi-heart"></i>
-                <span id="unifiedLikeCount">0</span>
-            </div>
-            <div class="player-action-btn" onclick="commentCurrentVideo()">
-                <i class="bi bi-chat"></i>
-                <span id="unifiedCommentCount">0</span>
-            </div>
-            <div class="player-action-btn" onclick="shareCurrentVideo()">
-                <i class="bi bi-share"></i>
-                <span id="unifiedShareCount">0</span>
-            </div>
-            <div class="player-action-btn player-download-btn" onclick="downloadCurrentVideo()">
-                <i class="bi bi-download"></i>
-            </div>
-        </div>
-
         <!-- Bottom Info Area -->
         <div class="unified-player-info">
-            <!-- Author Row -->
-            <div class="player-author-row">
-                <div class="player-author-info">
+            <!-- First Row: Author and Control Buttons -->
+            <div class="player-row-1">
+                <!-- Left: Author -->
+                <div class="player-author-section">
                     <img id="unifiedAuthorAvatarSmall" class="player-author-avatar-small" src="/static/default-avatar.svg" alt="">
                     <span class="player-author-name" id="unifiedAuthorName">@用户名</span>
-                    <span class="player-separator">·</span>
-                    <span class="player-time" id="unifiedPublishTime">2小时前</span>
+                </div>
+
+                <!-- Right: Control Buttons -->
+                <div class="player-control-buttons">
+                    <!-- Like Button -->
+                    <div class="player-btn-inline">
+                        <button class="player-control-btn-transparent" id="likeBtn" onclick="toggleLike()">
+                            <i class="bi bi-heart"></i>
+                        </button>
+                        <span class="player-btn-count" id="likeCount">0</span>
+                    </div>
+
+                    <!-- Favorite Button -->
+                    <div class="player-btn-inline">
+                        <button class="player-control-btn-transparent" id="favoriteBtn" onclick="toggleFavorite()">
+                            <i class="bi bi-star"></i>
+                        </button>
+                        <span class="player-btn-count" id="favoriteCount">0</span>
+                    </div>
+
+                    <!-- Volume Control -->
+                    <div class="player-control-group-bottom">
+                        <button class="player-control-btn-transparent" id="volumeBtn" onclick="toggleVolumePanel()">
+                            <i class="bi bi-volume-up-fill"></i>
+                        </button>
+                        <div class="player-volume-panel-bottom" id="volumePanel" style="display: none;">
+                            <input type="range" id="volumeSlider" min="0" max="100" value="100"
+                                   oninput="setVolume(this.value)">
+                            <button class="player-mute-btn" onclick="toggleMute()">
+                                <i class="bi bi-volume-mute-fill"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Playback Rate Control -->
+                    <div class="player-control-group-bottom">
+                        <button class="player-control-btn-transparent" id="rateBtn" onclick="toggleRatePanel()">
+                            <span id="currentRate">1x</span>
+                        </button>
+                        <div class="player-rate-panel-bottom" id="ratePanel" style="display: none;">
+                            <button onclick="setPlaybackRate(0.5)">0.5x</button>
+                            <button onclick="setPlaybackRate(0.75)">0.75x</button>
+                            <button onclick="setPlaybackRate(1)" class="active">1x</button>
+                            <button onclick="setPlaybackRate(1.25)">1.25x</button>
+                            <button onclick="setPlaybackRate(1.5)">1.5x</button>
+                            <button onclick="setPlaybackRate(2)">2x</button>
+                        </div>
+                    </div>
+
+                    <!-- Download Button -->
+                    <button class="player-control-btn-transparent" onclick="downloadCurrentVideo()">
+                        <i class="bi bi-download"></i>
+                    </button>
+
+                    <!-- Music Button -->
+                    <button class="player-control-btn-transparent" id="musicBtn" onclick="toggleMusicPanel()">
+                        <i class="bi bi-music-note-beamed"></i>
+                    </button>
                 </div>
             </div>
 
-            <!-- Description -->
-            <div class="player-desc" id="unifiedVideoDesc">视频描述</div>
-
-            <!-- Detailed Stats -->
-            <div class="player-stats-row">
-                <div class="player-stat">
-                    <i class="bi bi-heart-fill"></i>
-                    <span id="unifiedLikeCountStat">1.2w</span>
-                    <span class="stat-label">点赞</span>
-                </div>
-                <div class="player-stat">
-                    <i class="bi bi-chat-fill"></i>
-                    <span id="unifiedCommentCountStat">342</span>
-                    <span class="stat-label">评论</span>
-                </div>
-                <div class="player-stat">
-                    <i class="bi bi-share-fill"></i>
-                    <span id="unifiedShareCountStat">89</span>
-                    <span class="stat-label">分享</span>
-                </div>
-            </div>
-
-            <!-- Music Info -->
-            <div class="player-music">
-                <i class="bi bi-music-note-beamed"></i>
-                <span id="unifiedMusicInfo">背景音乐</span>
-            </div>
-
-            <!-- Video Progress Bar -->
-            <div class="video-progress-container">
+            <!-- Second Row: Progress Bar -->
+            <div class="player-row-2">
                 <div class="video-progress-bar" id="unifiedProgressBar">
                     <div class="video-progress-fill" id="unifiedProgressFill"></div>
                     <div class="video-progress-thumb" id="unifiedProgressThumb"></div>
                 </div>
                 <div class="video-time-info">
                     <span id="unifiedCurrentTime">0:00</span>
+                    <span>/</span>
                     <span id="unifiedDuration">0:00</span>
+                </div>
+            </div>
+
+            <!-- Third Row: Description -->
+            <div class="player-row-3">
+                <div class="player-desc" id="unifiedVideoDesc">视频描述</div>
+            </div>
+        </div>
+
+        <!-- Music Panel (Popup) -->
+        <div class="player-music-panel" id="playerMusicPanel" style="display: none;">
+            <div class="music-panel-header">
+                <h5><i class="bi bi-music-note-beamed"></i> 音乐</h5>
+                <button onclick="toggleMusicPanel()"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="music-panel-body">
+                <div class="music-info">
+                    <div class="music-title" id="unifiedMusicTitle">背景音乐</div>
+                    <div class="music-author" id="unifiedMusicAuthor"></div>
+                </div>
+                <div class="music-controls">
+                    <audio id="musicPlayer" controls style="width: 100%;"></audio>
+                </div>
+                <div class="music-actions">
+                    <button class="btn btn-sm btn-outline-light" onclick="downloadMusic()">
+                        <i class="bi bi-download"></i> 下载音乐
+                    </button>
                 </div>
             </div>
         </div>
