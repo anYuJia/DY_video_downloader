@@ -116,6 +116,8 @@ async function loadRecommendedFeed(count = LOAD_MORE_COUNT) {
         updateStatus('ready', '就绪');
     } finally {
         isLoadingMore = false;
+        // 重置连续下滑计数
+        window.continuousScrollCount = 0;
     }
 }
 
@@ -1791,12 +1793,20 @@ function playNextUnifiedVideo() {
         unifiedPlayerState.currentIndex++;
         unifiedPlayerState.currentVideo = unifiedPlayerState.videos[unifiedPlayerState.currentIndex];
         renderUnifiedCurrentVideo();
+        // 重置连续下滑计数
+        if (typeof window.continuousScrollCount !== 'undefined') {
+            window.continuousScrollCount = 0;
+        }
     } else {
-        // 已经在最后一个视频，无法继续切换
+        // 已经在最后一个视频
         if (!hasMoreRecommended) {
             showToast('已经是最后一个视频', 'info');
         } else if (isLoadingMore) {
-            showToast('正在加载更多视频，请稍候...', 'info');
+            // 用户在最后一个视频还继续下滑，才提示正在加载
+            window.continuousScrollCount = (window.continuousScrollCount || 0) + 1;
+            if (window.continuousScrollCount === 1) {
+                showToast('正在加载更多视频，请稍候...', 'info');
+            }
         }
     }
 }
