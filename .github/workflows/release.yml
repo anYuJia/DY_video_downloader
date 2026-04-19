@@ -52,6 +52,10 @@ jobs:
             label: macos-arm64
             asset_suffix: macos-arm64
             archive_ext: tar.gz
+          - runner: macos-13
+            label: macos-intel
+            asset_suffix: macos-intel
+            archive_ext: tar.gz
 
     steps:
       - name: Checkout
@@ -98,30 +102,59 @@ jobs:
         shell: bash
         run: pyinstaller build.spec --clean --noconfirm
 
-      - name: Package build (Unix)
-        if: runner.os != 'Windows'
+      - name: Prepare macOS .app for distribution
+        if: runner.os == 'macOS'
         shell: bash
+        env:
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME}"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            version="${{ inputs.tag_name }}"
+
+          # 检查 .app 是否创建成功
+          if [ ! -d "dist/DY Video Downloader.app" ]; then
+            echo "Error: DY Video Downloader.app not found in dist/"
+            ls -la dist/
+            exit 1
           fi
-          asset_name="${APP_NAME}-${version}-${{ matrix.asset_suffix }}"
-          tar -C dist -czf "${asset_name}.tar.gz" "${APP_NAME}"
+
+          # 创建压缩包
+          arch="${{ matrix.asset_suffix == 'macos-arm64' && 'arm64' || 'intel' }}"
+          asset_name="DY-Video-Downloader-${TAG_NAME}-macos-${arch}"
+          tar -C dist -czf "${asset_name}.tar.gz" "DY Video Downloader.app"
+          echo "ASSET_FILE=${asset_name}.tar.gz" >> "$GITHUB_ENV"
+          echo "Created: ${asset_name}.tar.gz"
+          ls -lh "${asset_name}.tar.gz"
+
+      - name: Package build (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+          asset_name="DY-Video-Downloader-${TAG_NAME}-linux-x64"
+          tar -C dist -czf "${asset_name}.tar.gz" "douyin_downloader"
           echo "ASSET_FILE=${asset_name}.tar.gz" >> "$GITHUB_ENV"
 
       - name: Package build (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
         run: |
-          $version = "${env:GITHUB_REF_NAME}"
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $version = "${{ inputs.tag_name }}"
+          # 检查 exe 是否创建成功
+          if (!(Test-Path "dist\DY Video Downloader.exe")) {
+            Write-Error "Error: DY Video Downloader.exe not found in dist\"
+            Get-ChildItem dist\
+            exit 1
           }
-          $assetName = "${env:APP_NAME}-$version-${{ matrix.asset_suffix }}"
-          Compress-Archive -Path "dist/${env:APP_NAME}" -DestinationPath "$assetName.zip" -Force
+
+          # 打包单文件 exe
+          $assetName = "DY-Video-Downloader-${env:TAG_NAME}-windows-x64"
+          Compress-Archive -Path "dist\DY Video Downloader.exe" -DestinationPath "$assetName.zip" -Force
           "ASSET_FILE=$assetName.zip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Created: $assetName.zip"
+          Get-Item "$assetName.zip"
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
