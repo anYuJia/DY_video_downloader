@@ -158,7 +158,7 @@ jobs:
 
           # 创建安装包
           $installerName = "DY-Video-Downloader-${env:TAG_NAME}-windows-x64-installer"
-          $nsisScript = Join-Path $PWD "build/windows_installer.nsi"
+          $nsisScript = "build/windows_installer.nsi"
 
           if (Test-Path $nsisScript) {
             # 更新 NSIS 脚本中的版本号
@@ -171,7 +171,7 @@ jobs:
             makensis $nsisScript
 
             # 重命名安装包
-            $installerPath = Join-Path $PWD "dist/DY_Video_Downloader_Setup_v${env:TAG_NAME}.exe"
+            $installerPath = "dist/DY_Video_Downloader_Setup_v${env:TAG_NAME}.exe"
             if (Test-Path $installerPath) {
               Move-Item $installerPath "${installerName}.exe" -Force
               Write-Host "Created installer: ${installerName}.exe"
@@ -180,6 +180,7 @@ jobs:
             }
           } else {
             Write-Warning "NSIS script not found at $nsisScript, skipping installer..."
+            Get-ChildItem "build/" -ErrorAction SilentlyContinue
           }
 
           Get-ChildItem "$portableName.zip"
