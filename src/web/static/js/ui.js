@@ -159,7 +159,8 @@ function hideAllSections(fromCache) {
         'userVideosSection',
         'likedVideosSection',
         'likedAuthorsSection',
-        'linkParseResult'
+        'linkParseResult',
+        'recommendedFeedSection'  // 添加推荐视频区域
     ];
 
     sections.forEach(sectionId => {
@@ -172,7 +173,7 @@ function hideAllSections(fromCache) {
     if (emptyState) emptyState.style.display = 'flex';
 
     const parsedVideosList = document.getElementById('parsedVideosList');
-    if (parsedVideosList) parsedVideosList.innerHTML = '';
+    if (parsedVideosList) parsedVideosList.textContent = '';
 
     if (typeof LikedDataCache !== 'undefined' && !fromCache) {
         LikedDataCache.currentDisplayType = null;

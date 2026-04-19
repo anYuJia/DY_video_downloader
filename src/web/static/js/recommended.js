@@ -26,10 +26,18 @@ const LOAD_MORE_COUNT = 20;    // 每次加载更多数量
 async function showRecommendedFeed() {
     console.log('[showRecommendedFeed] 开始加载推荐视频');
 
-    // 隐藏其他区域
-    document.getElementById('emptyState').style.display = 'none';
-    document.getElementById('linkParseResult').style.display = 'none';
-    document.getElementById('userDetailSection').style.display = 'none';
+    // 隐藏其他所有区域
+    if (typeof hideAllSections === 'function') {
+        hideAllSections();
+    } else {
+        // 备用方案
+        document.getElementById('emptyState').style.display = 'none';
+        document.getElementById('linkParseResult').style.display = 'none';
+        document.getElementById('userDetailSection').style.display = 'none';
+        document.getElementById('userVideosSection').style.display = 'none';
+        document.getElementById('likedVideosSection').style.display = 'none';
+        document.getElementById('likedAuthorsSection').style.display = 'none';
+    }
 
     // 显示推荐视频区域
     const section = document.getElementById('recommendedFeedSection');
