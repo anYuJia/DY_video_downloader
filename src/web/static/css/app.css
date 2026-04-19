@@ -259,6 +259,21 @@ body::before {
     padding: 0 14px;
 }
 
+.btn-recommended {
+    padding: 0 14px;
+    background: rgba(254, 44, 85, 0.15);
+    border-color: rgba(254, 44, 85, 0.3);
+}
+
+.btn-recommended:hover {
+    background: rgba(254, 44, 85, 0.25);
+    border-color: rgba(254, 44, 85, 0.5);
+}
+
+.btn-recommended i {
+    color: #fe2c55;
+}
+
 .history-badge {
     position: absolute;
     top: 2px;

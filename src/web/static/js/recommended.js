@@ -26,18 +26,20 @@ const LOAD_MORE_COUNT = 20;    // 每次加载更多数量
 async function showRecommendedFeed() {
     console.log('[showRecommendedFeed] 显示推荐视频界面');
 
-    // 隐藏其他所有区域
-    if (typeof hideAllSections === 'function') {
-        hideAllSections();
-    } else {
-        // 备用方案
-        document.getElementById('emptyState').style.display = 'none';
-        document.getElementById('linkParseResult').style.display = 'none';
-        document.getElementById('userDetailSection').style.display = 'none';
-        document.getElementById('userVideosSection').style.display = 'none';
-        document.getElementById('likedVideosSection').style.display = 'none';
-        document.getElementById('likedAuthorsSection').style.display = 'none';
-    }
+    // 隐藏所有区域（包括主页）
+    const sections = [
+        'emptyState',  // 主页
+        'userDetailSection',
+        'userVideosSection',
+        'likedVideosSection',
+        'likedAuthorsSection',
+        'linkParseResult'
+    ];
+
+    sections.forEach(sectionId => {
+        const element = document.getElementById(sectionId);
+        if (element) element.style.display = 'none';
+    });
 
     // 显示推荐视频区域
     const section = document.getElementById('recommendedFeedSection');
