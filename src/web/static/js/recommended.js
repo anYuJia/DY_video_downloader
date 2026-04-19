@@ -1593,9 +1593,22 @@ function setupUnifiedPlayerGestures() {
         }
     }, { passive: true });
 
-    // Mouse wheel
+    // Mouse wheel - 添加防抖
+    let lastWheelTime = 0;
+    const WHEEL_THROTTLE = 500; // 500ms内的滚轮事件只响应一次
+
     container.addEventListener('wheel', (e) => {
+        const now = Date.now();
+
+        // 防抖：如果在冷却时间内，忽略滚轮事件
+        if (now - lastWheelTime < WHEEL_THROTTLE) {
+            e.preventDefault();
+            return;
+        }
+
         e.preventDefault();
+        lastWheelTime = now;
+
         if (e.deltaY > 0) {
             playNextUnifiedVideo();
         } else {
