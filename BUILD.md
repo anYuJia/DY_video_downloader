@@ -11,10 +11,15 @@
   - `intel`: Intel-based Mac
 
 ### Windows
-- **格式**: 单文件 `.exe`
-- **文件名**: `DY Video Downloader.exe`
-- **分发包**: `DY-Video-Downloader-{version}-windows-x64.zip`
-- **安装**: 解压后直接运行，无需安装
+- **格式**:
+  - **便携包**: 单文件 `.exe`，解压即用
+  - **安装包**: NSIS 安装程序，带卸载功能
+- **文件名**:
+  - 便携包: `DY-Video-Downloader-{version}-windows-x64-portable.zip`
+  - 安装包: `DY-Video-Downloader-{version}-windows-x64-installer.exe`
+- **使用**:
+  - 便携包: 解压后双击 `DY Video Downloader.exe` 运行
+  - 安装包: 双击安装，自动创建桌面快捷方式和开始菜单
 
 ### Linux
 - **格式**: 文件夹
