@@ -1179,11 +1179,26 @@ function openUnifiedPlayer(awemeId) {
 function closeUnifiedPlayer() {
     unifiedPlayerState.isOpen = false;
 
+    // 停止并清理视频元素
     if (unifiedPlayerState.videoElement) {
         unifiedPlayerState.videoElement.pause();
         unifiedPlayerState.videoElement.src = '';
         unifiedPlayerState.videoElement = null;
     }
+
+    // 清空视频容器中的所有内容
+    const wrapper = document.getElementById('unifiedVideoSlidesWrapper');
+    if (wrapper) {
+        // 停止所有视频元素
+        wrapper.querySelectorAll('video').forEach(v => {
+            v.pause();
+            v.src = '';
+        });
+        wrapper.innerHTML = '';
+    }
+
+    // 移除键盘事件监听
+    document.removeEventListener('keydown', handleUnifiedKeydown);
 
     const volumePanel = document.getElementById('volumePanel');
     const ratePanel = document.getElementById('ratePanel');
@@ -1204,6 +1219,14 @@ function renderUnifiedCurrentVideo() {
         return;
     }
 
+    // 停止并清理之前的视频
+    if (unifiedPlayerState.videoElement) {
+        unifiedPlayerState.videoElement.pause();
+        unifiedPlayerState.videoElement.src = '';
+        unifiedPlayerState.videoElement = null;
+    }
+
+    // 清空容器
     wrapper.innerHTML = '';
 
     const video = unifiedPlayerState.currentVideo;
@@ -1242,7 +1265,21 @@ function renderUnifiedCurrentVideo() {
         console.log('[renderUnifiedCurrentVideo] 视频元数据加载成功');
         unifiedPlayerState.videoElement = videoEl;
         setupUnifiedVideoProgress(videoEl);
-        videoEl.play().catch(e => console.log('Autoplay prevented:', e));
+
+        // 尝试自动播放，如果失败则显示播放按钮
+        videoEl.play().catch(e => {
+            console.log('Autoplay prevented, user interaction required:', e);
+            // 如果自动播放失败，添加点击播放提示
+            const playHint = document.createElement('div');
+            playHint.className = 'player-play-hint';
+            playHint.innerHTML = '<i class="bi bi-play-circle-fill"></i><p>点击播放</p>';
+            playHint.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:48px;cursor:pointer;z-index:10;';
+            playHint.onclick = () => {
+                videoEl.play();
+                playHint.remove();
+            };
+            slide.appendChild(playHint);
+        });
     });
 
     videoEl.addEventListener('error', (e) => {
