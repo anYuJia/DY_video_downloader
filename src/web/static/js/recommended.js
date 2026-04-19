@@ -1162,6 +1162,10 @@ function updateUnifiedPlayerInfo() {
     const musicTitleEl = document.getElementById('unifiedMusicTitle');
     const musicAuthorEl = document.getElementById('unifiedMusicAuthor');
     const musicPlayerEl = document.getElementById('musicPlayer');
+    const musicUnavailableHint = document.getElementById('musicUnavailableHint');
+    const musicDownloadBtn = document.querySelector('.music-actions button');
+
+    const musicUrl = music.play_url || video.bgm_url;
 
     if (musicTitleEl) {
         musicTitleEl.textContent = music.title || '背景音乐';
@@ -1169,8 +1173,24 @@ function updateUnifiedPlayerInfo() {
     if (musicAuthorEl) {
         musicAuthorEl.textContent = music.author || '';
     }
-    if (musicPlayerEl && (music.play_url || video.bgm_url)) {
-        musicPlayerEl.src = '/api/media/proxy?url=' + encodeURIComponent(music.play_url || video.bgm_url);
+
+    if (musicPlayerEl) {
+        if (musicUrl) {
+            musicPlayerEl.src = '/api/media/proxy?url=' + encodeURIComponent(musicUrl);
+            musicPlayerEl.style.display = 'block';
+        } else {
+            musicPlayerEl.style.display = 'none';
+        }
+    }
+
+    // 显示/隐藏不可用提示
+    if (musicUnavailableHint) {
+        musicUnavailableHint.style.display = musicUrl ? 'none' : 'block';
+    }
+
+    // 如果没有音乐URL，隐藏下载按钮
+    if (musicDownloadBtn) {
+        musicDownloadBtn.style.display = musicUrl ? 'inline-block' : 'none';
     }
 }
 
