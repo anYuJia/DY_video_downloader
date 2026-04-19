@@ -81,12 +81,17 @@ async function loadRecommendedFeed(count = LOAD_MORE_COUNT) {
             const previousCount = recommendedVideos.length;
             const newVideos = data.videos || [];
 
-            // 合并新视频
-            recommendedVideos = recommendedVideos.concat(newVideos);
+            // 合并新视频 - 使用push保持数组引用
+            newVideos.forEach(v => recommendedVideos.push(v));
             recommendedCursor = data.cursor;
             hasMoreRecommended = data.has_more;
 
             console.log('[loadRecommendedFeed] 总视频数:', recommendedVideos.length, '新增:', newVideos.length);
+
+            // 如果播放器打开，更新播放器状态中的视频列表引用
+            if (unifiedPlayerState.isOpen && unifiedPlayerState.source === 'recommended') {
+                console.log('[loadRecommendedFeed] 播放器打开中，视频列表已自动更新，新总数:', unifiedPlayerState.videos.length);
+            }
 
             // 如果是从推荐卡片页面加载，显示卡片
             if (!isPlayerOpen) {
@@ -901,7 +906,8 @@ let unifiedPlayerState = {
     isMuted: false,
     volume: 1.0,
     playbackRate: 1.0,
-    source: 'recommended'
+    source: 'recommended',
+    mediaIndex: 0  // 当前作品内的媒体索引
 };
 
 // Volume Control
@@ -1163,7 +1169,8 @@ function openUnifiedPlayer(awemeId) {
         isMuted: false,
         volume: 1.0,
         playbackRate: 1.0,
-        source: 'recommended'
+        source: 'recommended',
+        mediaIndex: 0
     };
 
     const player = document.getElementById('unifiedPlayer');
@@ -1219,10 +1226,18 @@ function renderUnifiedCurrentVideo() {
         return;
     }
 
-    // 停止并清理之前的视频
+    // 先停止并移除所有现有的视频元素
+    wrapper.querySelectorAll('video').forEach(v => {
+        v.pause();
+        v.removeAttribute('src'); // 使用removeAttribute而不是直接设置src=''
+        v.load(); // 重置视频元素
+    });
+
+    // 停止状态中的视频元素
     if (unifiedPlayerState.videoElement) {
-        unifiedPlayerState.videoElement.pause();
-        unifiedPlayerState.videoElement.src = '';
+        try {
+            unifiedPlayerState.videoElement.pause();
+        } catch (e) {}
         unifiedPlayerState.videoElement = null;
     }
 
@@ -1234,6 +1249,9 @@ function renderUnifiedCurrentVideo() {
         console.error('[renderUnifiedCurrentVideo] 当前视频为空');
         return;
     }
+
+    // 重置媒体索引
+    unifiedPlayerState.mediaIndex = 0;
 
     const videoData = video.video || {};
     const playAddr = videoData.play_addr;
@@ -1289,8 +1307,18 @@ function renderUnifiedCurrentVideo() {
     });
 
     slide.appendChild(videoEl);
-    wrapper.appendChild(slide);
 
+    // 添加点击事件：暂停/播放
+    slide.onclick = (e) => {
+        // 避免点击播放提示时触发
+        if (e.target.closest('.player-play-hint')) return;
+
+        if (unifiedPlayerState.videoElement) {
+            toggleUnifiedVideoPlay();
+        }
+    };
+
+    wrapper.appendChild(slide);
     updateUnifiedPlayerInfo();
 }
 
@@ -1390,38 +1418,196 @@ function setupUnifiedPlayerGestures() {
 function handleUnifiedKeydown(e) {
     if (!unifiedPlayerState.isOpen) return;
 
-    switch (e.key) {
-        case 'ArrowUp':
-        case 'ArrowLeft':
-            playPrevUnifiedVideo();
-            break;
-        case 'ArrowDown':
-        case 'ArrowRight':
-            playNextUnifiedVideo();
-            break;
-        case ' ':
-            e.preventDefault();
-            if (unifiedPlayerState.videoElement) {
-                if (unifiedPlayerState.videoElement.paused) {
-                    unifiedPlayerState.videoElement.play();
-                } else {
-                    unifiedPlayerState.videoElement.pause();
-                }
-            }
-            break;
-        case 'Escape':
-            closeUnifiedPlayer();
-            break;
+    // 完全参考沉浸式播放器的实现
+    if (e.key === 'Escape') closeUnifiedPlayer();
+    if (e.key === 'ArrowLeft') { e.preventDefault(); playPrevMedia(); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); playNextMedia(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); playPrevUnifiedVideo(); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); playNextUnifiedVideo(); }
+    if (e.key === ' ') { e.preventDefault(); toggleUnifiedVideoPlay(); }
+}
+
+// 切换暂停/播放
+function toggleUnifiedVideoPlay() {
+    const video = unifiedPlayerState.videoElement;
+    if (video) {
+        if (video.paused) {
+            video.play();
+        } else {
+            video.pause();
+        }
     }
 }
 
+// 切换到下一个媒体（如果当前作品有多个图片/视频）
+function playNextMedia() {
+    const video = unifiedPlayerState.currentVideo;
+    if (!video) return;
+
+    // 收集当前作品的所有媒体
+    const mediaUrls = [];
+    const videoData = video.video || {};
+
+    if (videoData.play_addr) {
+        mediaUrls.push({ type: 'video', url: videoData.play_addr });
+    }
+    if (videoData.images && videoData.images.length > 0) {
+        videoData.images.forEach(img => {
+            mediaUrls.push({ type: 'image', url: img });
+        });
+    }
+
+    // 如果只有一个媒体或没有媒体，切换到下一个作品
+    if (mediaUrls.length <= 1) {
+        playNextUnifiedVideo();
+        return;
+    }
+
+    // 切换到下一个媒体
+    const currentMediaIndex = unifiedPlayerState.mediaIndex || 0;
+    if (currentMediaIndex < mediaUrls.length - 1) {
+        unifiedPlayerState.mediaIndex = currentMediaIndex + 1;
+        renderCurrentMedia(mediaUrls[unifiedPlayerState.mediaIndex]);
+        showToast(`媒体 ${unifiedPlayerState.mediaIndex + 1}/${mediaUrls.length}`, 'info');
+    } else {
+        // 已经是最后一个媒体，切换到下一个作品
+        playNextUnifiedVideo();
+    }
+}
+
+// 切换到上一个媒体
+function playPrevMedia() {
+    const video = unifiedPlayerState.currentVideo;
+    if (!video) return;
+
+    // 收集当前作品的所有媒体
+    const mediaUrls = [];
+    const videoData = video.video || {};
+
+    if (videoData.play_addr) {
+        mediaUrls.push({ type: 'video', url: videoData.play_addr });
+    }
+    if (videoData.images && videoData.images.length > 0) {
+        videoData.images.forEach(img => {
+            mediaUrls.push({ type: 'image', url: img });
+        });
+    }
+
+    // 如果只有一个媒体或没有媒体，切换到上一个作品
+    if (mediaUrls.length <= 1) {
+        playPrevUnifiedVideo();
+        return;
+    }
+
+    // 切换到上一个媒体
+    const currentMediaIndex = unifiedPlayerState.mediaIndex || 0;
+    if (currentMediaIndex > 0) {
+        unifiedPlayerState.mediaIndex = currentMediaIndex - 1;
+        renderCurrentMedia(mediaUrls[unifiedPlayerState.mediaIndex]);
+        showToast(`媒体 ${unifiedPlayerState.mediaIndex + 1}/${mediaUrls.length}`, 'info');
+    } else {
+        // 已经是第一个媒体，切换到上一个作品
+        playPrevUnifiedVideo();
+    }
+}
+
+// 渲染当前媒体
+function renderCurrentMedia(media) {
+    const wrapper = document.getElementById('unifiedVideoSlidesWrapper');
+    if (!wrapper) return;
+
+    // 停止并移除所有现有的视频元素
+    wrapper.querySelectorAll('video').forEach(v => {
+        v.pause();
+        v.removeAttribute('src');
+        v.load();
+    });
+
+    if (unifiedPlayerState.videoElement) {
+        try {
+            unifiedPlayerState.videoElement.pause();
+        } catch (e) {}
+        unifiedPlayerState.videoElement = null;
+    }
+
+    wrapper.innerHTML = '';
+
+    const slide = document.createElement('div');
+    slide.className = 'video-slide active';
+
+    if (media.type === 'video') {
+        const videoEl = document.createElement('video');
+        videoEl.className = 'video-element';
+        videoEl.src = '/api/media/proxy?url=' + encodeURIComponent(media.url);
+        videoEl.loop = true;
+        videoEl.playsInline = true;
+        videoEl.muted = unifiedPlayerState.isMuted;
+        videoEl.volume = unifiedPlayerState.volume;
+        videoEl.playbackRate = unifiedPlayerState.playbackRate;
+
+        videoEl.addEventListener('loadedmetadata', () => {
+            unifiedPlayerState.videoElement = videoEl;
+            setupUnifiedVideoProgress(videoEl);
+            videoEl.play().catch(e => {
+                const playHint = document.createElement('div');
+                playHint.className = 'player-play-hint';
+                playHint.innerHTML = '<i class="bi bi-play-circle-fill"></i><p>点击播放</p>';
+                playHint.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:48px;cursor:pointer;z-index:10;';
+                playHint.onclick = () => {
+                    videoEl.play();
+                    playHint.remove();
+                };
+                slide.appendChild(playHint);
+            });
+        });
+
+        videoEl.addEventListener('error', (e) => {
+            console.error('视频加载失败:', e);
+        });
+
+        slide.appendChild(videoEl);
+    } else if (media.type === 'image') {
+        const img = document.createElement('img');
+        img.className = 'video-element';
+        img.src = '/api/media/proxy?url=' + encodeURIComponent(media.url);
+        img.alt = '图片';
+        img.style.cssText = 'max-width:100%;max-height:100vh;object-fit:contain;';
+
+        slide.appendChild(img);
+        unifiedPlayerState.videoElement = null;
+    }
+
+    wrapper.appendChild(slide);
+
+    // 添加点击事件
+    slide.onclick = () => {
+        if (unifiedPlayerState.videoElement) {
+            toggleUnifiedVideoPlay();
+        }
+    };
+}
+
 function playNextUnifiedVideo() {
+    // 如果接近最后一个视频（剩余3个或更少），自动加载更多
+    const remaining = unifiedPlayerState.videos.length - unifiedPlayerState.currentIndex - 1;
+
+    // 只在还有视频可切换时才考虑预加载
+    if (remaining <= 3 && remaining > 0 && unifiedPlayerState.source === 'recommended' && hasMoreRecommended && !isLoadingMore) {
+        console.log('[playNextUnifiedVideo] 自动加载更多视频, 当前剩余:', remaining, '总视频数:', unifiedPlayerState.videos.length);
+        loadMoreRecommendedFeed();
+    }
+
     if (unifiedPlayerState.currentIndex < unifiedPlayerState.videos.length - 1) {
         unifiedPlayerState.currentIndex++;
         unifiedPlayerState.currentVideo = unifiedPlayerState.videos[unifiedPlayerState.currentIndex];
         renderUnifiedCurrentVideo();
     } else {
-        showToast('已经是最后一个视频', 'info');
+        // 已经在最后一个视频，无法继续切换
+        if (!hasMoreRecommended) {
+            showToast('已经是最后一个视频', 'info');
+        } else if (isLoadingMore) {
+            showToast('正在加载更多视频，请稍候...', 'info');
+        }
     }
 }
 
