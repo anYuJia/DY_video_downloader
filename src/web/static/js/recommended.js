@@ -1199,15 +1199,24 @@ function closeUnifiedPlayer() {
 // Render current video in unified player
 function renderUnifiedCurrentVideo() {
     const wrapper = document.getElementById('unifiedVideoSlidesWrapper');
-    if (!wrapper) return;
+    if (!wrapper) {
+        console.error('[renderUnifiedCurrentVideo] 找不到wrapper元素');
+        return;
+    }
 
     wrapper.innerHTML = '';
 
     const video = unifiedPlayerState.currentVideo;
-    if (!video) return;
+    if (!video) {
+        console.error('[renderUnifiedCurrentVideo] 当前视频为空');
+        return;
+    }
 
     const videoData = video.video || {};
     const playAddr = videoData.play_addr;
+
+    console.log('[renderUnifiedCurrentVideo] 视频ID:', video.aweme_id);
+    console.log('[renderUnifiedCurrentVideo] 播放地址:', playAddr);
 
     if (!playAddr) {
         wrapper.innerHTML = '<div class="player-loading"><i class="bi bi-exclamation-circle"></i><p>视频不可用</p></div>';
@@ -1219,8 +1228,10 @@ function renderUnifiedCurrentVideo() {
 
     const videoEl = document.createElement('video');
     videoEl.className = 'video-element';
-    videoEl.src = playAddr;
-    videoEl.poster = videoData.cover || '';
+
+    // 使用代理URL避免CORS问题
+    videoEl.src = '/api/media/proxy?url=' + encodeURIComponent(playAddr);
+    videoEl.poster = videoData.cover ? '/api/media/proxy?url=' + encodeURIComponent(videoData.cover) : '';
     videoEl.loop = true;
     videoEl.playsInline = true;
     videoEl.muted = unifiedPlayerState.isMuted;
@@ -1228,13 +1239,16 @@ function renderUnifiedCurrentVideo() {
     videoEl.playbackRate = unifiedPlayerState.playbackRate;
 
     videoEl.addEventListener('loadedmetadata', () => {
+        console.log('[renderUnifiedCurrentVideo] 视频元数据加载成功');
         unifiedPlayerState.videoElement = videoEl;
         setupUnifiedVideoProgress(videoEl);
         videoEl.play().catch(e => console.log('Autoplay prevented:', e));
     });
 
-    videoEl.addEventListener('error', () => {
-        slide.innerHTML = '<div class="player-loading"><i class="bi bi-exclamation-circle"></i><p>视频加载失败</p></div>';
+    videoEl.addEventListener('error', (e) => {
+        console.error('[renderUnifiedCurrentVideo] 视频加载失败:', e);
+        console.error('[renderUnifiedCurrentVideo] 错误详情:', videoEl.error);
+        slide.innerHTML = '<div class="player-loading"><i class="bi bi-exclamation-circle"></i><p>视频加载失败</p><p class="small text-muted">请检查网络连接或CORS设置</p></div>';
     });
 
     slide.appendChild(videoEl);
