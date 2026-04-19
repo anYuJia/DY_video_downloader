@@ -52,10 +52,6 @@ jobs:
             label: macos-arm64
             asset_suffix: macos-arm64
             archive_ext: tar.gz
-          - runner: macos-13
-            label: macos-intel
-            asset_suffix: macos-intel
-            archive_ext: tar.gz
 
     steps:
       - name: Checkout
