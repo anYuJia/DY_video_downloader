@@ -145,7 +145,7 @@ function createRecommendedVideoCard(video) {
 
     col.innerHTML =
         '<div class="card h-100 video-card" data-aweme-id="' + video.aweme_id + '">' +
-        '<div class="position-relative video-cover-container" onclick="openFullscreenPlayer(\'' + video.aweme_id + '\')">' +
+        '<div class="position-relative video-cover-container" onclick="openUnifiedPlayer(\'' + video.aweme_id + '\')">' +
         '<img src="' + coverUrl + '" class="card-img-top video-cover" alt="封面" loading="lazy" onerror="this.src=\'/static/default-cover.svg\'">' +
         '<i class="bi bi-play-circle-fill video-play-icon"></i>' +
         '<div class="video-overlay"><div class="video-stats">' +
@@ -161,7 +161,7 @@ function createRecommendedVideoCard(video) {
         (createTime ? '<div class="text-muted small video-date">' + createTime + '</div>' : '') +
         '<div class="video-actions">' +
         '<button class="btn btn-sm btn-outline-primary video-btn" onclick="event.stopPropagation();downloadRecommendedVideo(\'' + video.aweme_id + '\')"><i class="bi bi-download"></i></button>' +
-        '<button class="btn btn-sm btn-outline-success video-btn" onclick="event.stopPropagation();openFullscreenPlayer(\'' + video.aweme_id + '\')"><i class="bi bi-play-circle"></i></button>' +
+        '<button class="btn btn-sm btn-outline-success video-btn" onclick="event.stopPropagation();openUnifiedPlayer(\'' + video.aweme_id + '\')"><i class="bi bi-play-circle"></i></button>' +
         '</div></div></div>';
 
     return col;
@@ -887,3 +887,509 @@ function formatNumber(num) {
     }
     return num.toString();
 }
+
+// ═══════════════════════════════════════════════
+// Unified Video Player Core Logic
+// ═══════════════════════════════════════════════
+
+let unifiedPlayerState = {
+    currentIndex: 0,
+    isOpen: false,
+    videos: [],
+    currentVideo: null,
+    videoElement: null,
+    isMuted: false,
+    volume: 1.0,
+    playbackRate: 1.0,
+    source: 'recommended'
+};
+
+// Volume Control
+function toggleVolumePanel() {
+    const panel = document.getElementById('volumePanel');
+    const ratePanel = document.getElementById('ratePanel');
+    if (ratePanel) ratePanel.style.display = 'none';
+    if (panel) panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+}
+
+function setVolume(value) {
+    const video = unifiedPlayerState.videoElement;
+    if (video) {
+        video.volume = value / 100;
+        unifiedPlayerState.volume = value / 100;
+
+        const icon = document.querySelector('#volumeBtn i');
+        if (icon) {
+            if (value == 0) {
+                icon.className = 'bi bi-volume-mute-fill';
+            } else if (value < 50) {
+                icon.className = 'bi bi-volume-down-fill';
+            } else {
+                icon.className = 'bi bi-volume-up-fill';
+            }
+        }
+    }
+}
+
+function toggleMute() {
+    const video = unifiedPlayerState.videoElement;
+    if (video) {
+        video.muted = !video.muted;
+        unifiedPlayerState.isMuted = video.muted;
+
+        const slider = document.getElementById('volumeSlider');
+        const icon = document.querySelector('#volumeBtn i');
+
+        if (video.muted) {
+            if (icon) icon.className = 'bi bi-volume-mute-fill';
+            if (slider) slider.value = 0;
+        } else {
+            if (icon) icon.className = 'bi bi-volume-up-fill';
+            if (slider) slider.value = unifiedPlayerState.volume * 100;
+        }
+    }
+}
+
+// Playback Rate Control
+function toggleRatePanel() {
+    const panel = document.getElementById('ratePanel');
+    const volumePanel = document.getElementById('volumePanel');
+    if (volumePanel) volumePanel.style.display = 'none';
+    if (panel) panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+}
+
+function setPlaybackRate(rate) {
+    const video = unifiedPlayerState.videoElement;
+    if (video) {
+        video.playbackRate = rate;
+        unifiedPlayerState.playbackRate = rate;
+
+        const currentRateEl = document.getElementById('currentRate');
+        if (currentRateEl) currentRateEl.textContent = rate + 'x';
+
+        document.querySelectorAll('#ratePanel button').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.textContent === rate + 'x') {
+                btn.classList.add('active');
+            }
+        });
+    }
+}
+
+// Info Panel Toggle
+function toggleInfoPanel() {
+    const panel = document.getElementById('playerDetailPanel');
+    if (!panel) return;
+
+    if (panel.style.display === 'none') {
+        panel.style.display = 'flex';
+        setTimeout(() => panel.classList.add('show'), 10);
+        renderDetailPanel();
+    } else {
+        panel.classList.remove('show');
+        setTimeout(() => panel.style.display = 'none', 300);
+    }
+}
+
+function renderDetailPanel() {
+    const video = unifiedPlayerState.currentVideo;
+    if (!video) return;
+
+    const mediaContainer = document.getElementById('unifiedMediaUrls');
+    if (!mediaContainer) return;
+
+    mediaContainer.innerHTML = '';
+
+    const videoData = video.video || {};
+    const mediaUrls = [];
+
+    // 添加视频URL
+    if (videoData.play_addr) {
+        mediaUrls.push({ type: 'video', url: videoData.play_addr });
+    }
+
+    // 添加图片URL
+    if (videoData.images && videoData.images.length > 0) {
+        videoData.images.forEach((img, idx) => {
+            mediaUrls.push({ type: 'image', url: img });
+        });
+    }
+
+    if (mediaUrls.length > 0) {
+        mediaUrls.forEach((media, index) => {
+            const item = document.createElement('div');
+            item.className = 'media-link-item';
+
+            const badge = document.createElement('span');
+            badge.className = `badge ${media.type === 'video' ? 'bg-primary' : 'bg-success'}`;
+            badge.textContent = media.type === 'video' ? '视频' : '图片';
+
+            const link = document.createElement('a');
+            link.href = media.url;
+            link.target = '_blank';
+            link.className = 'media-link';
+            link.textContent = `媒体 ${index + 1}`;
+
+            item.appendChild(badge);
+            item.appendChild(link);
+            mediaContainer.appendChild(item);
+        });
+    } else {
+        mediaContainer.textContent = '暂无媒体链接';
+        mediaContainer.className = 'text-muted small';
+    }
+
+    // Render audio/BGM
+    const audioSection = document.getElementById('unifiedAudioSection');
+    const audioContainer = document.getElementById('unifiedAudioUrls');
+    const music = video.music || {};
+    const bgmUrl = music.play_url || video.bgm_url;
+
+    if (audioSection && audioContainer) {
+        if (bgmUrl) {
+            audioSection.style.display = 'block';
+            audioContainer.innerHTML = `
+                <audio controls src="${bgmUrl}" style="width: 100%; margin-bottom: 8px;"></audio>
+                <a href="${bgmUrl}" target="_blank" class="btn btn-sm btn-outline-light">
+                    <i class="bi bi-download"></i> 下载音频
+                </a>
+            `;
+        } else {
+            audioSection.style.display = 'none';
+        }
+    }
+}
+
+// Update unified player info
+function updateUnifiedPlayerInfo() {
+    const video = unifiedPlayerState.currentVideo;
+    if (!video) return;
+
+    const author = video.author || {};
+    const stats = video.statistics || {};
+    const music = video.music || {};
+
+    const countEl = document.getElementById('unifiedVideoCount');
+    if (countEl) {
+        countEl.textContent = `${unifiedPlayerState.currentIndex + 1}/${unifiedPlayerState.videos.length}`;
+    }
+
+    // Avatar
+    const avatarEl = document.getElementById('unifiedAuthorAvatar');
+    if (avatarEl) {
+        if (author.avatar_thumb) {
+            const img = document.createElement('img');
+            img.src = author.avatar_thumb;
+            img.alt = author.nickname || '用户';
+            img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%;';
+            avatarEl.innerHTML = '';
+            avatarEl.appendChild(img);
+        } else {
+            avatarEl.textContent = (author.nickname || '用')[0];
+        }
+    }
+
+    const avatarSmallEl = document.getElementById('unifiedAuthorAvatarSmall');
+    if (avatarSmallEl) {
+        avatarSmallEl.src = author.avatar_thumb || '/static/default-avatar.svg';
+    }
+
+    const nameEl = document.getElementById('unifiedAuthorName');
+    if (nameEl) {
+        nameEl.textContent = `@${author.nickname || '用户'}`;
+    }
+
+    const timeEl = document.getElementById('unifiedPublishTime');
+    if (timeEl) {
+        timeEl.textContent = video.create_time ? formatRelativeTime(video.create_time * 1000) : '';
+    }
+
+    const descEl = document.getElementById('unifiedVideoDesc');
+    if (descEl) {
+        descEl.textContent = video.desc || '无描述';
+    }
+
+    const likeCount = formatNumber(stats.digg_count || 0);
+    const commentCount = formatNumber(stats.comment_count || 0);
+    const shareCount = formatNumber(stats.share_count || 0);
+
+    const likeEl = document.getElementById('unifiedLikeCount');
+    const commentEl = document.getElementById('unifiedCommentCount');
+    const shareEl = document.getElementById('unifiedShareCount');
+    const likeStatEl = document.getElementById('unifiedLikeCountStat');
+    const commentStatEl = document.getElementById('unifiedCommentCountStat');
+    const shareStatEl = document.getElementById('unifiedShareCountStat');
+
+    if (likeEl) likeEl.textContent = likeCount;
+    if (commentEl) commentEl.textContent = commentCount;
+    if (shareEl) shareEl.textContent = shareCount;
+    if (likeStatEl) likeStatEl.textContent = likeCount;
+    if (commentStatEl) commentStatEl.textContent = commentCount;
+    if (shareStatEl) shareStatEl.textContent = shareCount;
+
+    const musicEl = document.getElementById('unifiedMusicInfo');
+    if (musicEl) {
+        musicEl.textContent = music.title || '原声';
+    }
+}
+
+function formatRelativeTime(timestamp) {
+    const now = Date.now();
+    const diff = now - timestamp;
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (minutes < 60) return `${minutes}分钟前`;
+    if (hours < 24) return `${hours}小时前`;
+    if (days < 30) return `${days}天前`;
+    return new Date(timestamp).toLocaleDateString();
+}
+
+// Open unified player
+function openUnifiedPlayer(awemeId) {
+    const index = recommendedVideos.findIndex(v => v.aweme_id === awemeId);
+    if (index === -1) {
+        showToast('未找到视频', 'error');
+        return;
+    }
+
+    unifiedPlayerState = {
+        currentIndex: index,
+        isOpen: true,
+        videos: recommendedVideos,
+        currentVideo: recommendedVideos[index],
+        videoElement: null,
+        isMuted: false,
+        volume: 1.0,
+        playbackRate: 1.0,
+        source: 'recommended'
+    };
+
+    const player = document.getElementById('unifiedPlayer');
+    if (player) {
+        player.style.display = 'flex';
+    }
+
+    renderUnifiedCurrentVideo();
+    setupUnifiedPlayerGestures();
+}
+
+// Close unified player
+function closeUnifiedPlayer() {
+    unifiedPlayerState.isOpen = false;
+
+    if (unifiedPlayerState.videoElement) {
+        unifiedPlayerState.videoElement.pause();
+        unifiedPlayerState.videoElement.src = '';
+        unifiedPlayerState.videoElement = null;
+    }
+
+    const volumePanel = document.getElementById('volumePanel');
+    const ratePanel = document.getElementById('ratePanel');
+    const detailPanel = document.getElementById('playerDetailPanel');
+    const player = document.getElementById('unifiedPlayer');
+
+    if (volumePanel) volumePanel.style.display = 'none';
+    if (ratePanel) ratePanel.style.display = 'none';
+    if (detailPanel) detailPanel.style.display = 'none';
+    if (player) player.style.display = 'none';
+}
+
+// Render current video in unified player
+function renderUnifiedCurrentVideo() {
+    const wrapper = document.getElementById('unifiedVideoSlidesWrapper');
+    if (!wrapper) return;
+
+    wrapper.innerHTML = '';
+
+    const video = unifiedPlayerState.currentVideo;
+    if (!video) return;
+
+    const videoData = video.video || {};
+    const playAddr = videoData.play_addr;
+
+    if (!playAddr) {
+        wrapper.innerHTML = '<div class="player-loading"><i class="bi bi-exclamation-circle"></i><p>视频不可用</p></div>';
+        return;
+    }
+
+    const slide = document.createElement('div');
+    slide.className = 'video-slide active';
+
+    const videoEl = document.createElement('video');
+    videoEl.className = 'video-element';
+    videoEl.src = playAddr;
+    videoEl.poster = videoData.cover || '';
+    videoEl.loop = true;
+    videoEl.playsInline = true;
+    videoEl.muted = unifiedPlayerState.isMuted;
+    videoEl.volume = unifiedPlayerState.volume;
+    videoEl.playbackRate = unifiedPlayerState.playbackRate;
+
+    videoEl.addEventListener('loadedmetadata', () => {
+        unifiedPlayerState.videoElement = videoEl;
+        setupUnifiedVideoProgress(videoEl);
+        videoEl.play().catch(e => console.log('Autoplay prevented:', e));
+    });
+
+    videoEl.addEventListener('error', () => {
+        slide.innerHTML = '<div class="player-loading"><i class="bi bi-exclamation-circle"></i><p>视频加载失败</p></div>';
+    });
+
+    slide.appendChild(videoEl);
+    wrapper.appendChild(slide);
+
+    updateUnifiedPlayerInfo();
+}
+
+// Setup video progress bar for unified player
+function setupUnifiedVideoProgress(video) {
+    const progressBar = document.getElementById('unifiedProgressBar');
+    const progressFill = document.getElementById('unifiedProgressFill');
+    const progressThumb = document.getElementById('unifiedProgressThumb');
+    const currentTimeEl = document.getElementById('unifiedCurrentTime');
+    const durationEl = document.getElementById('unifiedDuration');
+
+    if (!progressBar || !progressFill || !video) return;
+
+    video.addEventListener('timeupdate', () => {
+        const percent = (video.currentTime / video.duration) * 100;
+        progressFill.style.width = percent + '%';
+        progressThumb.style.left = percent + '%';
+
+        if (currentTimeEl) currentTimeEl.textContent = formatVideoTime(video.currentTime);
+        if (durationEl) durationEl.textContent = formatVideoTime(video.duration);
+    });
+
+    // Click to seek
+    progressBar.addEventListener('click', (e) => {
+        const rect = progressBar.getBoundingClientRect();
+        const percent = (e.clientX - rect.left) / rect.width;
+        video.currentTime = percent * video.duration;
+    });
+
+    // Drag to seek
+    let isDragging = false;
+
+    progressBar.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        const rect = progressBar.getBoundingClientRect();
+        const percent = (e.clientX - rect.left) / rect.width;
+        video.currentTime = Math.max(0, Math.min(1, percent)) * video.duration;
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const rect = progressBar.getBoundingClientRect();
+        const percent = (e.clientX - rect.left) / rect.width;
+        video.currentTime = Math.max(0, Math.min(1, percent)) * video.duration;
+    });
+
+    document.addEventListener('mouseup', () => {
+        isDragging = false;
+    });
+}
+
+function formatVideoTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+// Setup gestures for unified player
+function setupUnifiedPlayerGestures() {
+    const container = document.getElementById('unifiedPlayerContainer');
+    if (!container) return;
+
+    let touchStartY = 0;
+    let touchEndY = 0;
+
+    container.addEventListener('touchstart', (e) => {
+        touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+
+    container.addEventListener('touchend', (e) => {
+        touchEndY = e.changedTouches[0].clientY;
+        const diff = touchStartY - touchEndY;
+
+        if (Math.abs(diff) > 50) {
+            if (diff > 0) {
+                playNextUnifiedVideo();
+            } else {
+                playPrevUnifiedVideo();
+            }
+        }
+    }, { passive: true });
+
+    // Mouse wheel
+    container.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        if (e.deltaY > 0) {
+            playNextUnifiedVideo();
+        } else {
+            playPrevUnifiedVideo();
+        }
+    }, { passive: false });
+
+    // Keyboard
+    document.addEventListener('keydown', handleUnifiedKeydown);
+}
+
+function handleUnifiedKeydown(e) {
+    if (!unifiedPlayerState.isOpen) return;
+
+    switch (e.key) {
+        case 'ArrowUp':
+        case 'ArrowLeft':
+            playPrevUnifiedVideo();
+            break;
+        case 'ArrowDown':
+        case 'ArrowRight':
+            playNextUnifiedVideo();
+            break;
+        case ' ':
+            e.preventDefault();
+            if (unifiedPlayerState.videoElement) {
+                if (unifiedPlayerState.videoElement.paused) {
+                    unifiedPlayerState.videoElement.play();
+                } else {
+                    unifiedPlayerState.videoElement.pause();
+                }
+            }
+            break;
+        case 'Escape':
+            closeUnifiedPlayer();
+            break;
+    }
+}
+
+function playNextUnifiedVideo() {
+    if (unifiedPlayerState.currentIndex < unifiedPlayerState.videos.length - 1) {
+        unifiedPlayerState.currentIndex++;
+        unifiedPlayerState.currentVideo = unifiedPlayerState.videos[unifiedPlayerState.currentIndex];
+        renderUnifiedCurrentVideo();
+    } else {
+        showToast('已经是最后一个视频', 'info');
+    }
+}
+
+function playPrevUnifiedVideo() {
+    if (unifiedPlayerState.currentIndex > 0) {
+        unifiedPlayerState.currentIndex--;
+        unifiedPlayerState.currentVideo = unifiedPlayerState.videos[unifiedPlayerState.currentIndex];
+        renderUnifiedCurrentVideo();
+    } else {
+        showToast('已经是第一个视频', 'info');
+    }
+}
+
+// Close panels when clicking outside
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.player-control-group')) {
+        const volumePanel = document.getElementById('volumePanel');
+        const ratePanel = document.getElementById('ratePanel');
+        if (volumePanel) volumePanel.style.display = 'none';
+        if (ratePanel) ratePanel.style.display = 'none';
+    }
+});

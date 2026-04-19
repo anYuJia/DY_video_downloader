@@ -1019,3 +1019,73 @@ async function goToAuthorPage(secUid, nickname) {
     } catch (error) { showToast('获取作者信息失败', 'error'); }
     finally { updateStatus('ready', '就绪'); }
 }
+
+// ═══════════════════════════════════════════════
+// Unified Player Entry for User Works
+// ═══════════════════════════════════════════════
+
+function openUnifiedPlayerFromUserWorks(awemeId) {
+    if (!window.currentVideos || window.currentVideos.length === 0) {
+        showToast('未找到视频列表', 'error');
+        return;
+    }
+
+    const index = window.currentVideos.findIndex(v => v.aweme_id === awemeId);
+    if (index === -1) {
+        showToast('未找到视频', 'error');
+        return;
+    }
+
+    // 转换数据格式以匹配统一播放器的要求
+    const formattedVideos = window.currentVideos.map(v => ({
+        aweme_id: v.aweme_id,
+        desc: v.desc,
+        author: v.author,
+        create_time: v.create_time,
+        statistics: {
+            digg_count: v.digg_count || 0,
+            comment_count: v.comment_count || 0,
+            share_count: v.share_count || 0
+        },
+        video: {
+            play_addr: v.media_urls && v.media_urls[0] ? v.media_urls[0] : null,
+            cover: v.cover_url,
+            duration: v.duration || 0,
+            images: v.media_urls ? v.media_urls.filter((url, idx) => idx > 0 && v.media_type === 'image') : []
+        },
+        music: {
+            title: v.music_title || '原声',
+            play_url: v.music_url
+        },
+        bgm_url: v.music_url
+    }));
+
+    // 设置统一播放器状态
+    if (typeof unifiedPlayerState !== 'undefined') {
+        unifiedPlayerState = {
+            currentIndex: index,
+            isOpen: true,
+            videos: formattedVideos,
+            currentVideo: formattedVideos[index],
+            videoElement: null,
+            isMuted: false,
+            volume: 1.0,
+            playbackRate: 1.0,
+            source: 'user-works'
+        };
+
+        const player = document.getElementById('unifiedPlayer');
+        if (player) {
+            player.style.display = 'flex';
+        }
+
+        if (typeof renderUnifiedCurrentVideo === 'function') {
+            renderUnifiedCurrentVideo();
+        }
+        if (typeof setupUnifiedPlayerGestures === 'function') {
+            setupUnifiedPlayerGestures();
+        }
+    } else {
+        showToast('播放器未初始化', 'error');
+    }
+}
