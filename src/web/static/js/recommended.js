@@ -127,139 +127,56 @@ async function loadMoreRecommendedFeed() {
 
 function displayRecommendedVideos(videos) {
     const container = document.getElementById('recommendedFeedList');
-    console.log('[displayRecommendedVideos] 容器:', container);
-    console.log('[displayRecommendedVideos] 容器位置:', container?.getBoundingClientRect());
-
     videos.forEach(video => {
-        const card = createRecommendedVideoCard(video);
-        console.log('[displayRecommendedVideos] 添加卡片到容器');
-        container.appendChild(card);
+        container.appendChild(createRecommendedVideoCard(video));
     });
-
-    console.log('[displayRecommendedVideos] 容器子元素数:', container.children.length);
 }
 
 function createRecommendedVideoCard(video) {
-    console.log('[createRecommendedVideoCard] 创建卡片:', video.aweme_id);
-
-    const col = document.createElement('div');
-    col.className = 'col-6 col-md-4 col-lg-3';
-
     const stats = video.statistics || {};
     const author = video.author || {};
     const videoData = video.video || {};
+    const coverUrl = videoData.cover || '/static/default-cover.svg';
+    const createTime = video.create_time ? new Date(video.create_time * 1000).toLocaleDateString() : '';
+    const duration = videoData.duration > 0 ? formatDuration(videoData.duration / 1000) : '';
 
-    // 创建卡片元素
-    const card = document.createElement('div');
-    card.className = 'video-card';
+    const col = document.createElement('div');
+    col.className = 'col-md-3 col-sm-6 mb-3';
 
-    // 添加点击事件
-    card.onclick = () => {
-        console.log('[Card Click] 点击卡片:', video.aweme_id);
-        openFullscreenPlayer(video.aweme_id);
-    };
-
-    // 封面容器
-    const coverContainer = document.createElement('div');
-    coverContainer.className = 'video-cover-container';
-
-    const cover = document.createElement('img');
-    cover.src = videoData.cover || '';
-    cover.className = 'video-cover';
-    cover.alt = '视频封面';
-    cover.loading = 'lazy';
-
-    const playIcon = document.createElement('div');
-    playIcon.className = 'video-play-icon';
-    playIcon.innerHTML = '<i class="bi bi-play-circle-fill"></i>';
-
-    const overlay = document.createElement('div');
-    overlay.className = 'video-overlay';
-
-    const statsDiv = document.createElement('div');
-    statsDiv.className = 'video-stats';
-
-    // 点赞
-    const likeStat = createStatItem('bi-heart-fill', formatNumber(stats.digg_count || 0));
-    // 评论
-    const commentStat = createStatItem('bi-chat-fill', formatNumber(stats.comment_count || 0));
-    // 分享
-    const shareStat = createStatItem('bi-share-fill', formatNumber(stats.share_count || 0));
-
-    statsDiv.appendChild(likeStat);
-    statsDiv.appendChild(commentStat);
-    statsDiv.appendChild(shareStat);
-
-    overlay.appendChild(statsDiv);
-    coverContainer.appendChild(cover);
-    coverContainer.appendChild(playIcon);
-    coverContainer.appendChild(overlay);
-
-    // 卡片主体
-    const cardBody = document.createElement('div');
-    cardBody.className = 'video-card-body';
-
-    const desc = document.createElement('div');
-    desc.className = 'video-desc';
-    desc.textContent = video.desc || '无描述';
-
-    const authorDiv = document.createElement('div');
-    authorDiv.className = 'video-author';
-
-    const authorIcon = document.createElement('i');
-    authorIcon.className = 'bi bi-person-circle';
-
-    const authorName = document.createElement('span');
-    authorName.textContent = author.nickname || '未知用户';
-
-    authorDiv.appendChild(authorIcon);
-    authorDiv.appendChild(authorName);
-
-    const actions = document.createElement('div');
-    actions.className = 'video-actions';
-
-    const downloadBtn = document.createElement('button');
-    downloadBtn.className = 'video-btn btn-primary';
-    downloadBtn.onclick = (e) => {
-        e.stopPropagation();
-        downloadRecommendedVideo(video.aweme_id);
-    };
-
-    const downloadIcon = document.createElement('i');
-    downloadIcon.className = 'bi bi-download';
-    downloadBtn.appendChild(downloadIcon);
-
-    actions.appendChild(downloadBtn);
-
-    cardBody.appendChild(desc);
-    cardBody.appendChild(authorDiv);
-    cardBody.appendChild(actions);
-
-    card.appendChild(coverContainer);
-    card.appendChild(cardBody);
-
-    col.appendChild(card);
-
-    console.log('[createRecommendedVideoCard] 卡片元素:', col);
-    console.log('[createRecommendedVideoCard] 卡片位置:', col.getBoundingClientRect());
+    col.innerHTML =
+        '<div class="card h-100 video-card" data-aweme-id="' + video.aweme_id + '">' +
+        '<div class="position-relative video-cover-container" onclick="openFullscreenPlayer(\'' + video.aweme_id + '\')">' +
+        '<img src="' + coverUrl + '" class="card-img-top video-cover" alt="封面" loading="lazy" onerror="this.src=\'/static/default-cover.svg\'">' +
+        '<i class="bi bi-play-circle-fill video-play-icon"></i>' +
+        '<div class="video-overlay"><div class="video-stats">' +
+        '<div class="stat-item"><i class="bi bi-heart-fill"></i><span>' + formatNumber(stats.digg_count || 0) + '</span></div>' +
+        '<div class="stat-item"><i class="bi bi-chat-fill"></i><span>' + formatNumber(stats.comment_count || 0) + '</span></div>' +
+        '<div class="stat-item"><i class="bi bi-share-fill"></i><span>' + formatNumber(stats.share_count || 0) + '</span></div>' +
+        '</div></div>' +
+        (duration ? '<span class="badge bg-dark position-absolute bottom-0 start-0 m-2">' + duration + '</span>' : '') +
+        '</div>' +
+        '<div class="card-body video-card-body">' +
+        '<p class="card-text video-desc">' + escapeHtml(video.desc || '无描述') + '</p>' +
+        (author.nickname ? '<div class="text-muted small"><i class="bi bi-person-circle me-1"></i>' + escapeHtml(author.nickname) + '</div>' : '') +
+        (createTime ? '<div class="text-muted small video-date">' + createTime + '</div>' : '') +
+        '<div class="video-actions">' +
+        '<button class="btn btn-sm btn-outline-primary video-btn" onclick="event.stopPropagation();downloadRecommendedVideo(\'' + video.aweme_id + '\')"><i class="bi bi-download"></i></button>' +
+        '<button class="btn btn-sm btn-outline-success video-btn" onclick="event.stopPropagation();openFullscreenPlayer(\'' + video.aweme_id + '\')"><i class="bi bi-play-circle"></i></button>' +
+        '</div></div></div>';
 
     return col;
 }
 
-function createStatItem(iconClass, value) {
-    const stat = document.createElement('div');
-    stat.className = 'stat-item';
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 
-    const icon = document.createElement('i');
-    icon.className = iconClass;
-
-    const span = document.createElement('span');
-    span.textContent = value;
-
-    stat.appendChild(icon);
-    stat.appendChild(span);
-
-    return stat;
+function formatDuration(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 // ═══════════════════════════════════════════════
