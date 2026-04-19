@@ -3342,6 +3342,64 @@ a:hover { color: var(--accent-hover); }
     color: #fe2c55;
 }
 
+/* Music Panel - Bottom */
+.player-music-panel-bottom {
+    position: absolute;
+    bottom: 50px;
+    right: 0;
+    background: rgba(0, 0, 0, 0.95);
+    backdrop-filter: blur(20px);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    z-index: 20;
+    width: 240px;
+    padding: 12px;
+}
+
+.player-music-panel-bottom .music-panel-header {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.player-music-panel-bottom .music-panel-header h6 {
+    color: #fff;
+    margin: 0;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.player-music-panel-bottom .music-info {
+    margin-bottom: 8px;
+}
+
+.player-music-panel-bottom .music-title {
+    color: #fff;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.player-music-panel-bottom .music-author {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 11px;
+}
+
+.player-music-panel-bottom .music-controls {
+    margin-bottom: 8px;
+}
+
+.player-music-panel-bottom .music-actions {
+    text-align: center;
+}
+
+.player-music-panel-bottom .btn-outline-light {
+    font-size: 12px;
+    padding: 4px 12px;
+}
+
 /* Video Progress Bar */
 .video-progress-container {
     width: 100%;

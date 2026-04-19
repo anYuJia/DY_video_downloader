@@ -913,8 +913,8 @@
                     </div>
 
                     <!-- Volume Control -->
-                    <div class="player-control-group-bottom">
-                        <button class="player-control-btn-transparent" id="volumeBtn" onclick="toggleVolumePanel()">
+                    <div class="player-control-group-bottom" id="volumeControlGroup">
+                        <button class="player-control-btn-transparent" id="volumeBtn">
                             <i class="bi bi-volume-up-fill"></i>
                         </button>
                         <div class="player-volume-panel-bottom" id="volumePanel" style="display: none;">
@@ -927,8 +927,8 @@
                     </div>
 
                     <!-- Playback Rate Control -->
-                    <div class="player-control-group-bottom">
-                        <button class="player-control-btn-transparent" id="rateBtn" onclick="toggleRatePanel()">
+                    <div class="player-control-group-bottom" id="rateControlGroup">
+                        <button class="player-control-btn-transparent" id="rateBtn">
                             <span id="currentRate">1x</span>
                         </button>
                         <div class="player-rate-panel-bottom" id="ratePanel" style="display: none;">
@@ -942,14 +942,35 @@
                     </div>
 
                     <!-- Download Button -->
-                    <button class="player-control-btn-transparent" onclick="downloadCurrentVideo()">
+                    <button class="player-control-btn-transparent" onclick="downloadCurrentVideo()" title="下载视频">
                         <i class="bi bi-download"></i>
                     </button>
 
                     <!-- Music Button -->
-                    <button class="player-control-btn-transparent" id="musicBtn" onclick="toggleMusicPanel()">
-                        <i class="bi bi-music-note-beamed"></i>
-                    </button>
+                    <div class="player-control-group-bottom" id="musicControlGroup">
+                        <button class="player-control-btn-transparent" id="musicBtn" title="背景音乐">
+                            <i class="bi bi-music-note-beamed"></i>
+                        </button>
+                        <div class="player-music-panel-bottom" id="playerMusicPanel" style="display: none;">
+                            <div class="music-panel-header">
+                                <h6><i class="bi bi-music-note-beamed"></i> 音乐</h6>
+                            </div>
+                            <div class="music-panel-body">
+                                <div class="music-info">
+                                    <div class="music-title" id="unifiedMusicTitle">背景音乐</div>
+                                    <div class="music-author" id="unifiedMusicAuthor"></div>
+                                </div>
+                                <div class="music-controls">
+                                    <audio id="musicPlayer" controls style="width: 100%;"></audio>
+                                </div>
+                                <div class="music-actions">
+                                    <button class="btn btn-sm btn-outline-light" onclick="downloadMusic()">
+                                        <i class="bi bi-download"></i> 下载
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -969,28 +990,6 @@
             <!-- Third Row: Description -->
             <div class="player-row-3">
                 <div class="player-desc" id="unifiedVideoDesc">视频描述</div>
-            </div>
-        </div>
-
-        <!-- Music Panel (Popup) -->
-        <div class="player-music-panel" id="playerMusicPanel" style="display: none;">
-            <div class="music-panel-header">
-                <h5><i class="bi bi-music-note-beamed"></i> 音乐</h5>
-                <button onclick="toggleMusicPanel()"><i class="bi bi-x-lg"></i></button>
-            </div>
-            <div class="music-panel-body">
-                <div class="music-info">
-                    <div class="music-title" id="unifiedMusicTitle">背景音乐</div>
-                    <div class="music-author" id="unifiedMusicAuthor"></div>
-                </div>
-                <div class="music-controls">
-                    <audio id="musicPlayer" controls style="width: 100%;"></audio>
-                </div>
-                <div class="music-actions">
-                    <button class="btn btn-sm btn-outline-light" onclick="downloadMusic()">
-                        <i class="bi bi-download"></i> 下载音乐
-                    </button>
-                </div>
             </div>
         </div>
 

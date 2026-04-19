@@ -911,11 +911,58 @@ let unifiedPlayerState = {
 };
 
 // Volume Control
-function toggleVolumePanel() {
-    const panel = document.getElementById('volumePanel');
+// Volume Control - 悬停显示
+function setupHoverPanels() {
+    // 音量面板
+    const volumeGroup = document.getElementById('volumeControlGroup');
+    const volumePanel = document.getElementById('volumePanel');
+
+    if (volumeGroup && volumePanel) {
+        let volumeTimeout;
+        volumeGroup.addEventListener('mouseenter', () => {
+            clearTimeout(volumeTimeout);
+            volumePanel.style.display = 'flex';
+        });
+        volumeGroup.addEventListener('mouseleave', () => {
+            volumeTimeout = setTimeout(() => {
+                volumePanel.style.display = 'none';
+            }, 100);
+        });
+    }
+
+    // 倍率面板
+    const rateGroup = document.getElementById('rateControlGroup');
     const ratePanel = document.getElementById('ratePanel');
-    if (ratePanel) ratePanel.style.display = 'none';
-    if (panel) panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+
+    if (rateGroup && ratePanel) {
+        let rateTimeout;
+        rateGroup.addEventListener('mouseenter', () => {
+            clearTimeout(rateTimeout);
+            ratePanel.style.display = 'flex';
+        });
+        rateGroup.addEventListener('mouseleave', () => {
+            rateTimeout = setTimeout(() => {
+                ratePanel.style.display = 'none';
+            }, 100);
+        });
+    }
+
+    // 音乐面板
+    const musicGroup = document.getElementById('musicControlGroup');
+    const musicPanel = document.getElementById('playerMusicPanel');
+
+    if (musicGroup && musicPanel) {
+        let musicTimeout;
+        musicGroup.addEventListener('mouseenter', () => {
+            clearTimeout(musicTimeout);
+            musicPanel.style.display = 'block';
+        });
+        musicGroup.addEventListener('mouseleave', () => {
+            musicTimeout = setTimeout(() => {
+                musicPanel.style.display = 'none';
+            }, 100);
+        });
+    }
 }
 
 function setVolume(value) {
@@ -957,13 +1004,6 @@ function toggleMute() {
 }
 
 // Playback Rate Control
-function toggleRatePanel() {
-    const panel = document.getElementById('ratePanel');
-    const volumePanel = document.getElementById('volumePanel');
-    if (volumePanel) volumePanel.style.display = 'none';
-    if (panel) panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
-}
-
 function setPlaybackRate(rate) {
     const video = unifiedPlayerState.videoElement;
     if (video) {
@@ -1134,20 +1174,6 @@ function updateUnifiedPlayerInfo() {
     }
 }
 
-// 切换音乐面板
-function toggleMusicPanel() {
-    const panel = document.getElementById('playerMusicPanel');
-    if (!panel) return;
-
-    if (panel.style.display === 'none') {
-        panel.style.display = 'block';
-        setTimeout(() => panel.classList.add('show'), 10);
-    } else {
-        panel.classList.remove('show');
-        setTimeout(() => panel.style.display = 'none', 300);
-    }
-}
-
 // 下载音乐
 function downloadMusic() {
     const video = unifiedPlayerState.currentVideo;
@@ -1261,6 +1287,7 @@ function openUnifiedPlayer(awemeId) {
 
     renderUnifiedCurrentVideo();
     setupUnifiedPlayerGestures();
+    setupHoverPanels();
 }
 
 // Close unified player
@@ -1425,41 +1452,91 @@ function setupUnifiedVideoProgress(video) {
 
     if (!progressBar || !progressFill || !video) return;
 
-    video.addEventListener('timeupdate', () => {
-        const percent = (video.currentTime / video.duration) * 100;
-        progressFill.style.width = percent + '%';
-        progressThumb.style.left = percent + '%';
+    let isDragging = false;
 
-        if (currentTimeEl) currentTimeEl.textContent = formatVideoTime(video.currentTime);
-        if (durationEl) durationEl.textContent = formatVideoTime(video.duration);
+    // 更新进度条
+    video.addEventListener('timeupdate', () => {
+        if (!isDragging) {
+            const percent = (video.currentTime / video.duration) * 100;
+            progressFill.style.width = percent + '%';
+            progressThumb.style.left = percent + '%';
+
+            if (currentTimeEl) currentTimeEl.textContent = formatVideoTime(video.currentTime);
+            if (durationEl) durationEl.textContent = formatVideoTime(video.duration);
+        }
     });
+
+    // 辅助函数：根据鼠标位置计算进度
+    function getProgressFromMouse(e) {
+        const rect = progressBar.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        return Math.max(0, Math.min(1, clickX / rect.width));
+    }
+
+    // 辅助函数：更新进度显示（拖动时）
+    function updateProgressDisplay(progress) {
+        progressFill.style.width = (progress * 100) + '%';
+        progressThumb.style.left = (progress * 100) + '%';
+        if (currentTimeEl) {
+            currentTimeEl.textContent = formatVideoTime(progress * video.duration);
+        }
+    }
 
     // Click to seek
     progressBar.addEventListener('click', (e) => {
-        const rect = progressBar.getBoundingClientRect();
-        const percent = (e.clientX - rect.left) / rect.width;
-        video.currentTime = percent * video.duration;
+        const progress = getProgressFromMouse(e);
+        video.currentTime = progress * video.duration;
     });
 
     // Drag to seek
-    let isDragging = false;
-
     progressBar.addEventListener('mousedown', (e) => {
         isDragging = true;
-        const rect = progressBar.getBoundingClientRect();
-        const percent = (e.clientX - rect.left) / rect.width;
-        video.currentTime = Math.max(0, Math.min(1, percent)) * video.duration;
+        const progress = getProgressFromMouse(e);
+        updateProgressDisplay(progress);
+        e.preventDefault();
     });
 
     document.addEventListener('mousemove', (e) => {
         if (!isDragging) return;
-        const rect = progressBar.getBoundingClientRect();
-        const percent = (e.clientX - rect.left) / rect.width;
-        video.currentTime = Math.max(0, Math.min(1, percent)) * video.duration;
+        const progress = getProgressFromMouse(e);
+        updateProgressDisplay(progress);
     });
 
-    document.addEventListener('mouseup', () => {
-        isDragging = false;
+    document.addEventListener('mouseup', (e) => {
+        if (isDragging) {
+            isDragging = false;
+            const progress = getProgressFromMouse(e);
+            video.currentTime = progress * video.duration;
+        }
+    });
+
+    // 触摸支持
+    progressBar.addEventListener('touchstart', (e) => {
+        isDragging = true;
+        const touch = e.touches[0];
+        const rect = progressBar.getBoundingClientRect();
+        const clickX = touch.clientX - rect.left;
+        const progress = Math.max(0, Math.min(1, clickX / rect.width));
+        updateProgressDisplay(progress);
+        e.preventDefault();
+    });
+
+    progressBar.addEventListener('touchmove', (e) => {
+        if (isDragging) {
+            const touch = e.touches[0];
+            const rect = progressBar.getBoundingClientRect();
+            const clickX = touch.clientX - rect.left;
+            const progress = Math.max(0, Math.min(1, clickX / rect.width));
+            updateProgressDisplay(progress);
+        }
+    });
+
+    progressBar.addEventListener('touchend', (e) => {
+        if (isDragging) {
+            isDragging = false;
+            const progress = parseFloat(progressFill.style.width) / 100;
+            video.currentTime = progress * video.duration;
+        }
     });
 }
 

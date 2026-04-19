@@ -43,6 +43,8 @@ EnhancedDouyinDownloader = None
 
 app = Flask(__name__, template_folder=get_resource_path('src/web/templates'), static_folder=get_resource_path('src/web/static'))
 app.config['SECRET_KEY'] = 'douyin_downloader_secret_key'
+app.config['TEMPLATES_AUTO_RELOAD'] = True  # 禁用模板缓存
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # 禁用静态文件缓存
 socketio_async_mode = 'threading' if IS_WINDOWS else 'gevent'
 # 修改SocketIO初始化，添加更多选项
 socketio = SocketIO(
