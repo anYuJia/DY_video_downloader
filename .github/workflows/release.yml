@@ -163,7 +163,8 @@ jobs:
           if (Test-Path $nsisScript) {
             # 更新 NSIS 脚本中的版本号
             $content = Get-Content $nsisScript -Raw
-            $content = $content -replace '!define APP_VERSION ".*"', "!define APP_VERSION ``"${env:TAG_NAME}``""
+            $newVersion = '!define APP_VERSION "' + $env:TAG_NAME + '"'
+            $content = $content -replace '!define APP_VERSION ".*"', $newVersion
             Set-Content $nsisScript $content
 
             # 编译安装包
