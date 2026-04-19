@@ -34,6 +34,14 @@ document.addEventListener('DOMContentLoaded', function () {
     setupSocketIO();
     loadConfig();
     setupCookieValidation();
+
+    // 自动预加载推荐视频
+    setTimeout(() => {
+        if (typeof showRecommendedFeed === 'function') {
+            addLog('开始预加载推荐视频...', 'info');
+            showRecommendedFeed();
+        }
+    }, 1000); // 延迟1秒，等待页面完全加载
 });
 
 function initializeApp() {

@@ -1289,6 +1289,17 @@ function openUnifiedPlayer(awemeId) {
         return;
     }
 
+    // 如果播放器已经打开，直接切换视频
+    if (unifiedPlayerState.isOpen) {
+        console.log('[openUnifiedPlayer] 播放器已打开，直接切换到视频', index);
+        unifiedPlayerState.currentIndex = index;
+        unifiedPlayerState.currentVideo = recommendedVideos[index];
+        unifiedPlayerState.videos = recommendedVideos;
+        renderUnifiedCurrentVideo();
+        return;
+    }
+
+    // 首次打开播放器
     unifiedPlayerState = {
         currentIndex: index,
         isOpen: true,
