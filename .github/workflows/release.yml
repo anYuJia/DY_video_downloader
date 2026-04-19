@@ -158,27 +158,28 @@ jobs:
 
           # 创建安装包
           $installerName = "DY-Video-Downloader-${env:TAG_NAME}-windows-x64-installer"
-          $nsisScript = "build\windows_installer.nsi"
+          $nsisScript = Join-Path $PWD "build/windows_installer.nsi"
 
-          # 更新 NSIS 脚本中的版本号
-          $content = Get-Content $nsisScript -Raw
-          $content = $content -replace '!define APP_VERSION ".*"', "!define APP_VERSION `"${env:TAG_NAME}`""
-          Set-Content $nsisScript $content
+          if (Test-Path $nsisScript) {
+            # 更新 NSIS 脚本中的版本号
+            $content = Get-Content $nsisScript -Raw
+            $content = $content -replace '!define APP_VERSION ".*"', "!define APP_VERSION ``"${env:TAG_NAME}``""
+            Set-Content $nsisScript $content
 
-          # 编译安装包
-          makensis $nsisScript
+            # 编译安装包
+            makensis $nsisScript
 
-          # 重命名安装包
-          $installerPath = "dist\DY_Video_Downloader_Setup_v${env:TAG_NAME}.exe"
-          if (Test-Path $installerPath) {
-            Move-Item $installerPath "${installerName}.exe" -Force
-            Write-Host "Created installer: ${installerName}.exe"
+            # 重命名安装包
+            $installerPath = Join-Path $PWD "dist/DY_Video_Downloader_Setup_v${env:TAG_NAME}.exe"
+            if (Test-Path $installerPath) {
+              Move-Item $installerPath "${installerName}.exe" -Force
+              Write-Host "Created installer: ${installerName}.exe"
+            } else {
+              Write-Warning "Installer exe not found at $installerPath, skipping installer..."
+            }
           } else {
-            Write-Warning "Installer not found, skipping..."
+            Write-Warning "NSIS script not found at $nsisScript, skipping installer..."
           }
-
-          # 保存文件列表
-          "ASSET_FILES=$portableName.zip,${installerName}.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
           Get-ChildItem "$portableName.zip"
           if (Test-Path "${installerName}.exe") {
