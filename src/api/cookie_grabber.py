@@ -166,11 +166,35 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
                             if consecutive_not_verified >= 2:  # 从 3 次优化为 2 次
                                 _status("login_detected", "检测到登录成功，正在提取 Cookie...")
 
-                                # 等待一小段时间让所有 Cookie 稳定
-                                time.sleep(1)  # 从 2 秒优化为 1 秒
+                                # 增加等待时间，确保所有Cookie和请求都完成
+                                time.sleep(3)  # 从 1 秒增加到 3 秒
 
-                                # 再次获取最新 Cookie
+                                # 再次确认页面状态和Cookie
+                                try:
+                                    # 检查页面是否还在正常状态
+                                    current_url = page.url
+                                    page_title = page.title()
+
+                                    # 如果页面跳转或关闭，重新加载主页
+                                    if 'douyin.com' not in current_url or \
+                                       'passport' in current_url.lower() or \
+                                       'login' in current_url.lower():
+                                        _status("page_redirect", "页面已跳转，重新加载主页...")
+                                        page.goto("https://www.douyin.com/", wait_until="load", timeout=30000)
+                                        time.sleep(2)
+                                except Exception as e:
+                                    print(f"[cookie_grabber] 页面状态检查失败：{e}", file=sys.stderr, flush=True)
+
+                                # 获取最新Cookie
                                 cookies = context.cookies("https://www.douyin.com")
+
+                                # 验证是否包含必要的登录Cookie
+                                cookie_dict = {c["name"]: c["value"] for c in cookies}
+                                if not any(key in cookie_dict and cookie_dict[key] for key in LOGIN_MARKER_KEYS):
+                                    _status("cookie_incomplete", "Cookie提取不完整，等待重试...")
+                                    consecutive_not_verified = 0
+                                    continue
+
                                 cookie_str = "; ".join(
                                     f"{c['name']}={c['value']}" for c in cookies
                                 )
@@ -180,6 +204,9 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
                                     "Cookie 提取成功！登录态已保存，下次无需重新登录。",
                                     {"cookie": cookie_str}
                                 )
+
+                                # 添加短暂延迟后再关闭浏览器
+                                time.sleep(1)
                                 context.close()
                                 return {"success": True, "cookie": cookie_str}
                         else:

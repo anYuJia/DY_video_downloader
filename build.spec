@@ -65,10 +65,35 @@ hiddenimports = [
 if sys.platform == 'darwin':
     hiddenimports.append('pyobjc-framework-WebKit')
 
+# Windows .NET bridge
+if sys.platform == 'win32':
+    hiddenimports.extend([
+        'pythonnet',
+        'clr',
+        'clr_loader',
+        'webview.platforms.winforms',
+    ])
+
+# 收集pythonnet运行时DLL（Windows）
+binaries = []
+if sys.platform == 'win32':
+    try:
+        import pythonnet
+        import os
+        pythonnet_path = os.path.dirname(pythonnet.__file__)
+        runtime_dll = os.path.join(pythonnet_path, 'runtime', 'Python.Runtime.dll')
+        if os.path.exists(runtime_dll):
+            binaries.append((runtime_dll, 'pythonnet/runtime'))
+            print(f"[build.spec] Found Python.Runtime.dll at: {runtime_dll}")
+        else:
+            print(f"[build.spec] Warning: Python.Runtime.dll not found at: {runtime_dll}")
+    except ImportError:
+        print("[build.spec] Warning: pythonnet not installed")
+
 a = Analysis(
     ['main.py'],
     pathex=[project_root],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[pywebview_hooks] if os.path.isdir(pywebview_hooks) else [],
