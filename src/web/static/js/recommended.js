@@ -24,7 +24,7 @@ const INITIAL_LOAD_COUNT = 20; // 首次加载数量
 const LOAD_MORE_COUNT = 20;    // 每次加载更多数量
 
 async function showRecommendedFeed() {
-    console.log('[showRecommendedFeed] 开始加载推荐视频');
+    console.log('[showRecommendedFeed] 显示推荐视频界面');
 
     // 隐藏其他所有区域
     if (typeof hideAllSections === 'function') {
@@ -43,14 +43,25 @@ async function showRecommendedFeed() {
     const section = document.getElementById('recommendedFeedSection');
     section.style.display = 'block';
     console.log('[showRecommendedFeed] 区域显示状态:', section.style.display);
-    console.log('[showRecommendedFeed] 区域位置:', section.getBoundingClientRect());
 
-    // 清空现有视频
+    // 如果已经有数据，直接显示，不需要重新加载
+    if (recommendedVideos.length > 0) {
+        console.log('[showRecommendedFeed] 使用已缓存的推荐视频数据，数量:', recommendedVideos.length);
+        // 清空并重新显示所有视频
+        document.getElementById('recommendedFeedList').textContent = '';
+        displayRecommendedVideos(recommendedVideos);
+
+        // 显示/隐藏加载更多按钮
+        document.getElementById('loadMoreRecommended').style.display =
+            hasMoreRecommended ? 'block' : 'none';
+        return;
+    }
+
+    // 如果没有数据，加载视频
+    console.log('[showRecommendedFeed] 无缓存数据，开始加载');
     recommendedVideos = [];
     recommendedCursor = 0;
     document.getElementById('recommendedFeedList').textContent = '';
-
-    // 加载视频
     await loadRecommendedFeed(INITIAL_LOAD_COUNT);
 }
 
@@ -101,15 +112,16 @@ async function loadRecommendedFeed(count = LOAD_MORE_COUNT) {
                 console.log('[loadRecommendedFeed] 播放器打开中，视频列表已自动更新，新总数:', unifiedPlayerState.videos.length);
             }
 
-            // 如果是从推荐卡片页面加载，显示卡片
-            if (!isPlayerOpen) {
+            // 只有在推荐视频界面可见时才显示卡片
+            const section = document.getElementById('recommendedFeedSection');
+            if (section && section.style.display === 'block' && !isPlayerOpen) {
                 displayRecommendedVideos(newVideos);
 
                 // 显示/隐藏加载更多按钮
                 document.getElementById('loadMoreRecommended').style.display =
                     hasMoreRecommended ? 'block' : 'none';
             } else {
-                console.log('[loadRecommendedFeed] 播放器模式，暂不更新列表页面');
+                console.log('[loadRecommendedFeed] 界面不可见或播放器模式，数据已缓存');
             }
 
             updateStatus('ready', '就绪');

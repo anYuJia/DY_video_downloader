@@ -35,11 +35,11 @@ document.addEventListener('DOMContentLoaded', function () {
     loadConfig();
     setupCookieValidation();
 
-    // 自动预加载推荐视频
+    // 自动预加载推荐视频数据（不显示界面）
     setTimeout(() => {
-        if (typeof showRecommendedFeed === 'function') {
-            addLog('开始预加载推荐视频...', 'info');
-            showRecommendedFeed();
+        if (typeof loadRecommendedFeed === 'function' && typeof recommendedVideos !== 'undefined') {
+            addLog('后台预加载推荐视频数据...', 'info');
+            loadRecommendedFeed(20);  // 只加载数据，不显示界面
         }
     }, 1000); // 延迟1秒，等待页面完全加载
 });
