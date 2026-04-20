@@ -202,17 +202,13 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
                                 # 输出调试信息
                                 print(f"[cookie_grabber] 检测登录元素: avatar={user_avatar is not None}, user_info={user_info is not None}, login_btn={login_button is not None}, url={current_url[:80]}", file=sys.stderr, flush=True)
 
-                                # 如果找到用户元素且没有登录按钮，认为已登录
-                                is_truly_logged_in = (user_avatar is not None or user_info is not None) and login_button is None
-
-                                # 备用检测：如果Cookie中包含登录标记，也认为已登录
-                                if not is_truly_logged_in and has_login:
-                                    print(f"[cookie_grabber] Cookie检测到登录标记，但页面元素未找到，可能页面未完全加载", file=sys.stderr, flush=True)
-                                    # 等待更长时间让页面完全加载
-                                    time.sleep(2)
-                                    # 再次尝试检测
-                                    user_avatar = page.query_selector('[class*="avatar"], [class*="Avatar"]')
-                                    user_info = page.query_selector('[class*="user"], [class*="User"]')
+                                # 优化判断逻辑：优先使用Cookie标记
+                                # 如果Cookie中有登录标记，直接认为已登录（不依赖页面元素）
+                                if has_login:
+                                    print(f"[cookie_grabber] Cookie包含登录标记，认为已登录", file=sys.stderr, flush=True)
+                                    is_truly_logged_in = True
+                                else:
+                                    # Cookie没有登录标记，通过页面元素判断
                                     is_truly_logged_in = (user_avatar is not None or user_info is not None) and login_button is None
 
                                 if is_truly_logged_in:
