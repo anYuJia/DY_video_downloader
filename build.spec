@@ -75,6 +75,7 @@ if sys.platform == 'win32':
     ])
 
 # 收集pythonnet运行时DLL（Windows）
+# 放在根目录而不是_internal，解决pythonnet加载问题
 binaries = []
 if sys.platform == 'win32':
     try:
@@ -83,7 +84,8 @@ if sys.platform == 'win32':
         pythonnet_path = os.path.dirname(pythonnet.__file__)
         runtime_dll = os.path.join(pythonnet_path, 'runtime', 'Python.Runtime.dll')
         if os.path.exists(runtime_dll):
-            binaries.append((runtime_dll, 'pythonnet/runtime'))
+            # 放在根目录（与exe同级）
+            binaries.append((runtime_dll, '.'))
             print(f"[build.spec] Found Python.Runtime.dll at: {runtime_dll}")
         else:
             print(f"[build.spec] Warning: Python.Runtime.dll not found at: {runtime_dll}")
@@ -98,7 +100,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[pywebview_hooks] if os.path.isdir(pywebview_hooks) else [],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[os.path.join(project_root, 'hooks/rthook_pythonnet.py')] if sys.platform == 'win32' else [],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
