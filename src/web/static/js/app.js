@@ -831,8 +831,11 @@ async function downloadLikedVideos() {
             LikedDataCache.saveLikedVideos(result.data, result.data.length);
             LikedDataCache.currentDisplayType = 'videos';
             showToast('获取到 ' + result.data.length + ' 个点赞视频', 'success');
-        } else { if (!isHomeView) showToast(result.message, 'error'); }
-    } catch (error) { if (!isHomeView) showToast('获取点赞视频失败', 'error'); }
+        } else {
+            showToast('获取点赞视频失败，请先登录抖音账号', 'error');
+            addLog('点赞视频需要登录态，请点击设置 → 登录抖音账号', 'warning');
+        }
+    } catch (error) { showToast('获取点赞视频失败，请先登录抖音账号', 'error'); }
     finally { setButtonLoading('download-liked-btn', false); }
 }
 
@@ -848,8 +851,11 @@ async function downloadLikedAuthors() {
             LikedDataCache.saveLikedAuthors(result.data, result.data.length);
             LikedDataCache.currentDisplayType = 'authors';
             showToast('获取到 ' + result.data.length + ' 个点赞作者', 'success');
-        } else { if (!isHomeView) showToast(result.message, 'error'); }
-    } catch (error) { if (!isHomeView) showToast('获取点赞作者失败', 'error'); }
+        } else {
+            showToast('获取点赞作者失败，请先登录抖音账号', 'error');
+            addLog('点赞作者需要登录态，请点击设置 → 登录抖音账号', 'warning');
+        }
+    } catch (error) { showToast('获取点赞作者失败，请先登录抖音账号', 'error'); }
     finally { setButtonLoading('download-liked-authors-btn', false); }
 }
 
