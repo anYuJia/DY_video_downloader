@@ -1984,10 +1984,14 @@ def cookie_browser_login():
             # 实时读取 stderr 获取状态更新
             for line in _cookie_login_proc.stderr:
                 line = line.strip()
+                logger.debug(f"[cookie_grabber stderr] {line}")
+
                 if '[cookie_grabber]' in line:
                     try:
                         json_str = line.split('[cookie_grabber] ', 1)[1]
                         status_data = json.loads(json_str)
+                        logger.info(f"[cookie状态] {status_data}")
+
                         if status_data.get('event') == 'cookie_extracted' and status_data.get('cookie'):
                             finalize_cookie_success(status_data.get('cookie'))
                             continue
@@ -1997,8 +2001,8 @@ def cookie_browser_login():
                             'message': status_data.get('message', ''),
                             'cookie': status_data.get('cookie', ''),
                         })
-                    except (json.JSONDecodeError, IndexError):
-                        pass
+                    except (json.JSONDecodeError, IndexError) as e:
+                        logger.warning(f"解析状态行失败: {line}, 错误: {e}")
             
             # 等待进程结束获取结果
             _cookie_login_proc.wait()
