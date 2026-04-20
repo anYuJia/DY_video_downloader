@@ -43,16 +43,7 @@ function showMyDownloads() {
 
 // 关闭我的下载
 function closeMyDownloads() {
-    const section = document.getElementById('myDownloadsSection');
-    if (section) section.style.display = 'none';
-
-    // 隐藏返回按钮
-    const backBtn = document.getElementById('back-btn');
-    if (backBtn) backBtn.style.display = 'none';
-
-    // 显示主页
-    const emptyState = document.getElementById('emptyState');
-    if (emptyState) emptyState.style.display = 'flex';
+    goBackToHome();
 }
 
 // 刷新我的下载

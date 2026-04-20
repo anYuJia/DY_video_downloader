@@ -323,7 +323,7 @@ async function selectUser(secUid, nickname) {
 // USER DETAIL
 // ═══════════════════════════════════════════════
 function goBackToHome() {
-    ['userDetailSection', 'userVideosSection', 'likedVideosSection', 'likedAuthorsSection', 'linkParseResult'].forEach(function(id) {
+    ['userDetailSection', 'userVideosSection', 'likedVideosSection', 'likedAuthorsSection', 'linkParseResult', 'recommendedFeedSection', 'myDownloadsSection'].forEach(function(id) {
         var el = document.getElementById(id);
         if (el) el.style.display = 'none';
     });

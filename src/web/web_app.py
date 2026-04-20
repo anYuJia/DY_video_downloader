@@ -2044,6 +2044,23 @@ def cookie_from_browser():
 
 
 
+def _extract_music_url(music_data):
+    """从音乐数据中提取播放地址"""
+    play_url = music_data.get('play_url') or {}
+    if isinstance(play_url, dict):
+        uri = play_url.get('uri', '')
+        if uri:
+            return uri
+        url_list = play_url.get('url_list', [])
+        if url_list:
+            return url_list[0]
+    for key in ('play_url', 'src_url', 'mp3_url'):
+        val = music_data.get(key, '')
+        if isinstance(val, str) and val.startswith('http'):
+            return val
+    return ''
+
+
 @app.route('/api/recommended_feed', methods=['POST'])
 def get_recommended_feed():
     """获取推荐视频流 - 直接调用 DouyinAPI，不使用子进程"""
@@ -2155,6 +2172,7 @@ def get_recommended_feed():
                         'title': (aweme.get('music') or {}).get('title', ''),
                         'author': (aweme.get('music') or {}).get('author', ''),
                         'cover': (aweme.get('music') or {}).get('cover_large', {}).get('url_list', [''])[0] if isinstance((aweme.get('music') or {}).get('cover_large'), dict) else '',
+                        'play_url': _extract_music_url(aweme.get('music') or {}),
                     }
                 }
 
