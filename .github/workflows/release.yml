@@ -99,6 +99,10 @@ jobs:
         shell: pwsh
         run: |
           choco install nsis -y
+          # 刷新环境变量
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+          Write-Host "NSIS installed, makensis path:"
+          Get-Command makensis -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
 
       - name: Build app
         shell: bash
@@ -167,8 +171,9 @@ jobs:
             $content = $content -replace '!define APP_VERSION ".*"', $newVersion
             Set-Content $nsisScript $content
 
-            # 编译安装包
-            makensis $nsisScript
+            # 刷新 PATH 并编译安装包
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+            & makensis $nsisScript
 
             # 重命名安装包
             $installerPath = "dist/DY_Video_Downloader_Setup_v${env:TAG_NAME}.exe"
@@ -180,7 +185,6 @@ jobs:
             }
           } else {
             Write-Warning "NSIS script not found at $nsisScript, skipping installer..."
-            Get-ChildItem "build/" -ErrorAction SilentlyContinue
           }
 
           Get-ChildItem "$portableName.zip"
