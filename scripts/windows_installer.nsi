@@ -2,7 +2,7 @@
 
 ; 定义版本号（由 CI 自动更新）
 !define APP_NAME "DY Video Downloader"
-!define APP_VERSION "0.0.2"
+!define APP_VERSION "0.0.3"
 !define APP_PUBLISHER "anYuJia"
 !define APP_EXE "DY Video Downloader.exe"
 !define APP_GUID "E4F9A7B3-8C2D-4F1E-9A5B-3C7D2E8F1A6B"
@@ -13,10 +13,7 @@ OutFile "dist\DY_Video_Downloader_Setup_v${APP_VERSION}.exe"
 InstallDir "$PROGRAMFILES64\${APP_NAME}"
 InstallDirRegKey HKLM "Software\${APP_NAME}" "Install_Dir"
 RequestExecutionLevel admin
-
-; 界面设置
-!define MUI_ICON "icons\icon.ico"
-!define MUI_UNICON "icons\icon.ico"
+SetCompressor /SOLID lzma
 
 ; 页面
 !insertmacro MUI_PAGE_WELCOME
