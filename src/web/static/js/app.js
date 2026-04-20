@@ -32,11 +32,12 @@ document.addEventListener('DOMContentLoaded', function () {
     initializeApp();
     setupEventListeners();
     setupSocketIO();
-    loadConfig();
     setupCookieValidation();
 
-    // 检查Cookie状态
-    checkCookieStatusOnStartup();
+    // 加载配置后检查Cookie状态
+    loadConfig().then(() => {
+        checkCookieStatusOnStartup();
+    });
 
     // 自动预加载推荐视频数据（不显示界面）
     setTimeout(() => {
