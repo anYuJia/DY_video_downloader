@@ -982,15 +982,31 @@
                                 <div class="music-info">
                                     <div class="music-title" id="unifiedMusicTitle">背景音乐</div>
                                     <div class="music-author" id="unifiedMusicAuthor"></div>
+                                    <div class="music-duration" id="unifiedMusicDuration"></div>
                                 </div>
                                 <div class="music-controls">
-                                    <audio id="musicPlayer" controls style="width: 100%;"></audio>
+                                    <audio id="musicPlayer" preload="auto" style="display: none;"></audio>
+                                    <div class="custom-music-player" id="customMusicPlayer">
+                                        <button class="music-play-btn" id="musicPlayBtn" type="button" aria-label="播放音乐">
+                                            <i class="bi bi-play-fill"></i>
+                                        </button>
+                                        <div class="music-track-wrap">
+                                            <button class="music-progress-bar" id="musicProgressBar" type="button" aria-label="调整音乐进度">
+                                                <span class="music-progress-fill" id="musicProgressFill"></span>
+                                                <span class="music-progress-thumb" id="musicProgressThumb"></span>
+                                            </button>
+                                            <div class="music-time-row">
+                                                <span id="musicCurrentTime">0:00</span>
+                                                <span id="musicTotalTime">0:00</span>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div id="musicUnavailableHint" class="text-muted small" style="display: none; padding: 8px; text-align: center;">
                                         <i class="bi bi-info-circle"></i> 该视频音乐不可用
                                     </div>
                                 </div>
                                 <div class="music-actions">
-                                    <button class="btn btn-sm btn-outline-light" onclick="downloadMusic()">
+                                    <button class="music-download-btn" id="musicDownloadBtn" type="button" onclick="downloadMusic()">
                                         <i class="bi bi-download"></i> 下载
                                     </button>
                                 </div>

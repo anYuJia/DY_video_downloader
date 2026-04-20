@@ -756,20 +756,40 @@ function renderVideoDetail(video, awemeId) {
     var audioSection = document.getElementById('videoDetailAudioSection');
     var audioUrlsContainer = document.getElementById('videoDetailAudioUrls');
     var downloadAudioBtn = document.getElementById('downloadAudioFromDetail');
-    var bgmUrl = video.bgm_url || video.music;
+    var bgmUrl = video.bgm_url || (video.music && video.music.play_url) || video.music_url || '';
     if (bgmUrl) {
-        var proxiedBgmUrl = proxyUrl(bgmUrl);
+        var musicPayload = {
+            aweme_id: awemeId,
+            desc: video.desc || '',
+            author: video.author || {},
+            music: video.music || {
+                title: video.music_title || '',
+                author: video.music_author || '',
+                play_url: bgmUrl
+            }
+        };
+        var musicFilename = typeof buildMusicDownloadFilename === 'function'
+            ? buildMusicDownloadFilename(musicPayload)
+            : ((video.music_title || video.desc || '背景音乐').slice(0, 50) + '.mp3');
+        var proxiedBgmUrl = typeof buildMusicProxyUrl === 'function'
+            ? buildMusicProxyUrl(bgmUrl, musicFilename)
+            : proxyUrl(bgmUrl);
         if (audioSection) audioSection.style.display = '';
         if (downloadAudioBtn) downloadAudioBtn.style.display = 'inline-block';
         if (audioUrlsContainer) {
             audioUrlsContainer.textContent = '';
             var aud = document.createElement('audio'); aud.controls = true;
+            aud.preload = 'metadata';
+            aud.setAttribute('controlsList', 'nodownload');
             var src = document.createElement('source'); src.src = proxiedBgmUrl; src.type = 'audio/mpeg';
             aud.appendChild(src); audioUrlsContainer.appendChild(aud);
             var al = document.createElement('a'); al.href = proxiedBgmUrl; al.target = '_blank'; al.className = 'video-detail-audio-link'; al.textContent = bgmUrl;
             audioUrlsContainer.appendChild(al);
         }
-        if (downloadAudioBtn) downloadAudioBtn.setAttribute('data-bgm-url', proxiedBgmUrl);
+        if (downloadAudioBtn) {
+            downloadAudioBtn.setAttribute('data-bgm-url', bgmUrl);
+            downloadAudioBtn.setAttribute('data-filename', musicFilename);
+        }
     } else {
         if (audioSection) audioSection.style.display = 'none';
         if (downloadAudioBtn) downloadAudioBtn.style.display = 'none';
@@ -810,10 +830,17 @@ async function downloadVideoFromDetail() {
 }
 
 async function downloadAudioFromDetail() {
-    var bgmUrl = document.getElementById('downloadAudioFromDetail').getAttribute('data-bgm-url');
+    var btn = document.getElementById('downloadAudioFromDetail');
+    var bgmUrl = btn.getAttribute('data-bgm-url');
+    var filename = btn.getAttribute('data-filename') || '背景音乐.mp3';
     if (!bgmUrl) { showToast('没有可下载的音频', 'error'); return; }
-    window.open(bgmUrl, '_blank');
-    showToast('音频将在新标签页打开，请右键保存', 'info');
+    var link = document.createElement('a');
+    link.href = '/api/download_music?url=' + encodeURIComponent(bgmUrl) + '&filename=' + encodeURIComponent(filename);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('开始下载音乐', 'success');
 }
 
 // ═══════════════════════════════════════════════
@@ -1071,10 +1098,12 @@ function openUnifiedPlayerFromUserWorks(awemeId) {
             images: v.media_urls ? v.media_urls.filter((url, idx) => idx > 0 && v.media_type === 'image') : []
         },
         music: {
-            title: v.music_title || '原声',
-            play_url: v.music_url
+            title: (v.music && v.music.title) || v.music_title || '原声',
+            author: (v.music && v.music.author) || v.music_author || '',
+            duration: v.duration || (v.music && v.music.duration) || v.music_duration || 0,
+            play_url: (v.music && v.music.play_url) || v.music_url || v.bgm_url || ''
         },
-        bgm_url: v.music_url
+        bgm_url: (v.music && v.music.play_url) || v.music_url || v.bgm_url || ''
     }));
 
     // 设置统一播放器状态
@@ -1088,7 +1117,10 @@ function openUnifiedPlayerFromUserWorks(awemeId) {
             isMuted: false,
             volume: 1.0,
             playbackRate: 1.0,
-            source: 'user-works'
+            source: 'user-works',
+            mediaIndex: 0,
+            musicObjectUrl: '',
+            musicRequestToken: 0
         };
 
         const player = document.getElementById('unifiedPlayer');

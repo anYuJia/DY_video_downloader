@@ -19,9 +19,11 @@ import uuid
 import logging
 import subprocess
 import shutil
+import re
 import requests as http_requests
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 # 配置日志
 logging.basicConfig(level=logging.DEBUG if os.environ.get('DEBUG_MODE', '').lower() in ('true', '1') else logging.INFO,
@@ -705,6 +707,8 @@ def media_proxy():
     """代理抖音媒体资源，添加必要的Referer和Cookie头"""
 
     url = request.args.get('url', '')
+    requested_filename = _sanitize_download_filename(request.args.get('filename', '').strip(), default='')
+    requested_media_type = request.args.get('media_type', '').strip().lower()
     if not url or not any(d in url for d in ['douyin', 'douyinvod', 'douyinpic', 'byteimg', 'douyinstatic', 'ixigua']):
         return 'Invalid URL', 400
 
@@ -732,8 +736,14 @@ def media_proxy():
             if key in resp.headers:
                 resp_headers[key] = resp.headers[key]
 
-        # 如果没有Content-Type，根据URL推断
-        if 'Content-Type' not in resp_headers:
+        upstream_content_type = resp_headers.get('Content-Type', '')
+        normalized_content_type = upstream_content_type.split(';', 1)[0].strip().lower() if upstream_content_type else ''
+        inferred_name = requested_filename or url
+
+        # 如果没有 Content-Type，或者上游只给了 octet-stream，则按媒体类型兜底。
+        if requested_media_type == 'audio':
+            resp_headers['Content-Type'] = _guess_audio_content_type(inferred_name, normalized_content_type)
+        elif not normalized_content_type:
             if '.mp4' in url or 'video' in url:
                 resp_headers['Content-Type'] = 'video/mp4'
             elif '.jpg' in url or '.jpeg' in url:
@@ -742,6 +752,13 @@ def media_proxy():
                 resp_headers['Content-Type'] = 'image/png'
             elif '.webp' in url:
                 resp_headers['Content-Type'] = 'image/webp'
+
+        if requested_media_type in ('audio', 'video') and 'Accept-Ranges' not in resp_headers:
+            resp_headers['Accept-Ranges'] = 'bytes'
+
+        content_disposition = _build_content_disposition(requested_filename, 'inline')
+        if content_disposition:
+            resp_headers['Content-Disposition'] = content_disposition
 
         resp_headers['Access-Control-Allow-Origin'] = '*'
         resp_headers['Cache-Control'] = 'public, max-age=3600'
@@ -755,6 +772,63 @@ def media_proxy():
 
     except Exception as e:
         return f'Proxy error: {str(e)}', 502
+
+
+@app.route('/api/download_music')
+def download_music():
+    """代理下载音乐，并显式设置文件名。"""
+    url = request.args.get('url', '').strip()
+    requested_filename = request.args.get('filename', '').strip()
+
+    if not url or not any(d in url for d in ['douyin', 'douyinvod', 'douyinpic', 'byteimg', 'douyinstatic', 'ixigua']):
+        return 'Invalid URL', 400
+
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+            'Referer': 'https://www.douyin.com/',
+            'Accept': '*/*',
+            'Accept-Encoding': 'identity;q=1, *;q=0',
+        }
+
+        if api and api.cookie:
+            headers['Cookie'] = api.cookie
+
+        resp = http_requests.get(url, headers=headers, stream=True, timeout=(10, 120))
+        resp.raise_for_status()
+
+        content_type = (resp.headers.get('Content-Type') or 'audio/mpeg').split(';', 1)[0].strip()
+        filename = _sanitize_download_filename(requested_filename)
+        extension = _guess_audio_extension(url, content_type)
+        if not filename.lower().endswith(('.mp3', '.m4a', '.aac', '.wav', '.ogg')):
+            filename = f'{filename}{extension}'
+
+        resp_headers = {
+            'Content-Type': _guess_audio_content_type(filename or url, content_type),
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-store'
+        }
+
+        content_disposition = _build_content_disposition(filename, 'attachment')
+        if content_disposition:
+            resp_headers['Content-Disposition'] = content_disposition
+
+        if 'Content-Length' in resp.headers:
+            resp_headers['Content-Length'] = resp.headers['Content-Length']
+        if 'Accept-Ranges' in resp.headers:
+            resp_headers['Accept-Ranges'] = resp.headers['Accept-Ranges']
+        else:
+            resp_headers['Accept-Ranges'] = 'bytes'
+
+        def generate():
+            for chunk in resp.iter_content(chunk_size=65536):
+                yield chunk
+
+        return Response(generate(), status=resp.status_code, headers=resp_headers)
+
+    except Exception as e:
+        logger.error(f"音乐下载代理失败: {e}")
+        return f'Download error: {str(e)}', 502
 
 @app.route('/api/verify_page')
 def verify_page():
@@ -999,26 +1073,11 @@ def get_user_videos():
                 cover_url = safe_get_url(video['images'][0])
             media_type, media_urls = user_manager.get_media_info(video)
 
-            # 提取 BGM 信息
-            bgm_url = None
-            if video.get('music'):
-                music_data = video['music']
-                # 尝试多个可能的字段
-                bgm_url = safe_get_url(music_data.get('play_url', {}))
-                if not bgm_url:
-                    # 尝试 play_url 的直接 URL 字段
-                    bgm_url = music_data.get('play_url', '') if isinstance(music_data.get('play_url'), str) else None
-                if not bgm_url:
-                    # 尝试 music_file 字段
-                    bgm_url = safe_get_url(music_data.get('music_file', {}))
-                if not bgm_url:
-                    # 尝试 h5_url 或 web_url
-                    bgm_url = music_data.get('h5_url', '') or music_data.get('web_url', '')
-
-                # 调试模式输出 music 数据结构
-                if os.environ.get('DEBUG_MODE', '').lower() in ('true', '1', 'yes'):
-                    logger.debug(f"Music 数据结构：{json.dumps(music_data, ensure_ascii=False)[:500]}")
-            elif video.get('video') and video['video'].get('play_addr'):
+            music_info = _extract_music_info(video.get('music') or {})
+            bgm_url = music_info['play_url']
+            if video.get('music') and os.environ.get('DEBUG_MODE', '').lower() in ('true', '1', 'yes'):
+                logger.debug(f"Music 数据结构：{json.dumps(video.get('music'), ensure_ascii=False)[:500]}")
+            if not bgm_url and video.get('video') and video['video'].get('play_addr'):
                 # 如果没有独立音乐，使用视频的播放地址作为 BGM
                 bgm_url = safe_get_url(video['video']['play_addr'])
 
@@ -1026,6 +1085,7 @@ def get_user_videos():
                 'aweme_id': aweme_id,
                 'desc': video.get('desc', ''),
                 'create_time': video.get('create_time', 0),
+                'duration': _normalize_duration_seconds((video.get('video') or {}).get('duration', 0)),
                 'digg_count': video.get('statistics', {}).get('digg_count', 0),
                 'comment_count': video.get('statistics', {}).get('comment_count', 0),
                 'share_count': video.get('statistics', {}).get('share_count', 0),
@@ -1033,9 +1093,15 @@ def get_user_videos():
                 'media_type': media_type,
                 'media_urls': media_urls,
                 'bgm_url': bgm_url,
+                'music': music_info,
+                'music_title': music_info['title'],
+                'music_author': music_info['author'],
+                'music_url': music_info['play_url'],
+                'music_duration': music_info['duration'],
                 'author': {
                     'nickname': video.get('author', {}).get('nickname', ''),
-                    'avatar_thumb': safe_get_url(video.get('author', {}).get('avatar_thumb', {}))
+                    'avatar_thumb': safe_get_url(video.get('author', {}).get('avatar_thumb', {})),
+                    'sec_uid': video.get('author', {}).get('sec_uid', '')
                 }
             })
 
@@ -2048,17 +2114,112 @@ def _extract_music_url(music_data):
     """从音乐数据中提取播放地址"""
     play_url = music_data.get('play_url') or {}
     if isinstance(play_url, dict):
-        uri = play_url.get('uri', '')
-        if uri:
-            return uri
         url_list = play_url.get('url_list', [])
         if url_list:
             return url_list[0]
-    for key in ('play_url', 'src_url', 'mp3_url'):
+        uri = play_url.get('uri', '')
+        if isinstance(uri, str) and uri.startswith('http'):
+            return uri
+
+    music_file = music_data.get('music_file') or {}
+    if isinstance(music_file, dict):
+        url_list = music_file.get('url_list', [])
+        if url_list:
+            return url_list[0]
+
+    for key in ('play_url', 'src_url', 'mp3_url', 'music_file'):
         val = music_data.get(key, '')
         if isinstance(val, str) and val.startswith('http'):
             return val
     return ''
+
+
+def _normalize_duration_seconds(value):
+    """将抖音接口里的时长统一转换为秒。"""
+    try:
+        duration_value = float(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+    if duration_value <= 0:
+        return 0
+
+    # 抖音不同接口里的 duration 单位并不统一：
+    # - video.duration 常见为 1/100000 秒
+    # - music.duration 常见为 1/100 秒
+    # - 少量场景会直接返回毫秒或秒
+    if duration_value >= 100000:
+        return max(1, round(duration_value / 100000))
+    if duration_value >= 1000:
+        return max(1, round(duration_value / 1000))
+    if duration_value >= 100:
+        return max(1, round(duration_value / 100))
+
+    return max(1, round(duration_value))
+
+
+def _extract_music_info(music_data):
+    """提取统一的音乐信息结构。"""
+    if not isinstance(music_data, dict):
+        return {
+            'title': '',
+            'author': '',
+            'play_url': '',
+            'duration': 0,
+        }
+
+    return {
+        'title': music_data.get('title', '') or '',
+        'author': music_data.get('author', '') or music_data.get('owner_nickname', '') or '',
+        'play_url': _extract_music_url(music_data),
+        'duration': _normalize_duration_seconds(music_data.get('duration', 0)),
+    }
+
+
+def _sanitize_download_filename(name: str, default: str = '背景音乐') -> str:
+    raw_name = (name or '').strip()
+    sanitized = re.sub(r'[\\/:*?"<>|]', '_', raw_name)
+    sanitized = ' '.join(sanitized.split()).strip(' .')
+    sanitized = sanitized[:Config.MAX_FILENAME_LENGTH]
+    return sanitized or default
+
+
+def _guess_audio_extension(url: str, content_type: str) -> str:
+    normalized_url = (url or '').lower()
+    normalized_type = (content_type or '').lower()
+
+    if '.m4a' in normalized_url or 'audio/mp4' in normalized_type or 'audio/x-m4a' in normalized_type:
+        return '.m4a'
+    if '.aac' in normalized_url or 'audio/aac' in normalized_type:
+        return '.aac'
+    if '.wav' in normalized_url or 'audio/wav' in normalized_type:
+        return '.wav'
+    if '.ogg' in normalized_url or 'audio/ogg' in normalized_type:
+        return '.ogg'
+
+    return '.mp3'
+
+
+def _guess_audio_content_type(url: str, content_type: str = '') -> str:
+    normalized_type = (content_type or '').lower()
+    if normalized_type and normalized_type != 'application/octet-stream':
+        return normalized_type.split(';', 1)[0].strip()
+
+    extension = _guess_audio_extension(url, normalized_type)
+    return {
+        '.m4a': 'audio/mp4',
+        '.aac': 'audio/aac',
+        '.wav': 'audio/wav',
+        '.ogg': 'audio/ogg',
+    }.get(extension, 'audio/mpeg')
+
+
+def _build_content_disposition(filename: str, disposition_type: str = 'attachment') -> str | None:
+    if not filename:
+        return None
+
+    ascii_filename = re.sub(r'[^\x20-\x7E]', '_', filename) or 'download.bin'
+    return f"{disposition_type}; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(filename)}"
 
 
 @app.route('/api/recommended_feed', methods=['POST'])
@@ -2169,10 +2330,8 @@ def get_recommended_feed():
                         'duration': video_data.get('duration', 0),
                     },
                     'music': {
-                        'title': (aweme.get('music') or {}).get('title', ''),
-                        'author': (aweme.get('music') or {}).get('author', ''),
+                        **_extract_music_info(aweme.get('music') or {}),
                         'cover': (aweme.get('music') or {}).get('cover_large', {}).get('url_list', [''])[0] if isinstance((aweme.get('music') or {}).get('cover_large'), dict) else '',
-                        'play_url': _extract_music_url(aweme.get('music') or {}),
                     }
                 }
 

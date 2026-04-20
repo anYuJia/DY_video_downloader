@@ -18,14 +18,90 @@ let lastScrollTime = 0;       // 滚动防抖
 let isLoadingMore = false;    // 是否正在加载更多
 let currentVideoElement = null; // 当前视频元素引用
 let isInitializing = false;   // 是否正在初始化（新增：防止重复点击）
+let recommendedReturnState = null;
 
 // 智能预加载配置
 const PRELOAD_THRESHOLD = 10;  // 剩余视频少于10条时预加载
 const INITIAL_LOAD_COUNT = 20; // 首次加载数量
 const LOAD_MORE_COUNT = 20;    // 每次加载更多数量
 
+function captureRecommendedReturnState() {
+    const sectionIds = [
+        'emptyState',
+        'userDetailSection',
+        'userVideosSection',
+        'likedVideosSection',
+        'likedAuthorsSection',
+        'linkParseResult',
+        'myDownloadsSection'
+    ];
+
+    const visibleSections = sectionIds
+        .map(id => {
+            const el = document.getElementById(id);
+            if (!el) return null;
+            const isVisible = window.getComputedStyle(el).display !== 'none';
+            return isVisible ? { id, display: el.style.display || '' } : null;
+        })
+        .filter(Boolean);
+
+    const backBtn = document.getElementById('back-btn');
+
+    recommendedReturnState = {
+        visibleSections,
+        backBtnDisplay: backBtn ? (backBtn.style.display || '') : '',
+        backBtnVisible: backBtn ? window.getComputedStyle(backBtn).display !== 'none' : false,
+        isHomeView: typeof isHomeView !== 'undefined' ? isHomeView : true
+    };
+}
+
+function restoreRecommendedReturnState() {
+    const sectionIds = [
+        'emptyState',
+        'userDetailSection',
+        'userVideosSection',
+        'likedVideosSection',
+        'likedAuthorsSection',
+        'linkParseResult',
+        'recommendedFeedSection',
+        'myDownloadsSection'
+    ];
+
+    sectionIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+
+    if (recommendedReturnState && recommendedReturnState.visibleSections.length > 0) {
+        recommendedReturnState.visibleSections.forEach(item => {
+            const el = document.getElementById(item.id);
+            if (el) el.style.display = item.display || (item.id === 'emptyState' ? 'flex' : 'block');
+        });
+    } else {
+        const emptyState = document.getElementById('emptyState');
+        if (emptyState) emptyState.style.display = 'flex';
+    }
+
+    const backBtn = document.getElementById('back-btn');
+    if (backBtn) {
+        if (recommendedReturnState && recommendedReturnState.backBtnVisible) {
+            backBtn.style.display = recommendedReturnState.backBtnDisplay || 'flex';
+        } else {
+            backBtn.style.display = 'none';
+        }
+    }
+
+    if (typeof isHomeView !== 'undefined') {
+        isHomeView = recommendedReturnState ? recommendedReturnState.isHomeView : true;
+    }
+
+    recommendedReturnState = null;
+}
+
 async function showRecommendedFeed() {
     console.log('[showRecommendedFeed] 显示推荐视频界面');
+    const currentSection = document.getElementById('recommendedFeedSection');
+    const isAlreadyVisible = currentSection && window.getComputedStyle(currentSection).display !== 'none';
 
     // 防止重复点击：检查是否正在初始化或加载中
     if (isInitializing) {
@@ -41,6 +117,9 @@ async function showRecommendedFeed() {
     }
 
     isInitializing = true;
+    if (!isAlreadyVisible || !recommendedReturnState) {
+        captureRecommendedReturnState();
+    }
 
     // 隐藏所有区域（包括主页）
     const sections = [
@@ -86,8 +165,7 @@ async function showRecommendedFeed() {
 }
 
 function closeRecommendedFeed() {
-    document.getElementById('recommendedFeedSection').style.display = 'none';
-    document.getElementById('emptyState').style.display = 'block';
+    restoreRecommendedReturnState();
     recommendedVideos = [];
     recommendedCursor = 0;
     isInitializing = false;  // 重置初始化标志
@@ -187,7 +265,8 @@ function createRecommendedVideoCard(video) {
     const videoData = video.video || {};
     const coverUrl = videoData.cover || '/static/default-cover.svg';
     const createTime = video.create_time ? new Date(video.create_time * 1000).toLocaleDateString() : '';
-    const duration = videoData.duration > 0 ? formatDuration(videoData.duration / 1000) : '';
+    const durationSeconds = normalizeMediaDurationSeconds(videoData.duration);
+    const duration = durationSeconds > 0 ? formatDuration(durationSeconds) : '';
 
     const col = document.createElement('div');
     col.className = 'col-md-3 col-sm-6 mb-3';
@@ -226,6 +305,249 @@ function formatDuration(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function normalizeMediaDurationSeconds(value) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return 0;
+    if (numericValue >= 100000) return Math.max(1, Math.round(numericValue / 100000));
+    if (numericValue >= 1000) return Math.max(1, Math.round(numericValue / 1000));
+    if (numericValue >= 100) return Math.max(1, Math.round(numericValue / 100));
+    return Math.max(1, Math.round(numericValue));
+}
+
+function sanitizeDownloadFilename(name) {
+    return String(name || '')
+        .replace(/[\\/:*?"<>|]/g, '_')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function buildMusicDownloadFilename(video) {
+    const music = video?.music || {};
+    const meaningfulTitle = music.title && music.title !== '原声' ? music.title : '';
+    const authorName = music.author || video?.author?.nickname || '';
+
+    let baseName = '';
+    if (meaningfulTitle) {
+        baseName = authorName ? `${meaningfulTitle} - ${authorName}` : meaningfulTitle;
+    } else if (authorName) {
+        baseName = `${authorName} - 原声`;
+    } else if (video?.desc) {
+        baseName = video.desc.slice(0, 30);
+    } else if (video?.aweme_id) {
+        baseName = `背景音乐_${video.aweme_id}`;
+    } else {
+        baseName = '背景音乐';
+    }
+
+    const sanitized = sanitizeDownloadFilename(baseName).slice(0, 50) || '背景音乐';
+    return sanitized.endsWith('.mp3') ? sanitized : `${sanitized}.mp3`;
+}
+
+function updateMusicDurationDisplay(musicPlayerEl, displayEl, fallbackDuration) {
+    if (!displayEl) return;
+
+    const fallbackSeconds = normalizeMediaDurationSeconds(fallbackDuration);
+    const audioSeconds = musicPlayerEl && Number.isFinite(musicPlayerEl.duration)
+        ? Math.round(musicPlayerEl.duration)
+        : 0;
+    const durationSeconds = fallbackSeconds || audioSeconds;
+
+    displayEl.textContent = durationSeconds > 0 ? `片段时长 ${formatVideoTime(durationSeconds)}` : '';
+}
+
+function updateCustomMusicProgress(currentTime, totalTime) {
+    const currentTimeEl = document.getElementById('musicCurrentTime');
+    const totalTimeEl = document.getElementById('musicTotalTime');
+    const progressFill = document.getElementById('musicProgressFill');
+    const progressThumb = document.getElementById('musicProgressThumb');
+
+    const safeCurrent = Number.isFinite(currentTime) && currentTime > 0 ? currentTime : 0;
+    const safeTotal = Number.isFinite(totalTime) && totalTime > 0 ? totalTime : 0;
+    const percent = safeTotal > 0 ? Math.max(0, Math.min(100, (safeCurrent / safeTotal) * 100)) : 0;
+
+    if (currentTimeEl) currentTimeEl.textContent = formatVideoTime(safeCurrent);
+    if (totalTimeEl) totalTimeEl.textContent = formatVideoTime(safeTotal);
+    if (progressFill) progressFill.style.width = percent + '%';
+    if (progressThumb) progressThumb.style.left = percent + '%';
+}
+
+function updateMusicPlayButtonState(audioEl) {
+    const playBtn = document.getElementById('musicPlayBtn');
+    if (!playBtn) return;
+
+    const icon = playBtn.querySelector('i');
+    const isPlaying = !!audioEl && !audioEl.paused && !audioEl.ended;
+
+    playBtn.setAttribute('aria-label', isPlaying ? '暂停音乐' : '播放音乐');
+    if (icon) {
+        icon.className = isPlaying ? 'bi bi-pause-fill' : 'bi bi-play-fill';
+    }
+}
+
+function setupCustomMusicPlayer() {
+    const audioEl = document.getElementById('musicPlayer');
+    const playBtn = document.getElementById('musicPlayBtn');
+    const progressBar = document.getElementById('musicProgressBar');
+    const totalTimeEl = document.getElementById('musicTotalTime');
+    if (!audioEl || !playBtn || !progressBar) return;
+    if (audioEl.dataset.customPlayerBound === 'true') return;
+
+    audioEl.dataset.customPlayerBound = 'true';
+
+    let isDragging = false;
+
+    function syncFromAudio() {
+        if (isDragging) return;
+        const fallbackDuration = Number(totalTimeEl?.dataset.fallbackDuration || 0);
+        const totalTime = Number.isFinite(audioEl.duration) && audioEl.duration > 0
+            ? audioEl.duration
+            : fallbackDuration;
+        updateCustomMusicProgress(audioEl.currentTime, totalTime);
+    }
+
+    function getProgressFromEvent(event) {
+        const rect = progressBar.getBoundingClientRect();
+        const pointX = 'touches' in event ? event.touches[0].clientX : event.clientX;
+        return Math.max(0, Math.min(1, (pointX - rect.left) / rect.width));
+    }
+
+    function seekToProgress(progress) {
+        const fallbackDuration = Number(totalTimeEl?.dataset.fallbackDuration || 0);
+        const totalTime = Number.isFinite(audioEl.duration) && audioEl.duration > 0
+            ? audioEl.duration
+            : fallbackDuration;
+        updateCustomMusicProgress(progress * totalTime, totalTime);
+        if (Number.isFinite(audioEl.duration) && audioEl.duration > 0) {
+            audioEl.currentTime = progress * audioEl.duration;
+        }
+    }
+
+    playBtn.addEventListener('click', () => {
+        if (!audioEl.src) return;
+        if (audioEl.paused) {
+            audioEl.play().catch(() => {});
+        } else {
+            audioEl.pause();
+        }
+    });
+
+    progressBar.addEventListener('click', (event) => {
+        seekToProgress(getProgressFromEvent(event));
+    });
+
+    progressBar.addEventListener('mousedown', (event) => {
+        isDragging = true;
+        seekToProgress(getProgressFromEvent(event));
+        event.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (event) => {
+        if (!isDragging) return;
+        seekToProgress(getProgressFromEvent(event));
+    });
+
+    document.addEventListener('mouseup', () => {
+        isDragging = false;
+    });
+
+    progressBar.addEventListener('touchstart', (event) => {
+        isDragging = true;
+        seekToProgress(getProgressFromEvent(event));
+        event.preventDefault();
+    }, { passive: false });
+
+    progressBar.addEventListener('touchmove', (event) => {
+        if (!isDragging) return;
+        seekToProgress(getProgressFromEvent(event));
+    }, { passive: true });
+
+    progressBar.addEventListener('touchend', () => {
+        isDragging = false;
+    });
+
+    audioEl.addEventListener('timeupdate', syncFromAudio);
+    audioEl.addEventListener('loadedmetadata', syncFromAudio);
+    audioEl.addEventListener('durationchange', syncFromAudio);
+    audioEl.addEventListener('play', () => updateMusicPlayButtonState(audioEl));
+    audioEl.addEventListener('pause', () => updateMusicPlayButtonState(audioEl));
+    audioEl.addEventListener('ended', () => {
+        updateMusicPlayButtonState(audioEl);
+        syncFromAudio();
+    });
+    audioEl.addEventListener('emptied', () => {
+        updateMusicPlayButtonState(audioEl);
+        updateCustomMusicProgress(0, Number(totalTimeEl?.dataset.fallbackDuration || 0));
+    });
+
+    updateMusicPlayButtonState(audioEl);
+}
+
+function getVideoClipDurationSeconds(video) {
+    const videoData = video?.video || {};
+    return normalizeMediaDurationSeconds(videoData.duration || video?.duration || 0);
+}
+
+function getMusicPanelDurationSeconds(video) {
+    const clipSeconds = getVideoClipDurationSeconds(video);
+    const musicSeconds = normalizeMediaDurationSeconds(video?.music?.duration || 0);
+
+    return clipSeconds || musicSeconds;
+}
+
+function buildMusicProxyUrl(musicUrl, filename) {
+    if (!musicUrl) return '';
+
+    let proxiedUrl = '/api/media/proxy?url=' + encodeURIComponent(musicUrl) + '&media_type=audio';
+    if (filename) {
+        proxiedUrl += '&filename=' + encodeURIComponent(filename);
+    }
+    return proxiedUrl;
+}
+
+async function preloadUnifiedMusicSource(musicPlayerEl, musicUrl, filename, durationEl, fallbackDuration) {
+    if (!musicPlayerEl || !musicUrl || !window.fetch || !window.URL || !window.URL.createObjectURL) return;
+
+    const requestUrl = buildMusicProxyUrl(musicUrl, filename);
+    if (!requestUrl) return;
+
+    unifiedPlayerState.musicRequestToken = (unifiedPlayerState.musicRequestToken || 0) + 1;
+    const currentToken = unifiedPlayerState.musicRequestToken;
+
+    try {
+        const response = await fetch(requestUrl, { cache: 'default' });
+        if (!response.ok) return;
+
+        const blob = await response.blob();
+        if (unifiedPlayerState.musicRequestToken !== currentToken) return;
+
+        if (unifiedPlayerState.musicObjectUrl) {
+            URL.revokeObjectURL(unifiedPlayerState.musicObjectUrl);
+            unifiedPlayerState.musicObjectUrl = '';
+        }
+
+        const objectUrl = URL.createObjectURL(blob);
+        unifiedPlayerState.musicObjectUrl = objectUrl;
+
+        const currentTime = musicPlayerEl.currentTime || 0;
+        const wasPaused = musicPlayerEl.paused;
+
+        musicPlayerEl.src = objectUrl;
+        musicPlayerEl.load();
+
+        musicPlayerEl.onloadedmetadata = () => {
+            if (currentTime > 0) {
+                musicPlayerEl.currentTime = currentTime;
+            }
+            updateMusicDurationDisplay(musicPlayerEl, durationEl, fallbackDuration);
+            if (!wasPaused) {
+                musicPlayerEl.play().catch(() => {});
+            }
+        };
+    } catch (error) {
+        console.warn('[preloadUnifiedMusicSource] 预加载音频失败:', error);
+    }
 }
 
 // ═══════════════════════════════════════════════
@@ -951,8 +1273,12 @@ let unifiedPlayerState = {
     volume: 1.0,
     playbackRate: 1.0,
     source: 'recommended',
-    mediaIndex: 0  // 当前作品内的媒体索引
+    mediaIndex: 0,  // 当前作品内的媒体索引
+    musicObjectUrl: '',
+    musicRequestToken: 0
 };
+
+setupCustomMusicPlayer();
 
 // Volume Control
 // Volume Control - 悬停显示
@@ -1000,6 +1326,17 @@ function setupHoverPanels() {
         musicGroup.addEventListener('mouseenter', () => {
             clearTimeout(musicTimeout);
             musicPanel.style.display = 'block';
+            const currentVideo = unifiedPlayerState.currentVideo;
+            const musicUrl = currentVideo?.music?.play_url || currentVideo?.bgm_url || '';
+            if (musicUrl) {
+                preloadUnifiedMusicSource(
+                    document.getElementById('musicPlayer'),
+                    musicUrl,
+                    buildMusicDownloadFilename(currentVideo),
+                    document.getElementById('unifiedMusicDuration'),
+                    getMusicPanelDurationSeconds(currentVideo)
+                );
+            }
         });
         musicGroup.addEventListener('mouseleave', () => {
             musicTimeout = setTimeout(() => {
@@ -1157,6 +1494,7 @@ function updateUnifiedPlayerInfo() {
 
     const author = video.author || {};
     const stats = video.statistics || {};
+    const videoData = video.video || {};
     const music = video.music || {};
 
     const countEl = document.getElementById('unifiedVideoCount');
@@ -1205,11 +1543,16 @@ function updateUnifiedPlayerInfo() {
     // 更新音乐面板信息
     const musicTitleEl = document.getElementById('unifiedMusicTitle');
     const musicAuthorEl = document.getElementById('unifiedMusicAuthor');
+    const musicDurationEl = document.getElementById('unifiedMusicDuration');
     const musicPlayerEl = document.getElementById('musicPlayer');
+    const customMusicPlayerEl = document.getElementById('customMusicPlayer');
+    const musicTotalTimeEl = document.getElementById('musicTotalTime');
     const musicUnavailableHint = document.getElementById('musicUnavailableHint');
-    const musicDownloadBtn = document.querySelector('.music-actions button');
+    const musicDownloadBtn = document.getElementById('musicDownloadBtn');
 
     const musicUrl = music.play_url || video.bgm_url;
+    const musicDuration = getMusicPanelDurationSeconds(video);
+    const musicFilename = buildMusicDownloadFilename(video);
 
     if (musicTitleEl) {
         musicTitleEl.textContent = music.title || '背景音乐';
@@ -1217,19 +1560,56 @@ function updateUnifiedPlayerInfo() {
     if (musicAuthorEl) {
         musicAuthorEl.textContent = music.author || '';
     }
+    if (musicDurationEl) {
+        updateMusicDurationDisplay(musicPlayerEl, musicDurationEl, musicDuration);
+    }
+    if (musicTotalTimeEl) {
+        musicTotalTimeEl.dataset.fallbackDuration = String(musicDuration || 0);
+    }
+    updateCustomMusicProgress(0, musicDuration);
+    updateMusicPlayButtonState(musicPlayerEl);
 
     if (musicPlayerEl) {
+        musicPlayerEl.pause();
+        musicPlayerEl.preload = 'auto';
+
         if (musicUrl) {
-            musicPlayerEl.src = '/api/media/proxy?url=' + encodeURIComponent(musicUrl);
-            musicPlayerEl.style.display = 'block';
-        } else {
+            const proxiedMusicUrl = buildMusicProxyUrl(musicUrl, musicFilename);
+            if (unifiedPlayerState.musicObjectUrl) {
+                URL.revokeObjectURL(unifiedPlayerState.musicObjectUrl);
+                unifiedPlayerState.musicObjectUrl = '';
+            }
+            if (musicPlayerEl.src !== proxiedMusicUrl) {
+                musicPlayerEl.src = proxiedMusicUrl;
+            }
+            musicPlayerEl.currentTime = 0;
+            musicPlayerEl.onloadedmetadata = () => {
+                updateMusicDurationDisplay(musicPlayerEl, musicDurationEl, musicDuration);
+                updateCustomMusicProgress(musicPlayerEl.currentTime, musicPlayerEl.duration || musicDuration);
+            };
+            musicPlayerEl.onerror = () => {
+                updateMusicDurationDisplay(null, musicDurationEl, musicDuration);
+                updateCustomMusicProgress(0, musicDuration);
+            };
+            musicPlayerEl.load();
             musicPlayerEl.style.display = 'none';
+            preloadUnifiedMusicSource(musicPlayerEl, musicUrl, musicFilename, musicDurationEl, musicDuration);
+        } else {
+            musicPlayerEl.removeAttribute('src');
+            musicPlayerEl.load();
+            musicPlayerEl.onloadedmetadata = null;
+            musicPlayerEl.onerror = null;
+            musicPlayerEl.style.display = 'none';
+            updateCustomMusicProgress(0, 0);
         }
     }
 
     // 显示/隐藏不可用提示
     if (musicUnavailableHint) {
         musicUnavailableHint.style.display = musicUrl ? 'none' : 'block';
+    }
+    if (customMusicPlayerEl) {
+        customMusicPlayerEl.style.display = musicUrl ? 'flex' : 'none';
     }
 
     // 如果没有音乐URL，隐藏下载按钮
@@ -1251,10 +1631,10 @@ function downloadMusic() {
         return;
     }
 
-    // 创建下载链接
+    const filename = buildMusicDownloadFilename(video);
     const link = document.createElement('a');
-    link.href = '/api/media/proxy?url=' + encodeURIComponent(bgmUrl);
-    link.download = `music_${video.aweme_id}.mp3`;
+    link.href = '/api/download_music?url=' + encodeURIComponent(bgmUrl) + '&filename=' + encodeURIComponent(filename);
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1352,7 +1732,9 @@ function openUnifiedPlayer(awemeId) {
         volume: 1.0,
         playbackRate: 1.0,
         source: 'recommended',
-        mediaIndex: 0
+        mediaIndex: 0,
+        musicObjectUrl: '',
+        musicRequestToken: 0
     };
 
     const player = document.getElementById('unifiedPlayer');
@@ -1368,6 +1750,7 @@ function openUnifiedPlayer(awemeId) {
 // Close unified player
 function closeUnifiedPlayer() {
     unifiedPlayerState.isOpen = false;
+    unifiedPlayerState.musicRequestToken = (unifiedPlayerState.musicRequestToken || 0) + 1;
 
     // 停止并清理视频元素
     if (unifiedPlayerState.videoElement) {
@@ -1380,7 +1763,12 @@ function closeUnifiedPlayer() {
     const musicPlayer = document.getElementById('musicPlayer');
     if (musicPlayer) {
         musicPlayer.pause();
-        musicPlayer.src = '';
+        musicPlayer.removeAttribute('src');
+        musicPlayer.load();
+    }
+    if (unifiedPlayerState.musicObjectUrl) {
+        URL.revokeObjectURL(unifiedPlayerState.musicObjectUrl);
+        unifiedPlayerState.musicObjectUrl = '';
     }
 
     // 清空视频容器中的所有内容
