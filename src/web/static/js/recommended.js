@@ -1654,12 +1654,6 @@ function setVolume(value) {
         video.volume = value / 100;
         unifiedPlayerState.volume = value / 100;
 
-        // 更新音量百分比显示
-        const volumeValue = document.getElementById('volumeValue');
-        if (volumeValue) {
-            volumeValue.textContent = value + '%';
-        }
-
         // 更新音量图标
         const icon = document.querySelector('#volumeBtn i');
         if (icon) {
@@ -1672,13 +1666,22 @@ function setVolume(value) {
             }
         }
 
-        // 更新静音按钮状态
-        const muteBtn = document.getElementById('muteBtn');
-        if (muteBtn) {
+        // 更新喇叭图标
+        const speakerIcon = document.getElementById('volumeSpeakerIcon');
+        const speakerBtn = document.getElementById('volumeSpeakerBtn');
+        if (speakerIcon && speakerBtn) {
             if (value == 0) {
-                muteBtn.classList.add('muted');
+                speakerIcon.className = 'bi bi-volume-mute-fill';
+                speakerBtn.classList.add('muted');
+                unifiedPlayerState.isMuted = true;
             } else {
-                muteBtn.classList.remove('muted');
+                if (value < 50) {
+                    speakerIcon.className = 'bi bi-volume-down-fill';
+                } else {
+                    speakerIcon.className = 'bi bi-volume-up-fill';
+                }
+                speakerBtn.classList.remove('muted');
+                unifiedPlayerState.isMuted = false;
             }
         }
     }
@@ -1687,18 +1690,52 @@ function setVolume(value) {
 function toggleMute() {
     const video = unifiedPlayerState.videoElement;
     if (video) {
-        video.muted = !video.muted;
-        unifiedPlayerState.isMuted = video.muted;
-
         const slider = document.getElementById('volumeSlider');
-        const icon = document.querySelector('#volumeBtn i');
+        const speakerIcon = document.getElementById('volumeSpeakerIcon');
+        const speakerBtn = document.getElementById('volumeSpeakerBtn');
 
-        if (video.muted) {
-            if (icon) icon.className = 'bi bi-volume-mute-fill';
-            if (slider) slider.value = 0;
+        if (unifiedPlayerState.isMuted) {
+            // 取消静音
+            video.volume = unifiedPlayerState.volume || 1;
+            unifiedPlayerState.isMuted = false;
+            if (slider) {
+                slider.value = Math.round(video.volume * 100);
+            }
+            if (speakerIcon && speakerBtn) {
+                const volume = video.volume * 100;
+                if (volume < 50) {
+                    speakerIcon.className = 'bi bi-volume-down-fill';
+                } else {
+                    speakerIcon.className = 'bi bi-volume-up-fill';
+                }
+                speakerBtn.classList.remove('muted');
+            }
         } else {
-            if (icon) icon.className = 'bi bi-volume-up-fill';
-            if (slider) slider.value = unifiedPlayerState.volume * 100;
+            // 静音
+            video.volume = 0;
+            unifiedPlayerState.isMuted = true;
+            if (slider) {
+                slider.value = 0;
+            }
+            if (speakerIcon && speakerBtn) {
+                speakerIcon.className = 'bi bi-volume-mute-fill';
+                speakerBtn.classList.add('muted');
+            }
+        }
+
+        // 更新主音量按钮图标
+        const mainIcon = document.querySelector('#volumeBtn i');
+        if (mainIcon) {
+            if (unifiedPlayerState.isMuted) {
+                mainIcon.className = 'bi bi-volume-mute-fill';
+            } else {
+                const volume = video.volume * 100;
+                if (volume < 50) {
+                    mainIcon.className = 'bi bi-volume-down-fill';
+                } else {
+                    mainIcon.className = 'bi bi-volume-up-fill';
+                }
+            }
         }
     }
 }
