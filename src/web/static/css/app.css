@@ -3423,22 +3423,28 @@ a:hover { color: var(--accent-hover); }
 /* Volume Panel - Bottom (优化为垂直滑块) */
 .player-volume-panel-bottom {
     position: absolute;
-    bottom: 55px;
+    bottom: 8px;
     left: 50%;
     transform: translateX(-50%);
     background: rgba(20, 20, 20, 0.95);
-    border-radius: 16px;
-    padding: 16px 12px;
+    border-radius: 50px;
+    padding: 6px 10px;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
-    gap: 10px;
-    min-width: 56px;
+    gap: 8px;
     backdrop-filter: blur(20px);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="light"] .player-volume-panel-bottom {
+    background: rgba(255, 255, 255, 0.98);
+    border-color: rgba(0, 0, 0, 0.08);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
 }
 
 .player-volume-panel-bottom.show {
@@ -3450,16 +3456,21 @@ a:hover { color: var(--accent-hover); }
     width: 100px;
     height: 4px;
     -webkit-appearance: none;
+    appearance: none;
     background: rgba(255, 255, 255, 0.2);
     border-radius: 2px;
     outline: none;
     cursor: pointer;
 }
 
+[data-theme="light"] #volumeSlider {
+    background: rgba(0, 0, 0, 0.15);
+}
+
 #volumeSlider::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     background: #fff;
     border-radius: 50%;
     cursor: pointer;
@@ -3467,13 +3478,18 @@ a:hover { color: var(--accent-hover); }
     transition: transform 0.15s ease;
 }
 
+[data-theme="light"] #volumeSlider::-webkit-slider-thumb {
+    background: #1d1d1f;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
 #volumeSlider::-webkit-slider-thumb:hover {
     transform: scale(1.15);
 }
 
 #volumeSlider::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     background: #fff;
     border-radius: 50%;
     cursor: pointer;
@@ -3481,36 +3497,41 @@ a:hover { color: var(--accent-hover); }
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-.volume-value {
-    color: rgba(255, 255, 255, 0.9);
-    font-size: 13px;
-    font-weight: 500;
-    min-width: 36px;
-    text-align: center;
+[data-theme="light"] #volumeSlider::-moz-range-thumb {
+    background: #1d1d1f;
 }
 
-.player-mute-btn {
-    width: 100%;
-    padding: 10px 8px;
-    border: none;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.8);
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 12px;
+.player-volume-speaker {
+    width: 28px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    transition: background 0.2s ease, color 0.2s ease;
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 16px;
+    cursor: pointer;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
 }
 
-.player-mute-btn:hover {
-    background: rgba(255, 255, 255, 0.15);
+[data-theme="light"] .player-volume-speaker {
+    color: rgba(0, 0, 0, 0.7);
+}
+
+.player-volume-speaker:hover {
+    background: rgba(255, 255, 255, 0.1);
     color: #fff;
 }
 
-.player-mute-btn.muted {
+[data-theme="light"] .player-volume-speaker:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: #000;
+}
+
+.player-volume-speaker.muted {
     color: #fe2c55;
 }
 
