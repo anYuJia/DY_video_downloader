@@ -1841,45 +1841,48 @@ textarea.form-control { resize: vertical; }
     text-overflow: ellipsis;
 }
 .user-profile-stats {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
+    display: flex;
+    align-items: center;
+    gap: 0;
     flex-shrink: 0;
     width: auto;
     min-width: 180px;
 }
 .user-profile-stat {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    padding: 10px 12px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-sm);
+    align-items: baseline;
+    gap: 6px;
+    padding: 0 14px;
+    background: transparent;
+    border: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
     min-width: 0;
     min-height: auto;
     transition: var(--transition);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    box-shadow: none;
+}
+.user-profile-stat:last-child {
+    border-right: none;
+    padding-right: 0;
+}
+.user-profile-stat:first-child {
+    padding-left: 0;
 }
 .user-profile-stat:hover {
-    background: rgba(255, 255, 255, 0.07);
-    transform: translateY(-2px);
-    border-color: rgba(124, 92, 252, 0.24);
+    background: transparent;
+    transform: none;
+    border-color: rgba(255, 255, 255, 0.1);
 }
 .user-profile-stat-num {
     font-family: 'Outfit', sans-serif;
     font-weight: 700;
-    font-size: 1.05rem;
+    font-size: 1.1rem;
     color: var(--text-primary);
-    margin-bottom: 2px;
     letter-spacing: -0.03em;
 }
 .user-profile-stat-label {
-    font-size: 0.65rem;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.10em;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
 }
 .user-profile-actions {
     display: flex;
