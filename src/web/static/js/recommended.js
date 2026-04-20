@@ -17,6 +17,7 @@ let isTransitioning = false;  // 防止快速滑动
 let lastScrollTime = 0;       // 滚动防抖
 let isLoadingMore = false;    // 是否正在加载更多
 let currentVideoElement = null; // 当前视频元素引用
+let isInitializing = false;   // 是否正在初始化（新增：防止重复点击）
 
 // 智能预加载配置
 const PRELOAD_THRESHOLD = 10;  // 剩余视频少于10条时预加载
@@ -25,6 +26,21 @@ const LOAD_MORE_COUNT = 20;    // 每次加载更多数量
 
 async function showRecommendedFeed() {
     console.log('[showRecommendedFeed] 显示推荐视频界面');
+
+    // 防止重复点击：检查是否正在初始化或加载中
+    if (isInitializing) {
+        console.log('[showRecommendedFeed] 正在初始化中，跳过重复请求');
+        showToast('正在加载中，请稍候...', 'info');
+        return;
+    }
+
+    if (isLoadingMore) {
+        console.log('[showRecommendedFeed] 正在加载中，跳过重复请求');
+        showToast('正在加载中，请稍候...', 'info');
+        return;
+    }
+
+    isInitializing = true;
 
     // 隐藏所有区域（包括主页）
     const sections = [
@@ -56,6 +72,7 @@ async function showRecommendedFeed() {
         // 显示/隐藏加载更多按钮
         document.getElementById('loadMoreRecommended').style.display =
             hasMoreRecommended ? 'block' : 'none';
+        isInitializing = false;  // 重置标志位
         return;
     }
 
@@ -65,6 +82,7 @@ async function showRecommendedFeed() {
     recommendedCursor = 0;
     document.getElementById('recommendedFeedList').textContent = '';
     await loadRecommendedFeed(INITIAL_LOAD_COUNT);
+    isInitializing = false;  // 加载完成后重置标志位
 }
 
 function closeRecommendedFeed() {
@@ -72,6 +90,8 @@ function closeRecommendedFeed() {
     document.getElementById('emptyState').style.display = 'block';
     recommendedVideos = [];
     recommendedCursor = 0;
+    isInitializing = false;  // 重置初始化标志
+    isLoadingMore = false;   // 重置加载标志
 }
 
 async function loadRecommendedFeed(count = LOAD_MORE_COUNT) {

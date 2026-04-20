@@ -28,20 +28,12 @@ class DouyinAPI:
         self.host = 'https://www.douyin.com'
         self._cached_webid = None
         self._webid_time = 0
-        
+        self._douyin_sign = None  # 懒加载：延迟到第一次使用时初始化
+
         # 检查是否启用调试模式
         self.debug_mode = os.environ.get('DEBUG_MODE', '').lower() in ('true', '1', 'yes')
         if self.debug_mode:
             print("\033[93m[API] 调试模式已启用\033[0m")
-        
-        # 初始化JS签名引擎
-        try:
-            from src.config.config import get_resource_path
-            with open(get_resource_path('lib/js/douyin.js'), 'r', encoding='utf-8') as f:
-                self.douyin_sign = execjs.compile(f.read())
-        except Exception as e:
-            print(f"\033[91m[API] 初始化JS签名引擎失败: {e}\033[0m")
-            self.douyin_sign = None
         # 通用请求参数
         self.common_params = {
             'device_platform': 'webapp',
@@ -91,6 +83,18 @@ class DouyinAPI:
             "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
             "accept": "application/json, text/plain, */*",
         }
+
+    @property
+    def douyin_sign(self):
+        """懒加载：延迟到第一次使用时初始化 JS 签名引擎"""
+        if self._douyin_sign is None:
+            try:
+                from src.config.config import get_resource_path
+                with open(get_resource_path('lib/js/douyin.js'), 'r', encoding='utf-8') as f:
+                    self._douyin_sign = execjs.compile(f.read())
+            except Exception as e:
+                print(f"\033[91m[API] 初始化JS签名引擎失败: {e}\033[0m")
+        return self._douyin_sign
 
     async def _get_webid(self, headers: dict) -> str:
         """获取webid（缓存10分钟）"""

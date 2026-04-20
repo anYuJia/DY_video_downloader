@@ -5,7 +5,7 @@ DY Video Downloader
 一个功能强大的抖音视频下载器
 """
 
-__version__ = "1.0.0"
+__version__ = "0.0.2"
 __author__ = "anYuJia"
 __description__ = "抖音视频下载器 - 支持批量下载用户作品、点赞视频等功能"
 

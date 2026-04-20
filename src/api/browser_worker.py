@@ -379,57 +379,146 @@ def get_temp_cookie() -> dict:
 
 
 def fetch_recommended_feed(cookie: str, count: int = 20, cursor: int = 0) -> dict:
-    """获取推荐视频流 - 使用 DouyinAPI 统一接口"""
+    """获取推荐视频流 - 直接使用 HTTP 请求，不启动浏览器
+
+    注意：此函数在 browser_worker 子进程中运行，不应再调用 browser_request
+    启动新的浏览器进程，否则会造成无限递归。
+    """
     try:
         import asyncio
         import sys
         import os
+        import requests
+        import urllib.parse
+        import random
+        import string
 
         # 获取项目根目录并添加到路径
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         if project_root not in sys.path:
             sys.path.insert(0, project_root)
 
-        from src.api.api import DouyinAPI
+        from src.config.config import get_resource_path
+        import execjs
 
-        # 创建API实例
-        api = DouyinAPI(cookie)
+        # 加载 JS 签名引擎
+        try:
+            with open(get_resource_path('lib/js/douyin.js'), 'r', encoding='utf-8') as f:
+                douyin_sign = execjs.compile(f.read())
+        except Exception as e:
+            print(f"[fetch_recommended_feed] 加载签名引擎失败: {e}", file=sys.stderr)
+            return {'success': False, 'message': f'签名引擎初始化失败: {e}'}
 
-        # 使用asyncio运行异步请求
-        async def fetch():
-            try:
-                print(f"[fetch_recommended_feed] 请求 {count} 个视频", file=sys.stderr)
-                resp, success = await api.get_recommended_feed(count, cursor)
+        # 生成 msToken
+        ms_token = ''.join(random.choices(string.ascii_letters + string.digits, k=107))
 
-                if success and resp.get('aweme_list'):
-                    aweme_count = len(resp.get('aweme_list', []))
-                    print(f"[fetch_recommended_feed] API返回 {aweme_count} 个视频", file=sys.stderr)
-                    return {
-                        'success': True,
-                        'aweme_list': resp.get('aweme_list', []),
-                        'cursor': resp.get('cursor', 0),
-                        'has_more': resp.get('has_more', False)
-                    }
+        # 通用请求头
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0",
+            "Referer": "https://www.douyin.com/?recommend=1",
+            "Cookie": cookie,
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        }
 
-                print(f"[fetch_recommended_feed] API失败", file=sys.stderr)
-                return {
-                    'success': False,
-                    'message': '未能获取推荐视频'
-                }
-            except Exception as e:
-                print(f"[fetch_recommended_feed] 请求失败: {e}", file=sys.stderr)
-                return {
-                    'success': False,
-                    'message': str(e)
-                }
+        # 请求参数
+        params = {
+            'device_platform': 'webapp',
+            'aid': '6383',
+            'channel': 'channel_pc_web',
+            'update_version_code': '0',
+            'pc_client_type': '1',
+            'version_code': '190600',
+            'version_name': '19.6.0',
+            'cookie_enabled': 'true',
+            'screen_width': '1680',
+            'screen_height': '1050',
+            'browser_language': 'zh-CN',
+            'browser_platform': 'MacIntel',
+            'browser_name': 'Edge',
+            'browser_version': '145.0.0.0',
+            'browser_online': 'true',
+            'engine_name': 'Blink',
+            'engine_version': '145.0.0.0',
+            'os_name': 'Mac OS',
+            'os_version': '10.15.7',
+            'cpu_core_num': '8',
+            'device_memory': '8',
+            'platform': 'PC',
+            'downlink': '10',
+            'effective_type': '4g',
+            'round_trip_time': '50',
+            'pc_libra_divert': 'Mac',
+            'support_h265': '1',
+            'support_dash': '1',
+            'disable_rs': '0',
+            'need_filter_settings': '1',
+            'list_type': 'single',
+            'module_id': '3003101',
+            'count': str(count),
+            'pull_type': '0',
+            'refresh_index': '1',
+            'refer_type': '10',
+            'filterGids': '',
+            'presented_ids': '',
+            'refer_id': '',
+            'tag_id': '',
+            'use_lite_type': '2',
+            'Seo-Flag': '0',
+            'pre_log_id': '',
+            'pre_item_ids': '',
+            'pre_room_ids': '',
+            'pre_item_from': 'sati',
+            'xigua_user': '0',
+            'awemePcRecRawData': '{"is_xigua_user":0,"danmaku_switch_status":0,"is_client":false}',
+            'msToken': ms_token,
+        }
 
-        # 运行异步函数
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(fetch())
-        loop.close()
+        # 生成签名
+        query = '&'.join([f'{k}={urllib.parse.quote(str(v))}' for k, v in params.items()])
+        try:
+            a_bogus = douyin_sign.call('sign_datail', query, headers["User-Agent"])
+            params["a_bogus"] = a_bogus
+        except Exception as e:
+            print(f"[fetch_recommended_feed] 签名生成失败: {e}", file=sys.stderr)
+            return {'success': False, 'message': f'签名生成失败: {e}'}
 
-        return result
+        # 发送请求
+        url = 'https://www.douyin.com/aweme/v2/web/module/feed/'
+        print(f"[fetch_recommended_feed] 请求 {count} 个视频", file=sys.stderr)
+
+        try:
+            response = requests.post(url, data=params, headers=headers, timeout=30)
+
+            if response.status_code != 200:
+                print(f"[fetch_recommended_feed] HTTP 错误: {response.status_code}", file=sys.stderr)
+                return {'success': False, 'message': f'HTTP 错误: {response.status_code}'}
+
+            data = response.json()
+
+            if data.get('status_code', 0) != 0:
+                print(f"[fetch_recommended_feed] API 错误: {data.get('status_msg', 'unknown')}", file=sys.stderr)
+                return {'success': False, 'message': f"API 错误: {data.get('status_msg', 'unknown')}"}
+
+            aweme_list = data.get('aweme_list', [])
+            print(f"[fetch_recommended_feed] API 返回 {len(aweme_list)} 个视频", file=sys.stderr)
+
+            return {
+                'success': True,
+                'aweme_list': aweme_list,
+                'cursor': data.get('cursor', 0),
+                'has_more': data.get('has_more', False)
+            }
+
+        except requests.exceptions.Timeout:
+            print(f"[fetch_recommended_feed] 请求超时", file=sys.stderr)
+            return {'success': False, 'message': '请求超时'}
+        except requests.exceptions.RequestException as e:
+            print(f"[fetch_recommended_feed] 请求失败: {e}", file=sys.stderr)
+            return {'success': False, 'message': f'请求失败: {e}'}
+        except Exception as e:
+            print(f"[fetch_recommended_feed] 解析失败: {e}", file=sys.stderr)
+            return {'success': False, 'message': f'解析失败: {e}'}
 
     except Exception as e:
         print(f"[fetch_recommended_feed] 错误: {e}", file=sys.stderr)

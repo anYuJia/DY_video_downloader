@@ -2045,11 +2045,8 @@ def cookie_from_browser():
 
 @app.route('/api/recommended_feed', methods=['POST'])
 def get_recommended_feed():
-    """获取推荐视频流"""
+    """获取推荐视频流 - 直接调用 DouyinAPI，不使用子进程"""
     try:
-        import subprocess
-        import json
-
         data = request.json or {}
         count = data.get('count', 20)
         cursor = data.get('cursor', 0)
@@ -2063,137 +2060,120 @@ def get_recommended_feed():
                 'message': '请先登录抖音账号'
             })
 
-        # 调用 browser_worker 获取推荐视频
-        worker_path = os.path.join(os.path.dirname(__file__), '..', 'api', 'browser_worker.py')
-
-        proc = subprocess.run(
-            [sys.executable, worker_path],
-            input=json.dumps({
-                "action": "get_recommended_feed",
-                "cookie": cookie,
-                "count": count,
-                "cursor": cursor
-            }),
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            timeout=60,
-        )
-
-        if proc.returncode != 0:
-            logger.error(f"获取推荐视频失败: {proc.stderr}")
+        if not api:
             return jsonify({
                 'success': False,
-                'message': '获取推荐视频失败: ' + proc.stderr[:200]
+                'message': '服务未初始化'
             })
 
-        result = json.loads(proc.stdout)
+        # 直接调用 DouyinAPI，与其他接口保持一致
+        logger.info(f"[推荐视频] 请求 {count} 个视频")
 
-        if result.get('success'):
-            aweme_list = result.get('aweme_list', [])
+        async def fetch_recommended():
+            resp, success = await api.get_recommended_feed(count, cursor)
+            return resp, success
 
-            logger.info(f"[推荐视频] API 返回 {len(aweme_list)} 个视频")
+        resp, success = run_async(fetch_recommended())
 
-            # 格式化视频信息
-            videos = []
-            skipped_count = 0
-            for aweme in aweme_list:
-                try:
-                    # 提取视频播放地址
-                    video_data = aweme.get('video', {})
-                    play_addr_data = video_data.get('play_addr', {})
-                    if isinstance(play_addr_data, dict):
-                        play_addr = play_addr_data.get('url_list', [''])[0]
-                    else:
-                        play_addr = play_addr_data if play_addr_data else ''
+        if not success or not resp.get('aweme_list'):
+            logger.error(f"获取推荐视频失败: {resp}")
+            return jsonify({
+                'success': False,
+                'message': '获取推荐视频失败，请稍后重试'
+            })
 
-                    # 跳过没有播放地址的视频
-                    if not play_addr:
-                        skipped_count += 1
-                        logger.debug(f"跳过视频 {aweme.get('aweme_id')}: 无播放地址")
-                        continue
+        aweme_list = resp.get('aweme_list', [])
+        logger.info(f"[推荐视频] API 返回 {len(aweme_list)} 个视频")
 
-                    # 提取封面
-                    cover_data = video_data.get('cover', {})
-                    if isinstance(cover_data, dict):
-                        cover = cover_data.get('url_list', [''])[0]
-                    else:
-                        cover = cover_data if cover_data else ''
+        # 格式化视频信息
+        videos = []
+        skipped_count = 0
+        for aweme in aweme_list:
+            try:
+                # 提取视频播放地址
+                video_data = aweme.get('video', {})
+                play_addr_data = video_data.get('play_addr', {})
+                if isinstance(play_addr_data, dict):
+                    play_addr = play_addr_data.get('url_list', [''])[0]
+                else:
+                    play_addr = play_addr_data if play_addr_data else ''
 
-                    # 提取动态封面
-                    dynamic_cover_data = video_data.get('dynamic_cover', {})
-                    if isinstance(dynamic_cover_data, dict):
-                        dynamic_cover = dynamic_cover_data.get('url_list', [''])[0]
-                    else:
-                        dynamic_cover = dynamic_cover_data if dynamic_cover_data else ''
-
-                    # 提取作者头像
-                    author_data = aweme.get('author', {})
-                    avatar_data = author_data.get('avatar_thumb', {})
-                    if isinstance(avatar_data, dict):
-                        avatar_thumb = avatar_data.get('url_list', [''])[0]
-                    else:
-                        avatar_thumb = avatar_data if avatar_data else ''
-
-                    video_info = {
-                        'aweme_id': aweme.get('aweme_id', ''),
-                        'desc': aweme.get('desc', ''),
-                        'create_time': aweme.get('create_time', 0),
-                        'author': {
-                            'uid': author_data.get('uid', ''),
-                            'nickname': author_data.get('nickname', ''),
-                            'avatar_thumb': avatar_thumb,
-                            'sec_uid': author_data.get('sec_uid', ''),
-                        },
-                        'statistics': {
-                            'digg_count': (aweme.get('statistics') or {}).get('digg_count', 0),
-                            'comment_count': (aweme.get('statistics') or {}).get('comment_count', 0),
-                            'share_count': (aweme.get('statistics') or {}).get('share_count', 0),
-                            'play_count': (aweme.get('statistics') or {}).get('play_count', 0),
-                        },
-                        'video': {
-                            'cover': cover,
-                            'dynamic_cover': dynamic_cover,
-                            'play_addr': play_addr,
-                            'width': video_data.get('width', 0),
-                            'height': video_data.get('height', 0),
-                            'duration': video_data.get('duration', 0),
-                        },
-                        'music': {
-                            'title': (aweme.get('music') or {}).get('title', ''),
-                            'author': (aweme.get('music') or {}).get('author', ''),
-                            'cover': (aweme.get('music') or {}).get('cover_large', {}).get('url_list', [''])[0] if isinstance((aweme.get('music') or {}).get('cover_large'), dict) else '',
-                        }
-                    }
-
-                    videos.append(video_info)
-                except Exception as e:
-                    import traceback
-                    logger.error(f"解析视频信息失败: {e}")
-                    logger.error(traceback.format_exc())
+                # 跳过没有播放地址的视频
+                if not play_addr:
+                    skipped_count += 1
+                    logger.debug(f"跳过视频 {aweme.get('aweme_id')}: 无播放地址")
                     continue
 
-            logger.info(f"[推荐视频] 返回 {len(videos)} 个有效视频, 跳过 {skipped_count} 个无效视频")
+                # 提取封面
+                cover_data = video_data.get('cover', {})
+                if isinstance(cover_data, dict):
+                    cover = cover_data.get('url_list', [''])[0]
+                else:
+                    cover = cover_data if cover_data else ''
 
-            return jsonify({
-                'success': True,
-                'videos': videos,
-                'cursor': result.get('cursor', 0),
-                'has_more': result.get('has_more', False),
-                'count': len(videos)
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'message': result.get('message', '获取失败')
-            })
+                # 提取动态封面
+                dynamic_cover_data = video_data.get('dynamic_cover', {})
+                if isinstance(dynamic_cover_data, dict):
+                    dynamic_cover = dynamic_cover_data.get('url_list', [''])[0]
+                else:
+                    dynamic_cover = dynamic_cover_data if dynamic_cover_data else ''
 
-    except subprocess.TimeoutExpired:
-        logger.error("获取推荐视频超时")
+                # 提取作者头像
+                author_data = aweme.get('author', {})
+                avatar_data = author_data.get('avatar_thumb', {})
+                if isinstance(avatar_data, dict):
+                    avatar_thumb = avatar_data.get('url_list', [''])[0]
+                else:
+                    avatar_thumb = avatar_data if avatar_data else ''
+
+                video_info = {
+                    'aweme_id': aweme.get('aweme_id', ''),
+                    'desc': aweme.get('desc', ''),
+                    'create_time': aweme.get('create_time', 0),
+                    'author': {
+                        'uid': author_data.get('uid', ''),
+                        'nickname': author_data.get('nickname', ''),
+                        'avatar_thumb': avatar_thumb,
+                        'sec_uid': author_data.get('sec_uid', ''),
+                    },
+                    'statistics': {
+                        'digg_count': (aweme.get('statistics') or {}).get('digg_count', 0),
+                        'comment_count': (aweme.get('statistics') or {}).get('comment_count', 0),
+                        'share_count': (aweme.get('statistics') or {}).get('share_count', 0),
+                        'play_count': (aweme.get('statistics') or {}).get('play_count', 0),
+                    },
+                    'video': {
+                        'cover': cover,
+                        'dynamic_cover': dynamic_cover,
+                        'play_addr': play_addr,
+                        'width': video_data.get('width', 0),
+                        'height': video_data.get('height', 0),
+                        'duration': video_data.get('duration', 0),
+                    },
+                    'music': {
+                        'title': (aweme.get('music') or {}).get('title', ''),
+                        'author': (aweme.get('music') or {}).get('author', ''),
+                        'cover': (aweme.get('music') or {}).get('cover_large', {}).get('url_list', [''])[0] if isinstance((aweme.get('music') or {}).get('cover_large'), dict) else '',
+                    }
+                }
+
+                videos.append(video_info)
+            except Exception as e:
+                import traceback
+                logger.error(f"解析视频信息失败: {e}")
+                logger.error(traceback.format_exc())
+                continue
+
+        logger.info(f"[推荐视频] 返回 {len(videos)} 个有效视频, 跳过 {skipped_count} 个无效视频")
+
         return jsonify({
-            'success': False,
-            'message': '获取推荐视频超时，请重试'
+            'success': True,
+            'videos': videos,
+            'cursor': resp.get('cursor', 0),
+            'has_more': resp.get('has_more', False),
+            'count': len(videos)
         })
+
     except Exception as e:
         logger.exception(f"获取推荐视频异常: {e}")
         return jsonify({
