@@ -25,6 +25,22 @@ const PRELOAD_THRESHOLD = 10;  // 剩余视频少于10条时预加载
 const INITIAL_LOAD_COUNT = 20; // 首次加载数量
 const LOAD_MORE_COUNT = 20;    // 每次加载更多数量
 
+function disposeUnifiedVideoElement(videoEl) {
+    if (!videoEl) return;
+
+    try {
+        videoEl.onerror = null;
+        videoEl.onloadedmetadata = null;
+        videoEl.pause();
+    } catch (e) {}
+
+    try {
+        videoEl.dataset.disposed = 'true';
+        videoEl.removeAttribute('src');
+        videoEl.load();
+    } catch (e) {}
+}
+
 function captureRecommendedReturnState() {
     const sectionIds = [
         'emptyState',
@@ -241,6 +257,35 @@ async function loadRecommendedFeed(count = LOAD_MORE_COUNT) {
     }
 }
 
+async function refreshCurrentUnifiedVideoFromDetail() {
+    const currentVideo = unifiedPlayerState.currentVideo;
+    if (!currentVideo || !currentVideo.aweme_id) return false;
+    if (currentVideo.__mediaRefreshAttempted) return false;
+    if (typeof fetchFreshVideoDetail !== 'function' || typeof normalizeVideoForUnifiedPlayer !== 'function') return false;
+
+    currentVideo.__mediaRefreshAttempted = true;
+
+    try {
+        const freshVideo = await fetchFreshVideoDetail(currentVideo.aweme_id);
+        if (typeof replaceVideoInActiveCollections === 'function') {
+            replaceVideoInActiveCollections(currentVideo.aweme_id, freshVideo);
+        }
+        if (typeof VideoStorage !== 'undefined' && typeof VideoStorage.saveVideo === 'function') {
+            VideoStorage.saveVideo(freshVideo);
+        }
+
+        const normalized = normalizeVideoForUnifiedPlayer(freshVideo);
+        normalized.__mediaRefreshAttempted = true;
+        unifiedPlayerState.videos[unifiedPlayerState.currentIndex] = normalized;
+        unifiedPlayerState.currentVideo = normalized;
+        renderUnifiedCurrentVideo();
+        return true;
+    } catch (error) {
+        console.error('[refreshCurrentUnifiedVideoFromDetail] 刷新视频详情失败:', error);
+        return false;
+    }
+}
+
 async function refreshRecommendedFeed() {
     recommendedVideos = [];
     recommendedCursor = 0;
@@ -260,6 +305,19 @@ function displayRecommendedVideos(videos) {
 }
 
 function createRecommendedVideoCard(video) {
+    if (typeof createVideoCardElement === 'function') {
+        var awemeLiteral = typeof toInlineJsString === 'function'
+            ? toInlineJsString(video.aweme_id || '')
+            : '\'' + String(video.aweme_id || '') + '\'';
+        return createVideoCardElement(video, {
+            openAction: 'openUnifiedPlayer(' + awemeLiteral + ')',
+            playAction: 'openUnifiedPlayer(' + awemeLiteral + ')',
+            downloadAction: 'downloadRecommendedVideo(' + awemeLiteral + ')',
+            detailAction: 'showVideoDetail(' + awemeLiteral + ')',
+            showAuthorButton: true
+        });
+    }
+
     const stats = video.statistics || {};
     const author = video.author || {};
     const videoData = video.video || {};
@@ -1754,8 +1812,7 @@ function closeUnifiedPlayer() {
 
     // 停止并清理视频元素
     if (unifiedPlayerState.videoElement) {
-        unifiedPlayerState.videoElement.pause();
-        unifiedPlayerState.videoElement.src = '';
+        disposeUnifiedVideoElement(unifiedPlayerState.videoElement);
         unifiedPlayerState.videoElement = null;
     }
 
@@ -1776,8 +1833,7 @@ function closeUnifiedPlayer() {
     if (wrapper) {
         // 停止所有视频元素
         wrapper.querySelectorAll('video').forEach(v => {
-            v.pause();
-            v.src = '';
+            disposeUnifiedVideoElement(v);
         });
         wrapper.innerHTML = '';
     }
@@ -1811,16 +1867,12 @@ function renderUnifiedCurrentVideo() {
 
     // 先停止并移除所有现有的视频元素
     wrapper.querySelectorAll('video').forEach(v => {
-        v.pause();
-        v.removeAttribute('src'); // 使用removeAttribute而不是直接设置src=''
-        v.load(); // 重置视频元素
+        disposeUnifiedVideoElement(v);
     });
 
     // 停止状态中的视频元素
     if (unifiedPlayerState.videoElement) {
-        try {
-            unifiedPlayerState.videoElement.pause();
-        } catch (e) {}
+        disposeUnifiedVideoElement(unifiedPlayerState.videoElement);
         unifiedPlayerState.videoElement = null;
     }
 
@@ -1838,11 +1890,19 @@ function renderUnifiedCurrentVideo() {
 
     const videoData = video.video || {};
     const playAddr = videoData.play_addr;
+    const imageUrls = Array.isArray(videoData.images) ? videoData.images : [];
 
     console.log('[renderUnifiedCurrentVideo] 视频ID:', video.aweme_id);
     console.log('[renderUnifiedCurrentVideo] 播放地址:', playAddr);
 
+    if (!playAddr && imageUrls.length > 0) {
+        renderCurrentMedia({ type: 'image', url: imageUrls[0] });
+        updateUnifiedPlayerInfo();
+        return;
+    }
+
     if (!playAddr) {
+        refreshCurrentUnifiedVideoFromDetail();
         wrapper.innerHTML = '<div class="player-loading"><i class="bi bi-exclamation-circle"></i><p>视频不可用</p></div>';
         return;
     }
@@ -1884,8 +1944,12 @@ function renderUnifiedCurrentVideo() {
     });
 
     videoEl.addEventListener('error', (e) => {
+        if (videoEl.dataset.disposed === 'true' || !videoEl.getAttribute('src') || !slide.isConnected) {
+            return;
+        }
         console.error('[renderUnifiedCurrentVideo] 视频加载失败:', e);
         console.error('[renderUnifiedCurrentVideo] 错误详情:', videoEl.error);
+        refreshCurrentUnifiedVideoFromDetail();
         slide.innerHTML = '<div class="player-loading"><i class="bi bi-exclamation-circle"></i><p>视频加载失败</p><p class="small text-muted">请检查网络连接或CORS设置</p></div>';
     });
 
@@ -2164,15 +2228,11 @@ function renderCurrentMedia(media) {
 
     // 停止并移除所有现有的视频元素
     wrapper.querySelectorAll('video').forEach(v => {
-        v.pause();
-        v.removeAttribute('src');
-        v.load();
+        disposeUnifiedVideoElement(v);
     });
 
     if (unifiedPlayerState.videoElement) {
-        try {
-            unifiedPlayerState.videoElement.pause();
-        } catch (e) {}
+        disposeUnifiedVideoElement(unifiedPlayerState.videoElement);
         unifiedPlayerState.videoElement = null;
     }
 
@@ -2208,7 +2268,11 @@ function renderCurrentMedia(media) {
         });
 
         videoEl.addEventListener('error', (e) => {
+            if (videoEl.dataset.disposed === 'true' || !videoEl.getAttribute('src') || !slide.isConnected) {
+                return;
+            }
             console.error('视频加载失败:', e);
+            refreshCurrentUnifiedVideoFromDetail();
         });
 
         slide.appendChild(videoEl);

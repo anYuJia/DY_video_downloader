@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════
 
 const VideoStorage = {
+    MEDIA_URL_MAX_AGE: 30 * 60 * 1000,
     _cachedSize: -1,
     _cacheDirty: true,
 
@@ -49,6 +50,13 @@ const VideoStorage = {
             raw_media_type: videoData.raw_media_type,
             cover_url: videoData.cover_url,
             bgm_url: videoData.bgm_url,
+            duration: videoData.duration,
+            music: videoData.music,
+            music_title: videoData.music_title || videoData.music?.title,
+            music_author: videoData.music_author || videoData.music?.author,
+            music_url: videoData.music_url || videoData.music?.play_url || videoData.bgm_url,
+            music_duration: videoData.music_duration || videoData.music?.duration,
+            media_fetched_at: videoData.media_fetched_at || videoData.stored_at || Date.now(),
             videos: videoData.videos,
             images: videoData.images
         };
@@ -75,6 +83,52 @@ const VideoStorage = {
         if (videoData.media_type) enhanced.raw_media_type = videoData.media_type;
 
         return enhanced;
+    },
+
+    isMediaExpired: function (timestamp, maxAge) {
+        const ts = Number(timestamp || 0);
+        const ttl = Number(maxAge || this.MEDIA_URL_MAX_AGE);
+        if (!ts || !ttl) return false;
+        return Date.now() - ts > ttl;
+    },
+
+    stripTransientMedia: function (videoData) {
+        if (!videoData || typeof videoData !== 'object') return videoData;
+
+        const stripped = Object.assign({}, videoData, {
+            media_urls: [],
+            bgm_url: '',
+            videos: [],
+            images: []
+        });
+
+        if (stripped.music && typeof stripped.music === 'object') {
+            stripped.music = Object.assign({}, stripped.music, { play_url: '' });
+        }
+        if (stripped.music_url) stripped.music_url = '';
+        if (stripped.cover_url) stripped.cover_url = stripped.cover_url;
+        stripped.media_expired = true;
+        return stripped;
+    },
+
+    sanitizeVideoRecord: function (videoData) {
+        if (!videoData || typeof videoData !== 'object') return videoData;
+        if (!this.isMediaExpired(videoData.media_fetched_at || videoData.stored_at)) return videoData;
+        return this.stripTransientMedia(videoData);
+    },
+
+    sanitizeVideoMap: function (videos) {
+        let changed = false;
+        const sanitized = {};
+
+        Object.keys(videos || {}).forEach(awemeId => {
+            const original = videos[awemeId];
+            const next = this.sanitizeVideoRecord(original);
+            sanitized[awemeId] = next;
+            if (next !== original) changed = true;
+        });
+
+        return { sanitized, changed };
     },
 
     analyzeMediaData: function (videoData) {
@@ -162,7 +216,13 @@ const VideoStorage = {
     getAllVideos: function () {
         try {
             const stored = localStorage.getItem('dy_video_storage');
-            return stored ? JSON.parse(stored) : {};
+            const videos = stored ? JSON.parse(stored) : {};
+            const result = this.sanitizeVideoMap(videos);
+            if (result.changed) {
+                localStorage.setItem('dy_video_storage', JSON.stringify(result.sanitized));
+                this._cacheDirty = true;
+            }
+            return result.sanitized;
         } catch (error) {
             console.error('获取存储数据失败:', error);
             return {};
@@ -277,13 +337,17 @@ const VideoStorage = {
 const LikedDataCache = {
     LIKED_VIDEOS_KEY: 'liked_videos_cache',
     LIKED_AUTHORS_KEY: 'liked_authors_cache',
-    CACHE_VERSION: 2,
+    CACHE_VERSION: 3,
     currentDisplayType: null,
 
     saveLikedVideos: function(videos, count) {
-        const cacheData = { version: this.CACHE_VERSION, data: videos, count: count, timestamp: Date.now() };
+        const timestamp = Date.now();
+        const normalizedVideos = Array.isArray(videos)
+            ? videos.map(video => Object.assign({}, video, { media_fetched_at: video.media_fetched_at || timestamp }))
+            : [];
+        const cacheData = { version: this.CACHE_VERSION, data: normalizedVideos, count: count, timestamp: timestamp };
         localStorage.setItem(this.LIKED_VIDEOS_KEY, JSON.stringify(cacheData));
-        _log(`已缓存 ${videos.length} 个点赞视频`);
+        _log(`已缓存 ${normalizedVideos.length} 个点赞视频`);
     },
 
     saveLikedAuthors: function(authors, count) {
@@ -300,6 +364,11 @@ const LikedDataCache = {
                 if (cacheData.version !== this.CACHE_VERSION) {
                     localStorage.removeItem(this.LIKED_VIDEOS_KEY);
                     _log('点赞视频缓存版本已过期，已自动清理');
+                    return null;
+                }
+                if (VideoStorage.isMediaExpired(cacheData.timestamp)) {
+                    localStorage.removeItem(this.LIKED_VIDEOS_KEY);
+                    _log('点赞视频缓存中的媒体地址已过期，已自动清理');
                     return null;
                 }
                 _log(`从缓存获取到 ${cacheData.data.length} 个点赞视频`);

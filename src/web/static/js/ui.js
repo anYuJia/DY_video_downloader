@@ -977,18 +977,23 @@ function setupMediaPreviewModal(video) {
 }
 
 function previewMediaFromList(awemeId) {
+    if (typeof openUnifiedPlayerFromCurrentVideos === 'function' && window.currentVideos) {
+        const currentVideo = window.currentVideos.find(v => v.aweme_id === awemeId);
+        if (currentVideo) {
+            openUnifiedPlayerFromCurrentVideos(awemeId);
+            return;
+        }
+    }
+
     const storedVideo = VideoStorage.getVideo(awemeId);
-    if (storedVideo && storedVideo.media_urls && storedVideo.media_urls.length > 0) {
-        openImmersivePlayer(storedVideo);
+    if (storedVideo && typeof openUnifiedPlayerFromVideoCollection === 'function') {
+        openUnifiedPlayerFromVideoCollection([storedVideo], awemeId, 'stored-video');
         return;
     }
 
-    if (window.currentVideos) {
-        const video = window.currentVideos.find(v => v.aweme_id === awemeId);
-        if (video && video.media_urls && video.media_urls.length > 0) {
-            openImmersivePlayer(video);
-            return;
-        }
+    if (storedVideo && storedVideo.media_urls && storedVideo.media_urls.length > 0) {
+        openImmersivePlayer(storedVideo);
+        return;
     }
 
     showToast('没有可预览的媒体内容', 'error');
