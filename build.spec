@@ -144,8 +144,8 @@ if sys.platform == 'darwin':
         info_plist={
             'NSPrincipalClass': 'NSApplication',
             'NSHighResolutionCapable': 'True',
-            'CFBundleShortVersionString': '0.0.2',
-            'CFBundleVersion': '0.0.2',
+            'CFBundleShortVersionString': '0.0.5',
+            'CFBundleVersion': '0.0.5',
             'CFBundleName': 'DY Video Downloader',
             'CFBundleDisplayName': 'DY Video Downloader',
         }

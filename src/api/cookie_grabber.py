@@ -92,11 +92,19 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
             # 轮询检测登录状态
             start_time = time.time()
             poll_interval = 1  # 每 1 秒检查一次（从 2 秒优化为 1 秒）
-            consecutive_not_verified = 0  # 连续未检测到验证的次数
+            consecutive_home_page = 0  # 连续检测到主页的次数
+            last_cookie_hash = ""  # 用于检测 Cookie 变化
 
             while time.time() - start_time < timeout:
                 cookies = context.cookies("https://www.douyin.com")
                 cookie_dict = {c["name"]: c["value"] for c in cookies}
+
+                # 计算 Cookie 哈希，用于检测 Cookie 是否变化
+                current_cookie_hash = ";".join(
+                    f"{k}={v[:20]}..." if len(v) > 20 else f"{k}={v}"
+                    for k, v in sorted(cookie_dict.items())
+                    if k in LOGIN_MARKER_KEYS
+                )
 
                 # 检查是否包含登录标志
                 has_login = any(
@@ -126,7 +134,7 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
                     )
 
                     if has_verification:
-                        consecutive_not_verified = 0
+                        consecutive_home_page = 0
                         elapsed = int(time.time() - start_time)
                         remaining = timeout - elapsed
                         _status(
@@ -138,7 +146,7 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
 
                     # 调试输出
                     print(f"[cookie_grabber] 当前页面：title={page_title[:50]}, url={page_url[:60]}", file=sys.stderr, flush=True)
-                    print(f"[cookie_grabber] has_login={has_login}, sessionid={'sessionid' in cookie_dict}", file=sys.stderr, flush=True)
+                    print(f"[cookie_grabber] has_login={has_login}, cookie_hash_changed={current_cookie_hash != last_cookie_hash}", file=sys.stderr, flush=True)
 
                 except Exception as e:
                     # 页面可能正在加载或已关闭
@@ -148,76 +156,115 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
                     print(f"[cookie_grabber] 检查页面状态异常：{e}", file=sys.stderr, flush=True)
                     pass
 
-                # 如果有登录标志，检查是否是新的登录（通过检查页面是否是主页）
+                # 如果有登录标志，检查是否是真正有效的登录
                 if has_login:
-                    # 检查当前页面是否是抖音主页（不是登录/验证页面）
                     try:
                         current_url = page.url
                         page_title = page.title()
 
-                        # 如果是主页且没有验证提示，说明已经登录成功
-                        if 'douyin.com' in current_url and \
-                           'passport' not in current_url.lower() and \
-                           'login' not in current_url.lower() and \
-                           '验证' not in page_title and \
-                           '登录' not in page_title:
-                            # 连续检测到主页，确认登录成功
-                            consecutive_not_verified += 1
-                            if consecutive_not_verified >= 2:  # 从 3 次优化为 2 次
-                                _status("login_detected", "检测到登录成功，正在提取 Cookie...")
+                        # 检查是否在抖音主页（不是登录/验证页面）
+                        is_home_page = (
+                            'douyin.com' in current_url and
+                            'passport' not in current_url.lower() and
+                            'login' not in current_url.lower() and
+                            '验证' not in page_title and
+                            '登录' not in page_title
+                        )
 
-                                # 增加等待时间，确保所有Cookie和请求都完成
-                                time.sleep(3)  # 从 1 秒增加到 3 秒
+                        if is_home_page:
+                            # 尝试检测页面上的用户元素（真正登录成功的标志）
+                            try:
+                                # 检测用户头像元素 - 这是真正登录成功的标志
+                                user_avatar = page.query_selector('.avatar-icon, [class*="avatar"], [class*="user-avatar"], [class*="header-avatar"]')
+                                user_info = page.query_selector('[class*="user-info"], [class*="nickname"]')
 
-                                # 再次确认页面状态和Cookie
-                                try:
-                                    # 检查页面是否还在正常状态
-                                    current_url = page.url
-                                    page_title = page.title()
+                                # 检测是否有登录按钮（如果有说明未登录）
+                                login_button = page.query_selector('text=/登录|登录\\/注册/')
 
-                                    # 如果页面跳转或关闭，重新加载主页
-                                    if 'douyin.com' not in current_url or \
-                                       'passport' in current_url.lower() or \
-                                       'login' in current_url.lower():
-                                        _status("page_redirect", "页面已跳转，重新加载主页...")
-                                        page.goto("https://www.douyin.com/", wait_until="load", timeout=30000)
-                                        time.sleep(2)
-                                except Exception as e:
-                                    print(f"[cookie_grabber] 页面状态检查失败：{e}", file=sys.stderr, flush=True)
+                                # 判断是否真正登录：
+                                # 1. 有用户头像或用户信息元素
+                                # 2. 没有登录按钮
+                                is_truly_logged_in = (user_avatar is not None or user_info is not None) and login_button is None
 
-                                # 获取最新Cookie
-                                cookies = context.cookies("https://www.douyin.com")
+                                print(f"[cookie_grabber] 检测登录元素: avatar={user_avatar is not None}, user_info={user_info is not None}, login_btn={login_button is not None}", file=sys.stderr, flush=True)
 
-                                # 验证是否包含必要的登录Cookie
-                                cookie_dict = {c["name"]: c["value"] for c in cookies}
-                                if not any(key in cookie_dict and cookie_dict[key] for key in LOGIN_MARKER_KEYS):
-                                    _status("cookie_incomplete", "Cookie提取不完整，等待重试...")
-                                    consecutive_not_verified = 0
-                                    continue
+                                if is_truly_logged_in:
+                                    # 检测到真正的登录状态
+                                    # 同时检查 Cookie 是否有变化（说明是刚登录的）
+                                    cookie_changed = current_cookie_hash != last_cookie_hash
 
-                                cookie_str = "; ".join(
-                                    f"{c['name']}={c['value']}" for c in cookies
-                                )
+                                    if cookie_changed:
+                                        # Cookie 有变化，说明是刚登录的，可以立即确认
+                                        _status("login_detected", "检测到登录成功，正在提取 Cookie...")
+                                    else:
+                                        # Cookie 没变化，可能是持久化的旧登录
+                                        # 增加检测次数，确保稳定
+                                        consecutive_home_page += 1
+                                        if consecutive_home_page < 5:  # 需要连续 5 次检测
+                                            elapsed = int(time.time() - start_time)
+                                            _status(
+                                                "waiting",
+                                                f"检测到已登录状态，等待确认... ({elapsed}s / {timeout}s)",
+                                            )
+                                            time.sleep(poll_interval)
+                                            continue
+                                        _status("login_detected", "检测到已登录状态，正在提取 Cookie...")
 
-                                _status(
-                                    "cookie_extracted",
-                                    "Cookie 提取成功！登录态已保存，下次无需重新登录。",
-                                    {"cookie": cookie_str}
-                                )
+                                    # 更新 Cookie 哈希
+                                    last_cookie_hash = current_cookie_hash
 
-                                # 添加短暂延迟后再关闭浏览器
-                                time.sleep(1)
-                                context.close()
-                                return {"success": True, "cookie": cookie_str}
+                                    # 增加等待时间，确保所有Cookie和请求都完成
+                                    time.sleep(3)
+
+                                    # 获取最新Cookie
+                                    cookies = context.cookies("https://www.douyin.com")
+
+                                    # 验证是否包含必要的登录Cookie
+                                    cookie_dict = {c["name"]: c["value"] for c in cookies}
+                                    if not any(key in cookie_dict and cookie_dict[key] for key in LOGIN_MARKER_KEYS):
+                                        _status("cookie_incomplete", "Cookie提取不完整，等待重试...")
+                                        consecutive_home_page = 0
+                                        continue
+
+                                    cookie_str = "; ".join(
+                                        f"{c['name']}={c['value']}" for c in cookies
+                                    )
+
+                                    _status(
+                                        "cookie_extracted",
+                                        "Cookie 提取成功！登录态已保存，下次无需重新登录。",
+                                        {"cookie": cookie_str}
+                                    )
+
+                                    # 添加短暂延迟后再关闭浏览器
+                                    time.sleep(1)
+                                    context.close()
+                                    return {"success": True, "cookie": cookie_str}
+                                else:
+                                    # 没有检测到用户元素，可能还在登录中
+                                    consecutive_home_page = 0
+                                    elapsed = int(time.time() - start_time)
+                                    _status(
+                                        "waiting",
+                                        f"等待登录中... ({elapsed}s / {timeout}s)",
+                                    )
+
+                            except Exception as e:
+                                print(f"[cookie_grabber] 检测登录元素失败：{e}", file=sys.stderr, flush=True)
+                                consecutive_home_page = 0
                         else:
                             # 在验证页面，重置计数器
-                            consecutive_not_verified = 0
+                            consecutive_home_page = 0
+
+                        # 更新 Cookie 哈希
+                        last_cookie_hash = current_cookie_hash
+
                     except Exception as e:
                         print(f"[cookie_grabber] 检查页面异常：{e}", file=sys.stderr, flush=True)
                         pass
                 else:
                     # 没有登录标志，重置计数器
-                    consecutive_not_verified = 0
+                    consecutive_home_page = 0
 
                 # 检查页面是否被关闭
                 try:
