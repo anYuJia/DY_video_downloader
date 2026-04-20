@@ -35,6 +35,9 @@ document.addEventListener('DOMContentLoaded', function () {
     loadConfig();
     setupCookieValidation();
 
+    // 检查Cookie状态
+    checkCookieStatusOnStartup();
+
     // 自动预加载推荐视频数据（不显示界面）
     setTimeout(() => {
         if (typeof loadRecommendedFeed === 'function' && typeof recommendedVideos !== 'undefined') {

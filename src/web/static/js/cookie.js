@@ -6,6 +6,36 @@ let _cookieSetupModal = null;
 let _browserLoginActive = false;
 let _browserLoginTimer = null;
 
+// 检查Cookie状态（启动时调用）
+function checkCookieStatusOnStartup() {
+    const cookieValue = localStorage.getItem('cookie') || '';
+    const validation = validateCookie(cookieValue);
+
+    const banner = document.getElementById('cookieStatusBanner');
+
+    if (!validation.isValid) {
+        // Cookie无效，显示横幅
+        if (banner) {
+            banner.style.display = 'flex';
+        }
+        console.log('[cookie] Cookie无效或未设置，显示提示横幅');
+    } else {
+        // Cookie有效，隐藏横幅
+        if (banner) {
+            banner.style.display = 'none';
+        }
+        console.log('[cookie] Cookie有效');
+    }
+}
+
+// 关闭Cookie提示横幅
+function closeCookieBanner() {
+    const banner = document.getElementById('cookieStatusBanner');
+    if (banner) {
+        banner.style.display = 'none';
+    }
+}
+
 function validateCookie(cookieString) {
     if (!cookieString || cookieString.trim() === '') {
         return { isValid: false, status: 'empty', message: '请输入Cookie', missingParams: [], loginType: 'none' };
@@ -233,6 +263,11 @@ function saveCookieFromModal() {
             showToast('Cookie 保存成功！', 'success');
             updateStatus('ready', '已配置');
             document.getElementById('cookie-input').value = cookieValue;
+
+            // 隐藏Cookie提示横幅
+            const banner = document.getElementById('cookieStatusBanner');
+            if (banner) banner.style.display = 'none';
+
             if (_cookieSetupModal) _cookieSetupModal.hide();
         } else {
             showToast('保存失败: ' + (data.message || ''), 'error');

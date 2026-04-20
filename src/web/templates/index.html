@@ -89,6 +89,23 @@
         </div>
     </nav>
 
+    <!-- Cookie Status Banner -->
+    <div id="cookieStatusBanner" class="cookie-status-banner" style="display: none;">
+        <div class="cookie-banner-content">
+            <i class="bi bi-exclamation-triangle-fill cookie-banner-icon"></i>
+            <div class="cookie-banner-text">
+                <strong>Cookie未设置或已失效</strong>
+                <span>请设置Cookie以使用完整功能</span>
+            </div>
+            <button class="cookie-banner-action" onclick="document.getElementById('settings-toggle').click()">
+                <i class="bi bi-gear"></i> 设置Cookie
+            </button>
+            <button class="cookie-banner-close" onclick="closeCookieBanner()">
+                <i class="bi bi-x"></i>
+            </button>
+        </div>
+    </div>
+
     <!-- Main Content -->
     <main class="main-content">
         <div class="container-fluid px-4">
