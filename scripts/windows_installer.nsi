@@ -9,7 +9,7 @@
 
 ; 安装程序信息
 Name "${APP_NAME}"
-OutFile "dist\DY_Video_Downloader_Setup_v${APP_VERSION}.exe"
+OutFile "..\dist\DY_Video_Downloader_Setup_v${APP_VERSION}.exe"
 InstallDir "$PROGRAMFILES64\${APP_NAME}"
 InstallDirRegKey HKLM "Software\${APP_NAME}" "Install_Dir"
 RequestExecutionLevel admin
@@ -40,7 +40,8 @@ Section "Install" SecInstall
     RMDir /r "$INSTDIR\*.*"
 
     ; 复制整个程序文件夹（文件夹模式）
-    File /r "dist\DY Video Downloader\*.*"
+    ; 脚本在 scripts/ 目录，需要用 ..\dist\ 来引用
+    File /r "..\dist\DY Video Downloader\*.*"
 
     ; 创建卸载程序
     WriteUninstaller "$INSTDIR\Uninstall.exe"

@@ -155,12 +155,7 @@ jobs:
             exit 1
           }
 
-          # 创建便携包（压缩整个文件夹）
-          $portableName = "DY-Video-Downloader-${env:TAG_NAME}-windows-x64-portable"
-          Compress-Archive -Path "dist\DY Video Downloader" -DestinationPath "$portableName.zip" -Force
-          Write-Host "Created portable: $portableName.zip"
-
-          # 创建安装包
+          # 创建安装包（先创建安装包，再创建便携包）
           $installerName = "DY-Video-Downloader-${env:TAG_NAME}-windows-x64-installer"
           $nsisScript = "scripts/windows_installer.nsi"
 
@@ -190,6 +185,11 @@ jobs:
           } else {
             Write-Warning "NSIS script not found at $nsisScript, skipping installer..."
           }
+
+          # 创建便携包（压缩整个文件夹）
+          $portableName = "DY-Video-Downloader-${env:TAG_NAME}-windows-x64-portable"
+          Compress-Archive -Path "dist\DY Video Downloader" -DestinationPath "$portableName.zip" -Force
+          Write-Host "Created portable: $portableName.zip"
 
           Get-ChildItem "$portableName.zip"
           if (Test-Path "${installerName}.exe") {
