@@ -1788,18 +1788,7 @@ textarea.form-control { resize: vertical; }
     overflow: hidden;
 }
 .user-profile::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 80px;
-    background:
-        radial-gradient(circle at top right, rgba(124, 92, 252, 0.14), transparent 32%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
-        rgba(10, 10, 18, 0.7);
-    pointer-events: none;
-    z-index: 0;
+    display: none;
 }
 .user-profile::after {
     display: none;
@@ -1820,6 +1809,10 @@ textarea.form-control { resize: vertical; }
     min-width: 200px;
     position: relative;
     z-index: 1;
+    padding: 12px;
+    border-radius: 12px;
+    background: rgba(10, 10, 18, 0.7);
+    border: 1px solid rgba(124, 92, 252, 0.16);
 }
 .user-profile-name {
     font-family: 'Outfit', sans-serif;
@@ -1858,8 +1851,6 @@ textarea.form-control { resize: vertical; }
     min-width: 180px;
     padding: 8px 0;
     background: transparent;
-    position: relative;
-    z-index: 1;
 }
 .user-profile-stat {
     display: flex;
@@ -1921,8 +1912,6 @@ textarea.form-control { resize: vertical; }
     gap: 10px;
     margin-top: 14px;
     flex-wrap: wrap;
-    position: relative;
-    z-index: 1;
 }
 .user-profile-actions .btn {
     min-width: 156px;
