@@ -160,7 +160,8 @@ function hideAllSections(fromCache) {
         'likedVideosSection',
         'likedAuthorsSection',
         'linkParseResult',
-        'recommendedFeedSection'  // 添加推荐视频区域
+        'recommendedFeedSection',
+        'myDownloadsSection'  // 添加我的下载区域
     ];
 
     sections.forEach(sectionId => {
@@ -171,6 +172,10 @@ function hideAllSections(fromCache) {
     // Show empty state
     const emptyState = document.getElementById('emptyState');
     if (emptyState) emptyState.style.display = 'flex';
+
+    // Hide back button
+    const backBtn = document.getElementById('back-btn');
+    if (backBtn) backBtn.style.display = 'none';
 
     const parsedVideosList = document.getElementById('parsedVideosList');
     if (parsedVideosList) parsedVideosList.textContent = '';

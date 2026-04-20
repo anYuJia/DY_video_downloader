@@ -109,7 +109,7 @@
                     </div>
                     <div class="shortcut-card" onclick="showRecommendedFeed()">
                         <i class="bi bi-collection-play"></i>
-                        <span>刷推荐</span>
+                        <span>推荐视频</span>
                     </div>
                     <div class="shortcut-card" onclick="document.getElementById('download-liked-btn').click()">
                         <i class="bi bi-heart"></i>
@@ -291,6 +291,73 @@
                 </div>
             </div>
 
+            <!-- My Downloads Section (main view, hidden by default) -->
+            <div id="myDownloadsSection" class="mb-3" style="display: none;">
+                <div class="section-panel">
+                    <div class="section-panel-header section-panel-header--accent">
+                        <div class="section-panel-title">
+                            <i class="bi bi-folder2-open"></i> 我的下载
+                        </div>
+                        <div class="section-panel-actions">
+                            <span id="myDownloadsCount" class="badge bg-light text-dark">0 个文件</span>
+                            <button class="btn btn-outline-light btn-sm" onclick="refreshMyDownloads()">
+                                <i class="bi bi-arrow-clockwise"></i> 刷新
+                            </button>
+                            <button onclick="goBackToHome()" class="btn btn-outline-light btn-sm">
+                                <i class="bi bi-x-lg"></i> 关闭
+                            </button>
+                        </div>
+                    </div>
+                    <div class="section-panel-body">
+                        <!-- Filter Bar -->
+                        <div class="row mb-3 g-2">
+                            <div class="col-md-4">
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                    <input type="text" class="form-control" id="myDownloadsSearch" placeholder="搜索文件名、作者..." oninput="filterMyDownloads()">
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <select class="form-select form-select-sm" id="myDownloadsTypeFilter" onchange="filterMyDownloads()">
+                                    <option value="all">全部类型</option>
+                                    <option value="video">视频</option>
+                                    <option value="image">图片</option>
+                                    <option value="audio">音频</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <select class="form-select form-select-sm" id="myDownloadsSort" onchange="filterMyDownloads()">
+                                    <option value="date_desc">最新优先</option>
+                                    <option value="date_asc">最早优先</option>
+                                    <option value="size_desc">最大优先</option>
+                                    <option value="size_asc">最小优先</option>
+                                    <option value="name_asc">名称 A-Z</option>
+                                    <option value="name_desc">名称 Z-A</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="d-flex gap-2 align-items-center">
+                                    <div class="form-check form-check-inline mb-0">
+                                        <input class="form-check-input" type="checkbox" id="myDownloadsSelectAll" onchange="toggleMyDownloadsSelectAll()">
+                                        <label class="form-check-label" for="myDownloadsSelectAll">全选</label>
+                                    </div>
+                                    <button class="btn btn-outline-primary btn-sm" id="myDownloadsBatchOpenBtn" onclick="batchOpenMyDownloads()" disabled>
+                                        <i class="bi bi-play-circle"></i> 打开
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm" id="myDownloadsBatchDeleteBtn" onclick="batchDeleteMyDownloads()" disabled>
+                                        <i class="bi bi-trash"></i> 删除
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Stats -->
+                        <div id="myDownloadsStats" class="small text-muted mb-3"></div>
+                        <!-- File List -->
+                        <div id="myDownloadsList" class="row g-3"></div>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </main>
 
@@ -365,52 +432,6 @@
         </div>
     </div>
     <div id="settings-overlay" class="settings-overlay"></div>
-
-    <!-- Download History Drawer -->
-    <div id="download-history-overlay" class="history-overlay"></div>
-    <div id="download-history-drawer" class="history-drawer">
-        <div class="drawer-header">
-            <h6>我的下载</h6>
-            <button class="btn-icon" id="history-close"><i class="bi bi-x-lg"></i></button>
-        </div>
-        <div class="drawer-body">
-            <div class="history-section">
-                <label class="form-label">保存目录</label>
-                <div class="input-group mb-2">
-                    <input type="text" class="form-control" id="history-download-dir-input" placeholder="下载目录">
-                    <button class="btn btn-outline-secondary" type="button" id="history-select-download-dir-btn">
-                        <i class="bi bi-folder2-open"></i>
-                    </button>
-                </div>
-                <div class="d-flex gap-2 mb-3">
-                    <button class="btn btn-primary btn-sm flex-fill" id="history-save-config-btn">
-                        <i class="bi bi-check-lg"></i> 保存目录
-                    </button>
-                    <button class="btn btn-outline-primary btn-sm" id="history-move-selected-btn">
-                        <i class="bi bi-arrow-left-right"></i> 一键迁移所选文件到新目录
-                    </button>
-                    <button class="btn btn-outline-secondary btn-sm" id="history-refresh-btn">
-                        <i class="bi bi-arrow-clockwise"></i>
-                    </button>
-                </div>
-            </div>
-            <div class="history-section">
-                <div class="d-flex align-items-center justify-content-between mb-2">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="history-select-all">
-                        <label class="form-check-label" for="history-select-all">全选</label>
-                    </div>
-                    <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary" id="history-batch-open-btn">打开</button>
-                        <button class="btn btn-outline-primary" id="history-batch-locate-btn">打开位置</button>
-                        <button class="btn btn-outline-danger" id="history-batch-delete-btn" disabled>删除选中</button>
-                    </div>
-                </div>
-                <div id="download-history-stats" class="small text-muted mb-2"></div>
-                <div id="download-history-list" class="history-list"></div>
-            </div>
-        </div>
-    </div>
 
     <!-- Bottom Bar (downloads + logs) -->
     <div id="bottom-bar-overlay" class="bottom-bar-overlay"></div>
