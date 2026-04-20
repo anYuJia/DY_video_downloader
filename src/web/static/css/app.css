@@ -1847,15 +1847,16 @@ textarea.form-control { resize: vertical; }
     flex-shrink: 0;
     width: auto;
     min-width: 180px;
+    padding: 8px 0;
 }
 .user-profile-stat {
     display: flex;
     align-items: baseline;
-    gap: 6px;
-    padding: 0 14px;
+    gap: 8px;
+    padding: 0 20px;
     background: transparent;
     border: none;
-    border-right: 1px solid rgba(255, 255, 255, 0.1);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
     min-width: 0;
     min-height: auto;
     transition: var(--transition);
@@ -1871,18 +1872,19 @@ textarea.form-control { resize: vertical; }
 .user-profile-stat:hover {
     background: transparent;
     transform: none;
-    border-color: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.08);
 }
 .user-profile-stat-num {
     font-family: 'Outfit', sans-serif;
     font-weight: 700;
-    font-size: 1.1rem;
+    font-size: 1.25rem;
     color: var(--text-primary);
     letter-spacing: -0.03em;
 }
 .user-profile-stat-label {
-    font-size: 0.72rem;
+    font-size: 0.78rem;
     color: var(--text-secondary);
+    font-weight: 500;
 }
 .user-profile-actions {
     display: flex;
