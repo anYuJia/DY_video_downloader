@@ -5,7 +5,6 @@ import urllib3.util.retry
 import urllib.parse
 import urllib.request
 import os
-import execjs
 import re
 import json
 import subprocess
@@ -89,6 +88,7 @@ class DouyinAPI:
         """懒加载：延迟到第一次使用时初始化 JS 签名引擎"""
         if self._douyin_sign is None:
             try:
+                import execjs  # 延迟导入，避免启动时加载 Node.js
                 from src.config.config import get_resource_path
                 with open(get_resource_path('lib/js/douyin.js'), 'r', encoding='utf-8') as f:
                     self._douyin_sign = execjs.compile(f.read())

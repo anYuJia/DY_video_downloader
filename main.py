@@ -3,7 +3,6 @@
 
 import sys
 import os
-import json
 import multiprocessing
 
 # PyInstaller 打包时需要调用这个方法以防在双击执行时进入多进程递归死循环
@@ -18,6 +17,7 @@ if __name__ == '__main__':
     if os.environ.get('RUN_WORKER') == 'cookie_grabber':
         # 在子进程中执行 Cookie 获取组件
         from src.api.cookie_grabber import grab_cookie
+        import json
         try:
             input_data = sys.stdin.read().strip()
             params = json.loads(input_data) if input_data else {}
@@ -25,14 +25,15 @@ if __name__ == '__main__':
             params = {}
         timeout = params.get("timeout", 300)
         browser_type = params.get("browser", "chrome")
-        
+
         result = grab_cookie(timeout=timeout, browser_type=browser_type)
         print(json.dumps(result, ensure_ascii=False))
         sys.exit(0)
-    
+
     elif os.environ.get('RUN_WORKER') == 'browser_worker':
         # 在子进程中执行 模拟浏览器请求组件
         from src.api.browser_worker import browser_fetch_via_navigation, browser_fetch
+        import json
         try:
             req = json.loads(sys.stdin.read())
             if req.get('params') and req.get('api_path'):
@@ -52,7 +53,7 @@ if __name__ == '__main__':
     import socket
     import threading
     import time
-    import webview
+    import json
 
     # macOS 上跳过 gevent patch，避免与 Cocoa 运行循环冲突
     os.environ['USE_PYWEBVIEW'] = '1'
@@ -88,7 +89,7 @@ if __name__ == '__main__':
             socketio.stop()
         except Exception:
             pass
-        os._exit(0)  # os is imported at top of main.py
+        os._exit(0)
 
     # 查找可用端口
     port = find_free_port()
@@ -101,7 +102,8 @@ if __name__ == '__main__':
 
     # 等待服务就绪
     if not wait_for_server(port):
-        # 服务启动失败，用pywebview显示错误对话框
+        # 服务启动失败，延迟导入 webview 显示错误对话框
+        import webview
         err_win = webview.create_window(
             title='启动失败',
             html='<h2>服务启动超时</h2><p>端口 {} 无法连接，请检查是否有其他程序占用。</p>'.format(port),
@@ -109,6 +111,9 @@ if __name__ == '__main__':
         )
         webview.start()
         os._exit(1)
+
+    # 延迟导入 webview，避免启动时加载
+    import webview
 
     # 创建pywebview窗口
     window = webview.create_window(

@@ -147,22 +147,19 @@ if sys.platform == 'darwin':
             'CFBundleDisplayName': 'DY Video Downloader',
         }
     )
-# Windows: 打包为单文件 exe（方便制作安装包）
+# Windows: 打包为文件夹模式（启动更快）
 elif sys.platform == 'win32':
     exe = EXE(
         pyz,
         a.scripts,
-        a.binaries,
-        a.zipfiles,
-        a.datas,
         [],
+        exclude_binaries=True,  # 使用文件夹模式
         name='DY Video Downloader',
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
         upx=True,
         upx_exclude=[],
-        runtime_tmpdir=None,
         console=False,
         disable_windowed_traceback=False,
         argv_emulation=False,
@@ -170,6 +167,16 @@ elif sys.platform == 'win32':
         codesign_identity=None,
         entitlements_file=None,
         icon=icon_path,
+    )
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name='DY Video Downloader',
     )
 # Linux: 打包为文件夹
 else:

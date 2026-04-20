@@ -144,21 +144,21 @@ jobs:
         env:
           TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
         run: |
-          # 检查 exe 是否创建成功
-          if (!(Test-Path "dist\DY Video Downloader.exe")) {
-            Write-Error "Error: DY Video Downloader.exe not found in dist\"
+          # 检查文件夹是否创建成功（文件夹模式）
+          if (!(Test-Path "dist\DY Video Downloader")) {
+            Write-Error "Error: DY Video Downloader folder not found in dist\"
             Get-ChildItem dist\
             exit 1
           }
 
-          # 创建便携包
+          # 创建便携包（压缩整个文件夹）
           $portableName = "DY-Video-Downloader-${env:TAG_NAME}-windows-x64-portable"
-          Compress-Archive -Path "dist\DY Video Downloader.exe" -DestinationPath "$portableName.zip" -Force
+          Compress-Archive -Path "dist\DY Video Downloader" -DestinationPath "$portableName.zip" -Force
           Write-Host "Created portable: $portableName.zip"
 
           # 创建安装包
           $installerName = "DY-Video-Downloader-${env:TAG_NAME}-windows-x64-installer"
-          $nsisScript = "build/windows_installer.nsi"
+          $nsisScript = "scripts/windows_installer.nsi"
 
           if (Test-Path $nsisScript) {
             # 更新 NSIS 脚本中的版本号
