@@ -174,19 +174,46 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
                         if is_home_page:
                             # 尝试检测页面上的用户元素（真正登录成功的标志）
                             try:
-                                # 检测用户头像元素 - 这是真正登录成功的标志
-                                user_avatar = page.query_selector('.avatar-icon, [class*="avatar"], [class*="user-avatar"], [class*="header-avatar"]')
-                                user_info = page.query_selector('[class*="user-info"], [class*="nickname"]')
+                                # 检测用户头像元素 - 扩展选择器范围
+                                user_avatar = page.query_selector(
+                                    '.avatar-icon, '
+                                    '[class*="avatar"], '
+                                    '[class*="user-avatar"], '
+                                    '[class*="header-avatar"], '
+                                    '[class*="Avatar"], '
+                                    'img[class*="avatar"], '
+                                    '[data-e2e="user-avatar"]'
+                                )
+
+                                # 检测用户昵称/信息元素
+                                user_info = page.query_selector(
+                                    '[class*="user-info"], '
+                                    '[class*="nickname"], '
+                                    '[class*="user-name"], '
+                                    '[class*="username"], '
+                                    '[data-e2e="user-name"]'
+                                )
 
                                 # 检测是否有登录按钮（如果有说明未登录）
-                                login_button = page.query_selector('text=/登录|登录\\/注册/')
+                                login_button = page.query_selector(
+                                    'text=/登录|登录\\/注册|请登录/'
+                                )
 
-                                # 判断是否真正登录：
-                                # 1. 有用户头像或用户信息元素
-                                # 2. 没有登录按钮
+                                # 输出调试信息
+                                print(f"[cookie_grabber] 检测登录元素: avatar={user_avatar is not None}, user_info={user_info is not None}, login_btn={login_button is not None}, url={current_url[:80]}", file=sys.stderr, flush=True)
+
+                                # 如果找到用户元素且没有登录按钮，认为已登录
                                 is_truly_logged_in = (user_avatar is not None or user_info is not None) and login_button is None
 
-                                print(f"[cookie_grabber] 检测登录元素: avatar={user_avatar is not None}, user_info={user_info is not None}, login_btn={login_button is not None}", file=sys.stderr, flush=True)
+                                # 备用检测：如果Cookie中包含登录标记，也认为已登录
+                                if not is_truly_logged_in and has_login:
+                                    print(f"[cookie_grabber] Cookie检测到登录标记，但页面元素未找到，可能页面未完全加载", file=sys.stderr, flush=True)
+                                    # 等待更长时间让页面完全加载
+                                    time.sleep(2)
+                                    # 再次尝试检测
+                                    user_avatar = page.query_selector('[class*="avatar"], [class*="Avatar"]')
+                                    user_info = page.query_selector('[class*="user"], [class*="User"]')
+                                    is_truly_logged_in = (user_avatar is not None or user_info is not None) and login_button is None
 
                                 if is_truly_logged_in:
                                     # 检测到真正的登录状态
@@ -198,13 +225,13 @@ def grab_cookie(timeout: int = 300, headless: bool = False, browser_type: str = 
                                         _status("login_detected", "检测到登录成功，正在提取 Cookie...")
                                     else:
                                         # Cookie 没变化，可能是持久化的旧登录
-                                        # 增加检测次数，确保稳定
+                                        # 减少检测次数，从5次改为2次
                                         consecutive_home_page += 1
-                                        if consecutive_home_page < 5:  # 需要连续 5 次检测
+                                        if consecutive_home_page < 2:  # 连续2次确认即可
                                             elapsed = int(time.time() - start_time)
                                             _status(
                                                 "waiting",
-                                                f"检测到已登录状态，等待确认... ({elapsed}s / {timeout}s)",
+                                                f"检测到已登录状态，确认中... ({elapsed}s / {timeout}s)",
                                             )
                                             time.sleep(poll_interval)
                                             continue
