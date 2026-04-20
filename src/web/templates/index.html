@@ -39,15 +39,15 @@
             <!-- Right: Actions -->
             <div class="nav-actions">
                 <!-- Recommended Videos Button -->
-                <button class="btn-nav-action btn-recommended" onclick="showRecommendedFeed()" title="刷推荐视频">
+                <button class="btn-nav-action btn-recommended" onclick="showRecommendedFeed()" title="推荐视频">
                     <i class="bi bi-collection-play"></i>
-                    <span class="d-none d-sm-inline">刷视频</span>
+                    <span class="d-none d-sm-inline">推荐视频</span>
                 </button>
 
                 <!-- Download History - prominent button -->
-                <button class="btn-nav-action btn-history-new" id="download-history-btn" title="下载历史">
+                <button class="btn-nav-action btn-history-new" id="download-history-btn" title="我的下载">
                     <i class="bi bi-clock-history"></i>
-                    <span class="d-none d-sm-inline">历史</span>
+                    <span class="d-none d-sm-inline">我的下载</span>
                     <span class="history-badge" id="history-count-badge" style="display:none;">0</span>
                 </button>
 
@@ -70,10 +70,6 @@
                                 <button class="btn btn-sm btn-outline-primary" id="download-liked-authors-btn">获取</button>
                             </div>
                         </div>
-                        <div class="dropdown-divider"></div>
-                        <button class="dropdown-item" id="storage-manage-btn">
-                            <i class="bi bi-database me-2"></i>本地数据
-                        </button>
                     </div>
                 </div>
 
@@ -374,7 +370,7 @@
     <div id="download-history-overlay" class="history-overlay"></div>
     <div id="download-history-drawer" class="history-drawer">
         <div class="drawer-header">
-            <h6>下载历史</h6>
+            <h6>我的下载</h6>
             <button class="btn-icon" id="history-close"><i class="bi bi-x-lg"></i></button>
         </div>
         <div class="drawer-body">

@@ -83,7 +83,7 @@ async function refreshDownloadHistory() {
     const stats = document.getElementById('download-history-stats');
     if (!list) return;
 
-    list.innerHTML = '<div class="history-empty">正在加载下载历史...</div>';
+    list.innerHTML = '<div class="history-empty">正在加载...</div>';
 
     try {
         const response = await fetch('/api/download_history');
@@ -123,7 +123,7 @@ async function refreshDownloadHistory() {
         renderDownloadHistory();
     } catch (error) {
         list.innerHTML = `<div class="history-empty">加载失败：${escapeHtml(error.message || '未知错误')}</div>`;
-        showToast('加载下载历史失败', 'error');
+        showToast('加载失败', 'error');
     }
 }
 
