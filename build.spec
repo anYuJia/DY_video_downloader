@@ -73,6 +73,7 @@ if sys.platform == 'win32':
         'clr_loader',
         'webview.platforms.winforms',
     ])
+    datas.append((os.path.join(project_root, 'windows', 'DY Video Downloader.exe.config'), '.'))
 
 # 收集pythonnet运行时DLL（Windows）
 # 放在根目录而不是_internal，解决pythonnet加载问题

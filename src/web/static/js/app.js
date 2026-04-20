@@ -775,7 +775,11 @@ async function openUnifiedPlayerFromVideoCollection(videos, awemeId, source) {
         source: source || 'current-videos',
         mediaIndex: 0,
         musicObjectUrl: '',
-        musicRequestToken: 0
+        musicRequestToken: 0,
+        separateBgmAudio: null,
+        separateBgmProxyUrl: '',
+        mediaTimer: null,
+        imageElapsedMs: 0
     };
 
     const player = document.getElementById('unifiedPlayer');

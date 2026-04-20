@@ -9,7 +9,7 @@ if not IS_WINDOWS and not (IS_MACOS and os.environ.get('USE_PYWEBVIEW') == '1'):
     from gevent import monkey
     monkey.patch_all()
 
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, send_file
 from flask_socketio import SocketIO, emit
 import asyncio
 import threading
@@ -65,6 +65,16 @@ downloader = None
 user_manager = None
 download_tasks = {} # 用于存储任务状态和元数据（同步Dict）
 active_tasks = {} # 用于存储活跃的 asyncio.Future 和 asyncio.Event
+
+
+@app.route('/favicon.ico')
+def favicon():
+    """Serve favicon to avoid noisy 404s in browsers."""
+    return send_file(
+        get_resource_path('src/web/static/favicon.svg'),
+        mimetype='image/svg+xml',
+        max_age=86400
+    )
 
 # 全局 Loop 处理
 _global_loop = None

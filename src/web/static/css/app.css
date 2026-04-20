@@ -3342,6 +3342,36 @@ a:hover { color: var(--accent-hover); }
     white-space: nowrap;
 }
 
+.media-segment-progress {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.media-segment {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 18px;
+    height: 6px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+    overflow: hidden;
+    cursor: pointer;
+}
+
+.media-segment-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 0%;
+    background: linear-gradient(90deg, rgba(255,255,255,0.92), #fe2c55);
+    border-radius: inherit;
+    transition: width 0.08s linear;
+}
+
 /* Third Row: Description */
 .player-row-3 {
     display: flex;

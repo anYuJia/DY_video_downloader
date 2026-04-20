@@ -146,7 +146,19 @@ function showToast(message, type) {
             'bi-info-circle text-primary'
     }`;
 
-    const bsToast = new bootstrap.Toast(toast);
+    const existingToast = bootstrap.Toast.getInstance(toast);
+    if (existingToast) existingToast.hide();
+
+    const delay = type === 'error'
+        ? 2600
+        : type === 'warning'
+            ? 2200
+            : 1600;
+
+    const bsToast = new bootstrap.Toast(toast, {
+        autohide: true,
+        delay: delay
+    });
     bsToast.show();
 }
 

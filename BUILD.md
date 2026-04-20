@@ -20,6 +20,8 @@
 - **使用**:
   - 便携包: 解压后双击 `DY Video Downloader.exe` 运行
   - 安装包: 双击安装，自动创建桌面快捷方式和开始菜单
+- **注意**:
+  - 便携版目录中必须保留 `DY Video Downloader.exe.config`，它用于 Python.NET / WinForms 选择正确的 .NET Framework 运行时。
 
 ### Linux
 - **格式**: 文件夹
