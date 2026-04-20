@@ -1848,22 +1848,41 @@ textarea.form-control { resize: vertical; }
     width: auto;
     min-width: 180px;
     padding: 8px 0;
+    background: transparent !important;
 }
 .user-profile-stat {
     display: flex;
     align-items: baseline;
     gap: 8px;
     padding: 0 20px;
-    background: transparent;
+    background: transparent !important;
     border: none;
-    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    border-right: none;
     min-width: 0;
     min-height: auto;
     transition: var(--transition);
     box-shadow: none;
+    position: relative;
+}
+.user-profile-stat::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 20%;
+    bottom: 20%;
+    width: 1px;
+    background: linear-gradient(
+        to bottom,
+        transparent 0%,
+        rgba(255, 255, 255, 0.12) 30%,
+        rgba(255, 255, 255, 0.12) 70%,
+        transparent 100%
+    );
+}
+.user-profile-stat:last-child::after {
+    display: none;
 }
 .user-profile-stat:last-child {
-    border-right: none;
     padding-right: 0;
 }
 .user-profile-stat:first-child {
