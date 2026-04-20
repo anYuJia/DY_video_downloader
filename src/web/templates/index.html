@@ -942,11 +942,13 @@
                         <button class="player-control-btn-transparent" id="volumeBtn">
                             <i class="bi bi-volume-up-fill"></i>
                         </button>
-                        <div class="player-volume-panel-bottom" id="volumePanel" style="display: none;">
+                        <div class="player-volume-panel-bottom" id="volumePanel">
+                            <div class="volume-value" id="volumeValue">100%</div>
                             <input type="range" id="volumeSlider" min="0" max="100" value="100"
                                    oninput="setVolume(this.value)">
-                            <button class="player-mute-btn" onclick="toggleMute()">
+                            <button class="player-mute-btn" id="muteBtn" onclick="toggleMute()">
                                 <i class="bi bi-volume-mute-fill"></i>
+                                <span>静音</span>
                             </button>
                         </div>
                     </div>
@@ -956,7 +958,7 @@
                         <button class="player-control-btn-transparent" id="rateBtn">
                             <span id="currentRate">1x</span>
                         </button>
-                        <div class="player-rate-panel-bottom" id="ratePanel" style="display: none;">
+                        <div class="player-rate-panel-bottom" id="ratePanel">
                             <button onclick="setPlaybackRate(0.5)">0.5x</button>
                             <button onclick="setPlaybackRate(0.75)">0.75x</button>
                             <button onclick="setPlaybackRate(1)" class="active">1x</button>
@@ -976,7 +978,7 @@
                         <button class="player-control-btn-transparent" id="musicBtn" title="背景音乐">
                             <i class="bi bi-music-note-beamed"></i>
                         </button>
-                        <div class="player-music-panel-bottom" id="playerMusicPanel" style="display: none;">
+                        <div class="player-music-panel-bottom" id="playerMusicPanel">
                             <div class="music-panel-header">
                                 <h6><i class="bi bi-music-note-beamed"></i> 音乐</h6>
                             </div>

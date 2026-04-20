@@ -1580,7 +1580,7 @@ let unifiedPlayerState = {
 setupCustomMusicPlayer();
 
 // Volume Control
-// Volume Control - 悬停显示
+// Volume Control - 悬停显示（优化版本）
 function setupHoverPanels() {
     // 音量面板
     const volumeGroup = document.getElementById('volumeControlGroup');
@@ -1591,11 +1591,11 @@ function setupHoverPanels() {
         let volumeTimeout;
         volumeGroup.addEventListener('mouseenter', () => {
             clearTimeout(volumeTimeout);
-            volumePanel.style.display = 'flex';
+            volumePanel.classList.add('show');
         });
         volumeGroup.addEventListener('mouseleave', () => {
             volumeTimeout = setTimeout(() => {
-                volumePanel.style.display = 'none';
+                volumePanel.classList.remove('show');
             }, 100);
         });
     }
@@ -1609,11 +1609,11 @@ function setupHoverPanels() {
         let rateTimeout;
         rateGroup.addEventListener('mouseenter', () => {
             clearTimeout(rateTimeout);
-            ratePanel.style.display = 'flex';
+            ratePanel.classList.add('show');
         });
         rateGroup.addEventListener('mouseleave', () => {
             rateTimeout = setTimeout(() => {
-                ratePanel.style.display = 'none';
+                ratePanel.classList.remove('show');
             }, 100);
         });
     }
@@ -1627,7 +1627,7 @@ function setupHoverPanels() {
         let musicTimeout;
         musicGroup.addEventListener('mouseenter', () => {
             clearTimeout(musicTimeout);
-            musicPanel.style.display = 'block';
+            musicPanel.classList.add('show');
             const currentVideo = unifiedPlayerState.currentVideo;
             const musicUrl = currentVideo?.music?.play_url || currentVideo?.bgm_url || '';
             if (musicUrl) {
@@ -1642,7 +1642,7 @@ function setupHoverPanels() {
         });
         musicGroup.addEventListener('mouseleave', () => {
             musicTimeout = setTimeout(() => {
-                musicPanel.style.display = 'none';
+                musicPanel.classList.remove('show');
             }, 100);
         });
     }
@@ -1654,6 +1654,13 @@ function setVolume(value) {
         video.volume = value / 100;
         unifiedPlayerState.volume = value / 100;
 
+        // 更新音量百分比显示
+        const volumeValue = document.getElementById('volumeValue');
+        if (volumeValue) {
+            volumeValue.textContent = value + '%';
+        }
+
+        // 更新音量图标
         const icon = document.querySelector('#volumeBtn i');
         if (icon) {
             if (value == 0) {
@@ -1662,6 +1669,16 @@ function setVolume(value) {
                 icon.className = 'bi bi-volume-down-fill';
             } else {
                 icon.className = 'bi bi-volume-up-fill';
+            }
+        }
+
+        // 更新静音按钮状态
+        const muteBtn = document.getElementById('muteBtn');
+        if (muteBtn) {
+            if (value == 0) {
+                muteBtn.classList.add('muted');
+            } else {
+                muteBtn.classList.remove('muted');
             }
         }
     }
@@ -2103,12 +2120,11 @@ function closeUnifiedPlayer() {
     const musicPanel = document.getElementById('playerMusicPanel');
     const player = document.getElementById('unifiedPlayer');
 
-    if (volumePanel) volumePanel.style.display = 'none';
-    if (ratePanel) ratePanel.style.display = 'none';
+    if (volumePanel) volumePanel.classList.remove('show');
+    if (ratePanel) ratePanel.classList.remove('show');
     if (detailPanel) detailPanel.style.display = 'none';
     if (musicPanel) {
         musicPanel.classList.remove('show');
-        musicPanel.style.display = 'none';
     }
     if (player) player.style.display = 'none';
 }
@@ -2681,7 +2697,7 @@ document.addEventListener('click', (e) => {
     if (!e.target.closest('.player-control-group')) {
         const volumePanel = document.getElementById('volumePanel');
         const ratePanel = document.getElementById('ratePanel');
-        if (volumePanel) volumePanel.style.display = 'none';
-        if (ratePanel) ratePanel.style.display = 'none';
+        if (volumePanel) volumePanel.classList.remove('show');
+        if (ratePanel) ratePanel.classList.remove('show');
     }
 });

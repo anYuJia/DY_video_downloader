@@ -3391,130 +3391,196 @@ a:hover { color: var(--accent-hover); }
     color: rgba(255, 255, 255, 0.9);
 }
 
-/* Volume Panel - Bottom */
+/* Volume Panel - Bottom (优化为垂直滑块) */
 .player-volume-panel-bottom {
     position: absolute;
-    bottom: 50px;
+    bottom: 55px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.85);
-    border-radius: 12px;
-    padding: 12px;
+    background: rgba(20, 20, 20, 0.95);
+    border-radius: 16px;
+    padding: 16px 12px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    min-width: 120px;
+    align-items: center;
+    gap: 10px;
+    min-width: 56px;
     backdrop-filter: blur(20px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+}
+
+.player-volume-panel-bottom.show {
+    opacity: 1;
+    visibility: visible;
 }
 
 #volumeSlider {
-    width: 100%;
+    width: 100px;
     height: 4px;
     -webkit-appearance: none;
-    background: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.2);
     border-radius: 2px;
     outline: none;
+    cursor: pointer;
 }
 
 #volumeSlider::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     background: #fff;
     border-radius: 50%;
     cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    transition: transform 0.15s ease;
+}
+
+#volumeSlider::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+}
+
+#volumeSlider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.volume-value {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 36px;
+    text-align: center;
 }
 
 .player-mute-btn {
     width: 100%;
-    padding: 8px;
+    padding: 10px 8px;
     border: none;
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
-    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.8);
+    border-radius: 8px;
     cursor: pointer;
     font-size: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 4px;
+    transition: background 0.2s ease, color 0.2s ease;
 }
 
 .player-mute-btn:hover {
-    background: rgba(255, 255, 255, 0.2);
-}
-
-/* Rate Panel - Bottom */
-.player-rate-panel-bottom {
-    position: absolute;
-    bottom: 50px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.85);
-    border-radius: 12px;
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    backdrop-filter: blur(20px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    min-width: 80px;
-}
-
-.player-rate-panel-bottom button {
-    padding: 8px 16px;
-    border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.7);
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    transition: all 0.2s;
-    text-align: center;
-}
-
-.player-rate-panel-bottom button:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.15);
     color: #fff;
 }
 
-.player-rate-panel-bottom button.active {
-    background: rgba(254, 44, 85, 0.3);
+.player-mute-btn.muted {
     color: #fe2c55;
 }
 
-/* Music Panel - Bottom */
+/* Rate Panel - Bottom (优化为2列网格) */
+.player-rate-panel-bottom {
+    position: absolute;
+    bottom: 55px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(20, 20, 20, 0.95);
+    border-radius: 16px;
+    padding: 10px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    min-width: 140px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+}
+
+.player-rate-panel-bottom.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+.player-rate-panel-bottom button {
+    padding: 10px 12px;
+    border: none;
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.75);
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.player-rate-panel-bottom button:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+.player-rate-panel-bottom button.active {
+    background: linear-gradient(135deg, rgba(254, 44, 85, 0.25), rgba(254, 44, 85, 0.15));
+    color: #fe2c55;
+    font-weight: 600;
+    box-shadow: 0 0 0 1px rgba(254, 44, 85, 0.3);
+}
+
+/* Music Panel - Bottom (优化布局和间距) */
 .player-music-panel-bottom {
     position: absolute;
-    bottom: 50px;
+    bottom: 55px;
     right: 0;
-    background: rgba(0, 0, 0, 0.95);
+    background: rgba(20, 20, 20, 0.95);
     backdrop-filter: blur(20px);
-    border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     z-index: 20;
-    width: 240px;
-    padding: 12px;
+    width: 260px;
+    padding: 14px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease, transform 0.2s ease;
+}
+
+.player-music-panel-bottom.show {
+    opacity: 1;
+    visibility: visible;
 }
 
 .player-music-panel-bottom .music-panel-header {
-    margin-bottom: 8px;
+    margin-bottom: 10px;
     padding-bottom: 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .player-music-panel-bottom .music-panel-header h6 {
-    color: #fff;
+    color: rgba(255, 255, 255, 0.95);
     margin: 0;
-    font-size: 14px;
+    font-size: 13px;
+    font-weight: 600;
     display: flex;
     align-items: center;
     gap: 6px;
 }
 
 .player-music-panel-bottom .music-info {
-    margin-bottom: 8px;
+    margin-bottom: 10px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 10px;
 }
 
 .player-music-panel-bottom .music-title {
@@ -3522,17 +3588,23 @@ a:hover { color: var(--accent-hover); }
     font-size: 13px;
     font-weight: 500;
     margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .player-music-panel-bottom .music-author {
-    color: rgba(255, 255, 255, 0.6);
+    color: rgba(255, 255, 255, 0.55);
     font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .player-music-panel-bottom .music-duration {
-    color: rgba(255, 255, 255, 0.55);
+    color: rgba(255, 255, 255, 0.4);
     font-size: 11px;
-    margin-top: 3px;
+    margin-top: 2px;
 }
 
 .player-music-panel-bottom .music-controls {
@@ -3547,33 +3619,32 @@ a:hover { color: var(--accent-hover); }
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 14px;
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
-        rgba(10, 10, 10, 0.84);
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
 }
 
 .player-music-panel-bottom .music-play-btn {
-    width: 42px;
-    height: 42px;
+    width: 38px;
+    height: 38px;
     border: none;
-    border-radius: 12px;
+    border-radius: 10px;
     background: linear-gradient(135deg, #ffe082, #ffb300);
     color: #111;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
+    font-size: 20px;
     cursor: pointer;
-    box-shadow: 0 10px 24px rgba(255, 179, 0, 0.22);
-    transition: transform 0.18s ease, box-shadow 0.18s ease;
+    box-shadow: 0 4px 12px rgba(255, 179, 0, 0.2);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    flex-shrink: 0;
 }
 
 .player-music-panel-bottom .music-play-btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 14px 28px rgba(255, 179, 0, 0.28);
+    transform: scale(1.05);
+    box-shadow: 0 6px 16px rgba(255, 179, 0, 0.3);
 }
 
 .player-music-panel-bottom .music-play-btn:active {
