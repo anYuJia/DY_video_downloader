@@ -1898,6 +1898,7 @@ def cookie_browser_login():
                 encoding='utf-8',
                 errors='replace',
                 env=env,
+                **({'creationflags': 0x08000000} if sys.platform == 'win32' else {}),  # CREATE_NO_WINDOW
             )
             
             # 写入参数并关闭 stdin

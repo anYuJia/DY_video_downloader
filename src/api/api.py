@@ -345,6 +345,7 @@ class DouyinAPI:
                 errors='replace',
                 timeout=90,  # 增加超时时间到 90 秒，允许用户完成验证操作
                 env=env,
+                **({'creationflags': 0x08000000} if sys.platform == 'win32' else {}),  # CREATE_NO_WINDOW
             )
 
             if proc.returncode != 0:
@@ -528,6 +529,7 @@ class DouyinAPI:
                 errors='replace',
                 timeout=30,
                 env=env,
+                **({'creationflags': 0x08000000} if sys.platform == 'win32' else {}),  # CREATE_NO_WINDOW
             )
 
             if proc.returncode != 0:
