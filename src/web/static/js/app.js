@@ -88,12 +88,15 @@ function setupEventListeners() {
     document.getElementById('clear-log-btn').addEventListener('click', clearLog);
     document.getElementById('scroll-to-bottom-btn').addEventListener('click', scrollToBottom);
 
-    document.getElementById('storage-manage-btn').addEventListener('click', function (e) {
-        e.stopPropagation(); // prevent dropdown from toggling
-        var modal = new bootstrap.Modal(document.getElementById('storageManageModal'));
-        modal.show();
-        refreshStorageData();
-    });
+    var storageManageBtn = document.getElementById('storage-manage-btn');
+    if (storageManageBtn) {
+        storageManageBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var modal = new bootstrap.Modal(document.getElementById('storageManageModal'));
+            modal.show();
+            refreshStorageData();
+        });
+    }
 
     document.getElementById('settings-toggle').addEventListener('click', function () {
         document.getElementById('settings-drawer').classList.add('open');
