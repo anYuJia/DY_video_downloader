@@ -264,6 +264,9 @@ function saveCookieFromModal() {
             updateStatus('ready', '已配置');
             document.getElementById('cookie-input').value = cookieValue;
 
+            // 同步到localStorage，供启动检查使用
+            localStorage.setItem('cookie', cookieValue);
+
             // 隐藏Cookie提示横幅
             const banner = document.getElementById('cookieStatusBanner');
             if (banner) banner.style.display = 'none';
@@ -449,6 +452,9 @@ function handleCookieLoginStatus(data) {
             if (data.cookie) {
                 document.getElementById('cookie-input').value = data.cookie;
 
+                // 同步到localStorage，供启动检查使用
+                localStorage.setItem('cookie', data.cookie);
+
                 // 更新设置面板状态
                 if (settingsStatusContainer) {
                     settingsStatusContainer.style.display = 'block';
@@ -456,6 +462,10 @@ function handleCookieLoginStatus(data) {
                     settingsStatusText.className = 'text-success';
                     settingsStatusText.textContent = '登录成功，Cookie 已保存！';
                 }
+
+                // 隐藏Cookie提示横幅
+                const banner = document.getElementById('cookieStatusBanner');
+                if (banner) banner.style.display = 'none';
             }
             updateStatus('ready', '已配置');
             showToast('Cookie 获取成功！', 'success');

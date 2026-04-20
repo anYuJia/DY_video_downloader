@@ -170,6 +170,12 @@ async function loadConfig() {
         var config = await response.json();
         document.getElementById('download-dir-input').value = config.download_dir || '';
         document.getElementById('cookie-input').value = config.cookie || '';
+
+        // 同步cookie到localStorage，供启动检查使用
+        if (config.cookie) {
+            localStorage.setItem('cookie', config.cookie);
+        }
+
         if (config.cookie_set) {
             updateStatus('ready', '已配置');
         } else {
