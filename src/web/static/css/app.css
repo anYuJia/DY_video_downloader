@@ -1847,21 +1847,24 @@ textarea.form-control { resize: vertical; }
     flex-shrink: 0;
     width: auto;
     min-width: 180px;
-    padding: 8px 0;
-    background: transparent !important;
+    padding: 0;
+    margin: 0;
+    background: none !important;
+    box-shadow: none !important;
+    border: none !important;
 }
 .user-profile-stat {
     display: flex;
     align-items: baseline;
     gap: 8px;
     padding: 0 20px;
-    background: transparent !important;
-    border: none;
-    border-right: none;
+    margin: 0;
+    background: none !important;
+    box-shadow: none !important;
+    border: none !important;
     min-width: 0;
     min-height: auto;
-    transition: var(--transition);
-    box-shadow: none;
+    transition: none;
     position: relative;
 }
 .user-profile-stat::after {
@@ -1889,9 +1892,9 @@ textarea.form-control { resize: vertical; }
     padding-left: 0;
 }
 .user-profile-stat:hover {
-    background: transparent;
+    background: none !important;
     transform: none;
-    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: none !important;
 }
 .user-profile-stat-num {
     font-family: 'Outfit', sans-serif;
