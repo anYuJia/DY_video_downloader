@@ -171,17 +171,21 @@ jobs:
             $content = $content -replace '!define APP_VERSION ".*"', $newVersion
             Set-Content $nsisScript $content
 
-            # 刷新 PATH 并编译安装包
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-            & makensis $nsisScript
+            # 使用完整路径调用 makensis
+            $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
+            if (Test-Path $makensis) {
+              & $makensis $nsisScript
 
-            # 重命名安装包
-            $installerPath = "dist/DY_Video_Downloader_Setup_v${env:TAG_NAME}.exe"
-            if (Test-Path $installerPath) {
-              Move-Item $installerPath "${installerName}.exe" -Force
-              Write-Host "Created installer: ${installerName}.exe"
+              # 重命名安装包
+              $installerPath = "dist/DY_Video_Downloader_Setup_v${env:TAG_NAME}.exe"
+              if (Test-Path $installerPath) {
+                Move-Item $installerPath "${installerName}.exe" -Force
+                Write-Host "Created installer: ${installerName}.exe"
+              } else {
+                Write-Warning "Installer exe not found at $installerPath, skipping installer..."
+              }
             } else {
-              Write-Warning "Installer exe not found at $installerPath, skipping installer..."
+              Write-Warning "makensis.exe not found at $makensis, skipping installer..."
             }
           } else {
             Write-Warning "NSIS script not found at $nsisScript, skipping installer..."
