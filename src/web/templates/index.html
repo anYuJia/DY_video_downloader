@@ -960,10 +960,12 @@
                             <i class="bi bi-volume-up-fill"></i>
                         </button>
                         <div class="player-volume-panel-bottom" id="volumePanel">
+                            <div class="volume-value" id="volumeValue">100%</div>
                             <input type="range" id="volumeSlider" min="0" max="100" value="100"
                                    oninput="setVolume(this.value)">
-                            <button class="player-volume-speaker" id="volumeSpeakerBtn" type="button">
-                                <i class="bi bi-volume-up-fill" id="volumeSpeakerIcon"></i>
+                            <button class="player-mute-btn" id="muteBtn" onclick="toggleMute()">
+                                <i class="bi bi-volume-mute-fill"></i>
+                                <span>静音</span>
                             </button>
                         </div>
                     </div>
