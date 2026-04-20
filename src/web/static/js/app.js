@@ -483,11 +483,7 @@ function getVideoCardCover(video) {
 }
 
 function getVideoCardDuration(video) {
-    var rawDuration = video.duration != null ? video.duration : ((video.video && video.video.duration) || 0);
-    var durationSeconds = typeof normalizeMediaDurationSeconds === 'function'
-        ? normalizeMediaDurationSeconds(rawDuration)
-        : Math.max(0, Number(rawDuration) || 0);
-    return durationSeconds > 0 ? formatDuration(durationSeconds) : '';
+    return '';
 }
 
 function normalizeVideoAuthor(video) {

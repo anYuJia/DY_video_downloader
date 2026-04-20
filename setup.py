@@ -11,7 +11,7 @@ with open('requirements.txt', 'r', encoding='utf-8') as f:
 
 setup(
     name="douyin-downloader",
-    version="0.0.5",
+    version="0.0.6",
     author="anYuJia",
     author_email="",
     description="抖音视频下载器",

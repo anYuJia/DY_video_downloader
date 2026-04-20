@@ -47,7 +47,11 @@ app = Flask(__name__, template_folder=get_resource_path('src/web/templates'), st
 app.config['SECRET_KEY'] = 'douyin_downloader_secret_key'
 app.config['TEMPLATES_AUTO_RELOAD'] = True  # 禁用模板缓存
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # 禁用静态文件缓存
-socketio_async_mode = 'threading' if IS_WINDOWS else 'gevent'
+# macOS + pywebview 时 gevent 未 patch，必须用 threading 模式
+if IS_WINDOWS or (IS_MACOS and os.environ.get('USE_PYWEBVIEW') == '1'):
+    socketio_async_mode = 'threading'
+else:
+    socketio_async_mode = 'gevent'
 # 修改SocketIO初始化，添加更多选项
 socketio = SocketIO(
     app, 
@@ -738,13 +742,30 @@ def media_proxy():
         if range_header:
             headers['Range'] = range_header
 
-        resp = http_requests.get(url, headers=headers, stream=True, timeout=15)
+        import time
+        t0 = time.time()
+        resp = http_requests.get(url, headers=headers, stream=True, timeout=(10, 30))
+        t1 = time.time()
+        logger.info('[media_proxy] 上游响应耗时 %.2fs, status=%s, url=%s', t1 - t0, resp.status_code, url[:120])
 
         # 构建响应头
         resp_headers = {}
-        for key in ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges']:
+        for key in ['Content-Type', 'Content-Range', 'Accept-Ranges']:
             if key in resp.headers:
                 resp_headers[key] = resp.headers[key]
+
+        # 对于视频/音频：小 Range 请求（seek）返回 Content-Length，大范围请求不返回
+        # 这样浏览器不会等整个文件缓冲完才播放
+        is_media = requested_media_type in ('audio', 'video') or 'video' in resp_headers.get('Content-Type', '')
+        content_length = resp.headers.get('Content-Length', '')
+        if content_length:
+            try:
+                cl = int(content_length)
+                # 小于 2MB 的响应（seek 片段）保留 Content-Length
+                if cl < 2 * 1024 * 1024 or not is_media:
+                    resp_headers['Content-Length'] = content_length
+            except ValueError:
+                resp_headers['Content-Length'] = content_length
 
         upstream_content_type = resp_headers.get('Content-Type', '')
         normalized_content_type = upstream_content_type.split(';', 1)[0].strip().lower() if upstream_content_type else ''
@@ -774,8 +795,14 @@ def media_proxy():
         resp_headers['Cache-Control'] = 'public, max-age=3600'
 
         def generate():
+            total = 0
+            t_start = time.time()
             for chunk in resp.iter_content(chunk_size=65536):
-                yield chunk
+                if chunk:
+                    total += len(chunk)
+                    yield chunk
+            logger.info('[media_proxy] 传输完成, 共 %.2fMB, 耗时 %.2fs, url=%s',
+                        total / 1048576, time.time() - t_start, url[:120])
 
         status_code = resp.status_code
         return Response(generate(), status=status_code, headers=resp_headers)
@@ -2341,7 +2368,7 @@ def get_recommended_feed():
                         'play_addr': play_addr,
                         'width': video_data.get('width', 0),
                         'height': video_data.get('height', 0),
-                        'duration': video_data.get('duration', 0),
+                        'duration': _normalize_duration_seconds(video_data.get('duration', 0)),
                     },
                     'music': {
                         **_extract_music_info(aweme.get('music') or {}),
@@ -2489,7 +2516,7 @@ def start_server(port=None):
         'port': port,
         'debug': False
     }
-    if IS_WINDOWS and socketio.async_mode == 'threading':
+    if socketio.async_mode == 'threading':
         run_kwargs['allow_unsafe_werkzeug'] = True
 
     logger.info(f"Web服务开始监听: 0.0.0.0:{port}")

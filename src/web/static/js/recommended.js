@@ -557,8 +557,7 @@ function createRecommendedVideoCard(video) {
     const videoData = video.video || {};
     const coverUrl = videoData.cover || '/static/default-cover.svg';
     const createTime = video.create_time ? new Date(video.create_time * 1000).toLocaleDateString() : '';
-    const durationSeconds = normalizeMediaDurationSeconds(videoData.duration);
-    const duration = durationSeconds > 0 ? formatDuration(durationSeconds) : '';
+    const duration = '';
 
     const col = document.createElement('div');
     col.className = 'col-md-3 col-sm-6 mb-3';
@@ -594,8 +593,13 @@ function escapeHtml(text) {
 }
 
 function formatDuration(seconds) {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
+    const totalSecs = Math.floor(seconds);
+    const hrs = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    const secs = totalSecs % 60;
+    if (hrs > 0) {
+        return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
     return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
@@ -1044,10 +1048,10 @@ function playCurrentVideo() {
     currentVideoElement = video;
 
     // 如果视频还没加载好，等待加载
-    if (video.readyState < 2) {
-        console.log('[playCurrentVideo] 视频未加载，等待...');
-        video.addEventListener('loadeddata', () => {
-            console.log('[playCurrentVideo] 视频加载完成，开始播放');
+    if (video.readyState < 1) {
+        console.log('[playCurrentVideo] 视频元数据未加载，等待...');
+        video.addEventListener('loadedmetadata', () => {
+            console.log('[playCurrentVideo] 视频元数据加载完成，开始播放');
             startVideoPlayback(video, currentSlide);
         }, { once: true });
 
@@ -1582,41 +1586,30 @@ setupCustomMusicPlayer();
 // Volume Control
 // Volume Control - 悬停显示（优化版本）
 function setupHoverPanels() {
-    // 音量面板
-    const volumeGroup = document.getElementById('volumeControlGroup');
-    const volumePanel = document.getElementById('volumePanel');
+    // 通用悬浮面板逻辑：鼠标在按钮或面板内时保持显示，移出后关闭
+    function setupHoverPanel(groupEl, panelEl) {
+        if (!groupEl || !panelEl || groupEl.dataset.hoverBound === 'true') return;
+        groupEl.dataset.hoverBound = 'true';
+        let hideTimer = null;
+        const show = () => { clearTimeout(hideTimer); panelEl.classList.add('show'); };
+        const hide = () => { hideTimer = setTimeout(() => { panelEl.classList.remove('show'); }, 300); };
 
-    if (volumeGroup && volumePanel && volumeGroup.dataset.hoverBound !== 'true') {
-        volumeGroup.dataset.hoverBound = 'true';
-        let volumeTimeout;
-        volumeGroup.addEventListener('mouseenter', () => {
-            clearTimeout(volumeTimeout);
-            volumePanel.classList.add('show');
+        groupEl.addEventListener('pointerenter', show);
+        panelEl.addEventListener('pointerenter', show);
+        groupEl.addEventListener('pointerleave', (e) => {
+            // 如果鼠标移到了面板上，不关闭
+            if (panelEl.contains(e.relatedTarget)) return;
+            hide();
         });
-        volumeGroup.addEventListener('mouseleave', () => {
-            volumeTimeout = setTimeout(() => {
-                volumePanel.classList.remove('show');
-            }, 100);
+        panelEl.addEventListener('pointerleave', (e) => {
+            // 如果鼠标移回了按钮组，不关闭
+            if (groupEl.contains(e.relatedTarget)) return;
+            hide();
         });
     }
 
-    // 倍率面板
-    const rateGroup = document.getElementById('rateControlGroup');
-    const ratePanel = document.getElementById('ratePanel');
-
-    if (rateGroup && ratePanel && rateGroup.dataset.hoverBound !== 'true') {
-        rateGroup.dataset.hoverBound = 'true';
-        let rateTimeout;
-        rateGroup.addEventListener('mouseenter', () => {
-            clearTimeout(rateTimeout);
-            ratePanel.classList.add('show');
-        });
-        rateGroup.addEventListener('mouseleave', () => {
-            rateTimeout = setTimeout(() => {
-                ratePanel.classList.remove('show');
-            }, 100);
-        });
-    }
+    setupHoverPanel(document.getElementById('volumeControlGroup'), document.getElementById('volumePanel'));
+    setupHoverPanel(document.getElementById('rateControlGroup'), document.getElementById('ratePanel'));
 
     // 音乐面板
     const musicGroup = document.getElementById('musicControlGroup');
@@ -1654,33 +1647,18 @@ function setVolume(value) {
         video.volume = value / 100;
         unifiedPlayerState.volume = value / 100;
 
-        // 更新音量百分比显示
+        // 更新音量显示
         const volumeValue = document.getElementById('volumeValue');
         if (volumeValue) {
-            volumeValue.textContent = value + '%';
+            volumeValue.textContent = value;
         }
 
         // 更新音量图标
-        const icon = document.querySelector('#volumeBtn i');
-        if (icon) {
-            if (value == 0) {
-                icon.className = 'bi bi-volume-mute-fill';
-            } else if (value < 50) {
-                icon.className = 'bi bi-volume-down-fill';
-            } else {
-                icon.className = 'bi bi-volume-up-fill';
-            }
-        }
-
-        // 更新静音按钮状态
-        const muteBtn = document.getElementById('muteBtn');
-        if (muteBtn) {
-            if (value == 0) {
-                muteBtn.classList.add('muted');
-            } else {
-                muteBtn.classList.remove('muted');
-            }
-        }
+        const volIcon = document.querySelector('#volumeBtn i');
+        const muteIcon = document.querySelector('#muteBtn i');
+        const volClass = value == 0 ? 'bi bi-volume-mute-fill' : value < 50 ? 'bi bi-volume-down-fill' : 'bi bi-volume-up-fill';
+        if (volIcon) volIcon.className = volClass;
+        if (muteIcon) muteIcon.className = volClass;
     }
 }
 
@@ -1691,15 +1669,13 @@ function toggleMute() {
         unifiedPlayerState.isMuted = video.muted;
 
         const slider = document.getElementById('volumeSlider');
-        const icon = document.querySelector('#volumeBtn i');
+        const volIcon = document.querySelector('#volumeBtn i');
+        const muteIcon = document.querySelector('#muteBtn i');
+        const iconClass = video.muted ? 'bi bi-volume-mute-fill' : 'bi bi-volume-up-fill';
 
-        if (video.muted) {
-            if (icon) icon.className = 'bi bi-volume-mute-fill';
-            if (slider) slider.value = 0;
-        } else {
-            if (icon) icon.className = 'bi bi-volume-up-fill';
-            if (slider) slider.value = unifiedPlayerState.volume * 100;
-        }
+        if (volIcon) volIcon.className = iconClass;
+        if (muteIcon) muteIcon.className = iconClass;
+        if (slider) slider.value = video.muted ? 0 : unifiedPlayerState.volume * 100;
     }
 }
 
@@ -2189,7 +2165,9 @@ function renderUnifiedCurrentVideo() {
     videoEl.className = 'video-element';
 
     // 使用代理URL避免CORS问题
-    videoEl.src = '/api/media/proxy?url=' + encodeURIComponent(playAddr);
+    const srcUrl = '/api/media/proxy?url=' + encodeURIComponent(playAddr);
+    const t_setSrc = performance.now();
+    videoEl.src = srcUrl;
     videoEl.poster = videoData.cover ? '/api/media/proxy?url=' + encodeURIComponent(videoData.cover) : '';
     videoEl.loop = mediaItems.length <= 1;
     videoEl.playsInline = true;
@@ -2198,7 +2176,7 @@ function renderUnifiedCurrentVideo() {
     videoEl.playbackRate = unifiedPlayerState.playbackRate;
 
     videoEl.addEventListener('loadedmetadata', () => {
-        console.log('[renderUnifiedCurrentVideo] 视频元数据加载成功');
+        console.log('[renderUnifiedCurrentVideo] 视频元数据加载成功, 耗时:', (performance.now() - t_setSrc).toFixed(0), 'ms');
         unifiedPlayerState.videoElement = videoEl;
         setupUnifiedVideoProgress(videoEl);
         updateUnifiedMediaProgressUI(0, 0, videoEl.duration || 0);
@@ -2694,7 +2672,7 @@ function playPrevUnifiedVideo() {
 
 // Close panels when clicking outside
 document.addEventListener('click', (e) => {
-    if (!e.target.closest('.player-control-group')) {
+    if (!e.target.closest('.player-control-group-bottom') && !e.target.closest('.player-control-group')) {
         const volumePanel = document.getElementById('volumePanel');
         const ratePanel = document.getElementById('ratePanel');
         if (volumePanel) volumePanel.classList.remove('show');
