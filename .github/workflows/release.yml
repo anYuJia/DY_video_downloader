@@ -108,28 +108,39 @@ jobs:
         shell: bash
         run: pyinstaller build.spec --clean --noconfirm
 
-      - name: Prepare macOS .app for distribution
+      - name: Prepare macOS distribution
         if: runner.os == 'macOS'
         shell: bash
         env:
           TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
         run: |
           set -euo pipefail
+          arch="${{ matrix.asset_suffix == 'macos-arm64' && 'arm64' || 'intel' }}"
+          APP_NAME="DY Video Downloader.app"
 
           # 检查 .app 是否创建成功
-          if [ ! -d "dist/DY Video Downloader.app" ]; then
-            echo "Error: DY Video Downloader.app not found in dist/"
+          if [ ! -d "dist/$APP_NAME" ]; then
+            echo "Error: $APP_NAME not found in dist/"
             ls -la dist/
             exit 1
           fi
 
-          # 创建压缩包
-          arch="${{ matrix.asset_suffix == 'macos-arm64' && 'arm64' || 'intel' }}"
-          asset_name="DY-Video-Downloader-${TAG_NAME}-macos-${arch}"
-          tar -C dist -czf "${asset_name}.tar.gz" "DY Video Downloader.app"
-          echo "ASSET_FILE=${asset_name}.tar.gz" >> "$GITHUB_ENV"
-          echo "Created: ${asset_name}.tar.gz"
-          ls -lh "${asset_name}.tar.gz"
+          # 1. 便携版：zip 压缩 .app（包含所有依赖文件，解压即用）
+          portable_name="DY-Video-Downloader-${TAG_NAME}-macos-${arch}-portable"
+          cd dist && zip -r "../${portable_name}.zip" "$APP_NAME" && cd ..
+          echo "Created portable: ${portable_name}.zip"
+          ls -lh "${portable_name}.zip"
+
+          # 2. DMG 安装包
+          dmg_name="DY-Video-Downloader-${TAG_NAME}-macos-${arch}"
+          dmg_temp="dmg_temp"
+          mkdir -p "$dmg_temp"
+          cp -r "dist/$APP_NAME" "$dmg_temp/"
+          ln -s /Applications "$dmg_temp/Applications"
+          hdiutil create -volname "DY Video Downloader" -srcfolder "$dmg_temp" -ov -format UDZO "${dmg_name}.dmg"
+          rm -rf "$dmg_temp"
+          echo "Created DMG: ${dmg_name}.dmg"
+          ls -lh "${dmg_name}.dmg"
 
       - name: Package build (Linux)
         if: runner.os == 'Linux'
