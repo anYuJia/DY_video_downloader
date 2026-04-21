@@ -215,6 +215,7 @@ jobs:
             *.tar.gz
             *.zip
             *.exe
+            *.dmg
           if-no-files-found: error
 
   release:
