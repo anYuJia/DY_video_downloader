@@ -430,7 +430,7 @@ class DouyinAPI:
             '/aweme/v2/web/module/feed/',
             params,
             headers,
-            skip_sign=False,  # 需要签名
+            skip_sign=True,  # 实验：跳过签名验证推荐接口是否可用
             method='POST'  # 使用 POST 方法
         )
 
@@ -678,4 +678,3 @@ class DouyinAPI:
                 'success': False,
                 'message': f'读取浏览器 Cookie 失败: {str(e)}'
             }
-
