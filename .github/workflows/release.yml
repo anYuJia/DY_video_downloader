@@ -166,6 +166,20 @@ jobs:
             exit 1
           }
 
+          # 便携版/安装包都要求 .config 与 exe 同级，否则 pythonnet + WinForms 可能无法正确初始化 CLR
+          $runtimeConfigSource = "windows\DY Video Downloader.exe.config"
+          $runtimeConfigTarget = "dist\DY Video Downloader\DY Video Downloader.exe.config"
+          if (!(Test-Path $runtimeConfigSource)) {
+            Write-Error "Runtime config not found: $runtimeConfigSource"
+            exit 1
+          }
+          Copy-Item $runtimeConfigSource $runtimeConfigTarget -Force
+          if (!(Test-Path $runtimeConfigTarget)) {
+            Write-Error "Failed to copy runtime config to portable root: $runtimeConfigTarget"
+            exit 1
+          }
+          Write-Host "Copied runtime config to: $runtimeConfigTarget"
+
           # 创建安装包（先创建安装包，再创建便携包）
           $installerName = "DY-Video-Downloader-${env:TAG_NAME}-windows-x64-installer"
           $nsisScript = "scripts/windows_installer.nsi"
