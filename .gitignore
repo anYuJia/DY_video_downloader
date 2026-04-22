@@ -134,6 +134,19 @@ get_media_info.json
 
 
 node_modules/
+# Node
+node_modules/
+package.json
+package-lock.json
+
+# 分析/临时文档
+API_UNIFICATION_REPORT.md
+COOKIE_SOLUTIONS.md
+RECOMMENDED_VIDEO_OPTIMIZATION.md
+analyze_api.py
+api_unification_analysis.py
+test_*.py
+
 # Browser Persistent Context
 data/.browser_profile/
 
