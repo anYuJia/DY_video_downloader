@@ -15,12 +15,6 @@
 
 </div>
 
-<p align="center">
-  <a href="https://star-history.com/#anYuJia/DY_video_downloader&Date">
-    <img src="https://api.star-history.com/svg?repos=anYuJia/DY_video_downloader&type=Date" alt="Star History Chart">
-  </a>
-</p>
-
 ---
 
 ## ✨ 为什么选择 DY Video Downloader？
@@ -42,9 +36,15 @@
 ## 🎥 界面预览
 
 <p align="center">
-  <img src="img/index.png" width="380" alt="主界面">
-  <img src="img/get_user.png" width="380" alt="用户搜索">
-  <img src="img/downloading.png" width="380" alt="下载监控">
+  <img src="img/index.png" alt="主界面">
+</p>
+
+<p align="center">
+  <img src="img/get_user.png" alt="用户搜索">
+</p>
+
+<p align="center">
+  <img src="img/downloading.png" alt="下载监控">
 </p>
 
 ---
