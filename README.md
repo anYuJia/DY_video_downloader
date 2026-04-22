@@ -55,6 +55,11 @@
 
 从 [Releases](../../releases/latest) 下载对应平台的包，解压运行即可。
 
+> **macOS 用户**：如果提示"无法验证开发者"，在终端执行：
+> ```bash
+> sudo xattr -rd com.apple.quarantine /path/to/douyin_downloader.app
+> ```
+
 ### 方式二：源码运行
 
 ```bash

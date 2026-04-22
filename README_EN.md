@@ -55,6 +55,11 @@
 
 Download the package for your platform from [Releases](../../releases/latest), extract and run.
 
+> **macOS Users**: If you see "cannot verify developer", run this in Terminal:
+> ```bash
+> sudo xattr -rd com.apple.quarantine /path/to/douyin_downloader.app
+> ```
+
 ### Option 2: Run from Source
 
 ```bash
