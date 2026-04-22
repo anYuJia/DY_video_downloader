@@ -1,8 +1,10 @@
 <div align="center">
 
+<img src="img/logo.png" width="128" height="128" alt="Logo">
+
 <a href="README.md">简体中文</a> | <a href="README_EN.md">English</a>
 
-# 🎬 DY Video Downloader
+# DY Video Downloader
 
 **一键下载抖音视频，轻松管理你的数字资产**
 
