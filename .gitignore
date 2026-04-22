@@ -158,6 +158,8 @@ generate_icons.py
 # 不需要的构建文件
 setup.py
 /__init__.py
+BUILD.md
+config.json
 
 # Browser Persistent Context
 data/.browser_profile/
