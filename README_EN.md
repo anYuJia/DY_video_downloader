@@ -89,6 +89,10 @@ Open http://localhost:5001 in your browser, scan QR code to login.
 
 This tool is for personal learning and research only. Do not use for commercial purposes or large-scale scraping. Contributors are not responsible for any consequences caused by misuse.
 
+## 🔗 Related Projects
+
+[Rust Version](https://github.com/anYuJia/douyin-downloader-rust) - Higher performance, smaller binary
+
 ---
 
 <p align="center">Find it useful? Give it a ⭐ Star</p>

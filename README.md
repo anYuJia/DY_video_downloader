@@ -89,6 +89,10 @@ python main.py
 
 本工具仅供个人学习研究使用，请勿用于商业用途或大规模爬取。因滥用导致的后果，项目贡献者不承担责任。
 
+## 🔗 相关项目
+
+[Rust 重构版](https://github.com/anYuJia/douyin-downloader-rust) - 更高性能，更小体积
+
 ---
 
 <p align="center">觉得有用？给个 ⭐ Star 支持一下</p>
