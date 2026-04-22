@@ -136,3 +136,21 @@ get_media_info.json
 node_modules/
 # Browser Persistent Context
 data/.browser_profile/
+
+# 研究文档和逆向工程脚本（不提交到版本控制）
+docs/LOGIN_*.md
+docs/REVERSE_*.md
+docs/SIGNATURE_*.md
+docs/SMS_*.md
+docs/TAURI_*.md
+docs/sign.rs
+scripts/analyze_*.py
+scripts/captcha_handler.py
+scripts/debug_qrcode.py
+scripts/device_fingerprint.py
+scripts/douyin_*.py
+scripts/download_passport_sdk.py
+scripts/explore_*.py
+scripts/extract_*.py
+scripts/fingerprint_generator.py
+scripts/sign_*.py

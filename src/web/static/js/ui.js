@@ -211,7 +211,7 @@ async function apiFetch(url, options) {
     return data;
 }
 
-function showVerifyDialog() {
+function showVerifyDialog(verifyUrl) {
     // 检查是否是临时 cookie（未登录）
     const cookieInput = document.getElementById('cookie-input');
     const cookieValue = cookieInput ? cookieInput.value : '';
@@ -226,6 +226,16 @@ function showVerifyDialog() {
         addLog('触发滑块验证，正在使用已存储的Cookie打开浏览器...', 'warning');
     }
 
+    var url = verifyUrl || 'https://www.douyin.com/';
+
+    // 如果有具体的验证URL，直接打开（搜索验证需要在搜索页面完成）
+    if (verifyUrl) {
+        window.open(url, 'douyin_verify', 'width=1100,height=750,scrollbars=yes');
+        showToast('需要滑块验证，请在弹出窗口中完成验证后重试', 'warning');
+        addLog('触发滑块验证，请在弹出窗口中完成后重新搜索', 'warning');
+        return;
+    }
+
     // 调用后端API，使用已存储的Cookie打开浏览器
     fetch('/api/open_verify_browser', {
         method: 'POST',
@@ -238,7 +248,7 @@ function showVerifyDialog() {
             addLog('浏览器已打开，请在浏览器中完成验证后重新搜索', 'info');
         } else {
             // 如果后端打开失败，尝试直接打开
-            window.open('https://www.douyin.com/', 'douyin_verify', 'width=1100,height=750,scrollbars=yes');
+            window.open(url, 'douyin_verify', 'width=1100,height=750,scrollbars=yes');
             showToast('需要滑块验证，请在弹出窗口中完成验证后重试', 'warning');
             addLog('触发滑块验证，请在弹出窗口中完成后重新搜索', 'warning');
         }
@@ -246,7 +256,7 @@ function showVerifyDialog() {
     .catch(err => {
         console.error('打开验证浏览器失败:', err);
         // 回退到直接打开
-        window.open('https://www.douyin.com/', 'douyin_verify', 'width=1100,height=750,scrollbars=yes');
+        window.open(url, 'douyin_verify', 'width=1100,height=750,scrollbars=yes');
         showToast('需要滑块验证，请在弹出窗口中完成验证后重试', 'warning');
     });
 }

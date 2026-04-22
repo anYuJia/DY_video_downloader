@@ -926,7 +926,7 @@ def search_user():
 
         # 检测验证码
         if isinstance(users, dict) and users.get('_need_verify'):
-            return jsonify({'success': False, 'need_verify': True, 'message': '需要完成滑块验证'})
+            return jsonify({'success': False, 'need_verify': True, 'verify_url': users.get('_verify_url'), 'message': '需要完成滑块验证'})
         
         if isinstance(users, dict):  # 单个用户
             return jsonify({

@@ -268,7 +268,7 @@ async function searchUser() {
                 showMultipleUsers(result.users);
             }
         } else if (result.need_verify) {
-            showVerifyDialog();
+            showVerifyDialog(result.verify_url);
         } else {
             showToast(result.message, 'error');
         }

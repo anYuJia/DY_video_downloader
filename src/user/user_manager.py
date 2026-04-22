@@ -152,7 +152,7 @@ class DouyinUserManager:
             else:
                 # 传递验证码信号
                 if resp.get('_need_verify'):
-                    return {'_need_verify': True}
+                    return {'_need_verify': True, '_verify_url': resp.get('_verify_url')}
                 if self.debug_mode:
                     print(f"\033[91m[UserManager] 搜索失败\033[0m")
                 else:
@@ -194,7 +194,7 @@ class DouyinUserManager:
         if not succ or not resp.get('user_list'):
             # 传递验证码信号
             if resp.get('_need_verify'):
-                return {'_need_verify': True}
+                return {'_need_verify': True, '_verify_url': resp.get('_verify_url')}
             if self.debug_mode:
                 print(f"\033[91m[UserManager] 关键词搜索失败或未找到用户\033[0m")
             else:
