@@ -32,11 +32,24 @@ if __name__ == '__main__':
 
     elif os.environ.get('RUN_WORKER') == 'browser_worker':
         # 在子进程中执行 模拟浏览器请求组件
-        from src.api.browser_worker import browser_fetch_via_navigation, browser_fetch
+        from src.api.browser_worker import (
+            browser_fetch_via_navigation,
+            browser_fetch,
+            fetch_recommended_feed,
+            get_temp_cookie,
+        )
         import json
         try:
             req = json.loads(sys.stdin.read())
-            if req.get('params') and req.get('api_path'):
+            if req.get('action') == 'get_recommended_feed':
+                result = fetch_recommended_feed(
+                    req.get('cookie', ''),
+                    req.get('count', 20),
+                    req.get('cursor', 0),
+                )
+            elif req.get('action') == 'get_temp_cookie':
+                result = get_temp_cookie()
+            elif req.get('params') and req.get('api_path'):
                 result = browser_fetch_via_navigation(
                     req['cookie'], req['api_path'], req['params'], req['user_agent']
                 )

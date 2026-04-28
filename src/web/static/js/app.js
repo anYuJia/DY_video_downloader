@@ -170,12 +170,9 @@ async function loadConfig() {
         var response = await fetch('/api/config');
         var config = await response.json();
         document.getElementById('download-dir-input').value = config.download_dir || '';
-        document.getElementById('cookie-input').value = config.cookie || '';
-
-        // 同步cookie到localStorage，供启动检查使用
-        if (config.cookie) {
-            localStorage.setItem('cookie', config.cookie);
-        }
+        var cookieInput = document.getElementById('cookie-input');
+        cookieInput.value = '';
+        cookieInput.dataset.cookieSet = config.cookie_set ? 'true' : 'false';
 
         if (config.cookie_set) {
             updateStatus('ready', '已配置');
@@ -198,9 +195,11 @@ async function saveConfig() {
         return;
     }
     var config = {
-        download_dir: document.getElementById('download-dir-input').value,
-        cookie: cookieValue
+        download_dir: document.getElementById('download-dir-input').value
     };
+    if (cookieValue || document.getElementById('cookie-input').dataset.cookieSet !== 'true') {
+        config.cookie = cookieValue;
+    }
     try {
         var response = await fetch('/api/config', {
             method: 'POST',

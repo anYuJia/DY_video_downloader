@@ -8,24 +8,17 @@ let _browserLoginTimer = null;
 
 // 检查Cookie状态（启动时调用）
 function checkCookieStatusOnStartup() {
-    const cookieValue = localStorage.getItem('cookie') || '';
-    const validation = validateCookie(cookieValue);
-
     const banner = document.getElementById('cookieStatusBanner');
 
-    if (!validation.isValid) {
-        // Cookie无效，显示横幅
-        if (banner) {
-            banner.style.display = 'flex';
-        }
-        console.log('[cookie] Cookie无效或未设置，显示提示横幅');
-    } else {
-        // Cookie有效，隐藏横幅
-        if (banner) {
-            banner.style.display = 'none';
-        }
-        console.log('[cookie] Cookie有效');
-    }
+    fetch('/api/config')
+        .then(function(response) { return response.json(); })
+        .then(function(config) {
+            if (banner) banner.style.display = config.cookie_set ? 'none' : 'flex';
+            console.log(config.cookie_set ? '[cookie] Cookie已配置' : '[cookie] Cookie未设置，显示提示横幅');
+        })
+        .catch(function() {
+            if (banner) banner.style.display = 'flex';
+        });
 }
 
 // 关闭Cookie提示横幅
@@ -263,9 +256,7 @@ function saveCookieFromModal() {
             showToast('Cookie 保存成功！', 'success');
             updateStatus('ready', '已配置');
             document.getElementById('cookie-input').value = cookieValue;
-
-            // 同步到localStorage，供启动检查使用
-            localStorage.setItem('cookie', cookieValue);
+            document.getElementById('cookie-input').dataset.cookieSet = 'true';
 
             // 隐藏Cookie提示横幅
             const banner = document.getElementById('cookieStatusBanner');
@@ -449,12 +440,9 @@ function handleCookieLoginStatus(data) {
                 resultIcon.className = 'bi bi-check-circle-fill text-success';
             }
             resetBrowserLoginUI();
-            if (data.cookie) {
-                document.getElementById('cookie-input').value = data.cookie;
-
-                // 同步到localStorage，供启动检查使用
-                localStorage.setItem('cookie', data.cookie);
-
+            if (data.cookie_set) {
+                document.getElementById('cookie-input').value = '';
+                document.getElementById('cookie-input').dataset.cookieSet = 'true';
                 // 更新设置面板状态
                 if (settingsStatusContainer) {
                     settingsStatusContainer.style.display = 'block';

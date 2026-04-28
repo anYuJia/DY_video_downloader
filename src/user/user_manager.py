@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import urllib.parse
 from typing import List, Dict, Optional, Tuple, Union
@@ -10,6 +11,7 @@ from src.downloader.downloader import DouyinDownloader
 # 移除增强下载器支持
 ENHANCED_DOWNLOADER_AVAILABLE = False
 EnhancedDouyinDownloader = None
+logger = logging.getLogger(__name__)
 
 class DouyinUserManager:
     """抖音用户管理类"""
@@ -443,44 +445,20 @@ class DouyinUserManager:
             return None
 
     def _get_media_info(self, post: dict) -> tuple[str, list]:
-        """获取媒体信息
-        Returns:
-            tuple: (media_type, urls)
-            media_type: 'video' 或 'mixed' 或 'image' 或 'live_photo'
-            urls: 媒体URL列表，对于mixed类型，返回[(type, url)]格式的列表
-        """
-        # 判断媒体类型
-        if post.get("images"):
-            images = post.get("images", [])
-            urls = []
-            has_live = False
-            has_image = False
+        """兼容旧调用，返回与 get_media_info 相同的统一结构。"""
+        return self.get_media_info(post)
 
-            for img in images:
-                # Live Photo特征：包含video字段且有play_addr
-                if img.get("video") and img["video"].get("play_addr"):
-                    has_live = True
-                    urls.append(('live_photo', img["video"]["play_addr"]["url_list"][0]))
-                else:
-                    has_image = True
-                    # 普通图片使用url_list的最后一个URL（通常是最高质量的）
-                    urls.append(('image', img["url_list"][-1]))
-
-            # 如果同时包含Live Photo和普通图片，返回mixed类型
-            if has_live and has_image:
-                return 'mixed', urls
-            elif has_live:
-                return 'live_photo', [url for _, url in urls]
-            else:
-                return 'image', [url for _, url in urls]
-            
-        elif post.get("video"):
-            # 视频类型
-            video_url = post.get("video", {}).get("play_addr", {}).get("url_list", [""])[0]
-            return 'video', [video_url] if video_url else []
-
-        # 默认返回空
-        return 'unknown', []
+    def _media_type_label(self, media_type: str, media_urls: list[dict]) -> str:
+        if media_type == 'mixed':
+            live_count = sum(1 for item in media_urls if item.get('type') == 'live_photo')
+            img_count = sum(1 for item in media_urls if item.get('type') == 'image')
+            return f'图片({img_count}张)+Live图({live_count}张)'
+        return {
+            'video': '视频',
+            'image': f'图片({len(media_urls)}张)',
+            'live_photo': f'Live图({len(media_urls)}张)',
+            'unknown': '未知'
+        }.get(media_type, '未知')
 
     async def download_user_videos(self, user_info: dict, auto_confirm: bool = False,web_socket: bool = False):
         """下载用户视频
@@ -529,17 +507,7 @@ class DouyinUserManager:
             # 显示作品列表
             for i, post in enumerate(new_posts):
                 media_type, urls = self._get_media_info(post)
-                if media_type == 'mixed':
-                    live_count = sum(1 for t, _ in urls if t == 'live_photo')
-                    img_count = sum(1 for t, _ in urls if t == 'image')
-                    type_str = f'图片({img_count}张)+Live图({live_count}张)'
-                else:
-                    type_str = {
-                        'video': '视频',
-                        'image': f'图片({len(urls)}张)',
-                        'live_photo': f'Live图({len(urls)}张)',
-                        'unknown': '未知'
-                    }.get(media_type, '未知')
+                type_str = self._media_type_label(media_type, urls)
                 
                 print(f"\033[36m{i}. [{type_str}] {post['desc']}\033[0m")
 
@@ -560,17 +528,7 @@ class DouyinUserManager:
         # 下载选中的作品
         for i, post in enumerate(selected_posts, 1):
             media_type, urls = self._get_media_info(post)
-            if media_type == 'mixed':
-                live_count = sum(1 for t, _ in urls if t == 'live_photo')
-                img_count = sum(1 for t, _ in urls if t == 'image')
-                type_str = f'图片({img_count}张)+Live图({live_count}张)'
-            else:
-                type_str = {
-                    'video': '视频',
-                    'image': f'图片({len(urls)}张)',
-                    'live_photo': f'Live图({len(urls)}张)',
-                    'unknown': '未知'
-                }.get(media_type, '未知')
+            type_str = self._media_type_label(media_type, urls)
             
             progress_msg = f"正在下载第 {i}/{len(selected_posts)} 个 [{type_str}]"
             if web_socket and self.socketio:
@@ -601,18 +559,8 @@ class DouyinUserManager:
                     print(f"\033[91m{error_msg}\033[0m")
                 continue
             
-            if media_type == 'mixed':
-                # 分别下载Live Photo和普通图片
-                live_urls = [{'url': url, 'type': 'live_photo'} for t, url in urls if t == 'live_photo']
-                img_urls = [{'url': url, 'type': 'image'} for t, url in urls if t == 'image']
-                
-                success = True
-                
-                if live_urls:
-                    success &= self.downloader.download_media_group(live_urls, name, None)
-                if img_urls:
-                    success &= self.downloader.download_media_group(img_urls, name, None)
-                    
+            if media_type in ['mixed', 'live_photo', 'image']:
+                success = self.downloader.download_media_group(urls, name, aweme_id)
                 if success:
                     self.downloader._save_download_record(nickname, aweme_id)
                     success_msg = f"作品 {name} 下载完成"
@@ -627,23 +575,8 @@ class DouyinUserManager:
                     else:
                         print(f"\033[91m{error_msg}\033[0m")
                 
-            elif media_type in ['live_photo', 'image']:
-                formatted_urls = [{'url': url, 'type': media_type} for url in urls]
-                success = self.downloader.download_media_group(formatted_urls, name, aweme_id)
-                if success:
-                    success_msg = f"作品 {name} 下载完成"
-                    if web_socket and self.socketio:
-                        self.socketio.emit('download_success', {'message': success_msg})
-                    else:
-                        print(f"\033[92m{success_msg}\033[0m")
-                else:
-                    error_msg = f"作品 {name} 下载失败"
-                    if web_socket and self.socketio:
-                        self.socketio.emit('download_error', {'message': error_msg})
-                    else:
-                        print(f"\033[91m{error_msg}\033[0m")
             elif media_type == 'video':
-                success = self.downloader.download_video(urls[0], name, aweme_id)
+                success = self.downloader.download_video(urls[0]['url'], name, aweme_id)
                 if success:
                     success_msg = f"作品 {name} 下载完成"
                     if web_socket and self.socketio:
@@ -724,41 +657,35 @@ class DouyinUserManager:
     async def download_liked_videos(self, count=20):
         """下载点赞视频"""
         try:
-            params = {
-                "count": count,
-                "max_cursor": 0
-            }
-            resp, succ = await self.api.common_request('/aweme/v1/web/aweme/favorite/', params,
-                                                     dict(self._FAVORITE_HEADERS),
-                                                     skip_sign=True)
-            if not succ:
-                print("\033[91m获取点赞视频失败\033[0m")
-                return
+            videos = await self.get_liked_videos(count)
+            if not videos:
+                return 0
 
-            posts = resp.get('aweme_list', [])
-            if not posts:
-                print("\033[91m未找到点赞作品\033[0m")
-                return
+            completed = 0
+            for video in videos:
+                aweme_id = video.get('aweme_id')
+                media_type = video.get('media_type', 'unknown')
+                media_urls = video.get('media_urls') or []
+                if not aweme_id or not media_urls:
+                    continue
 
-            for post in posts:
-                aweme_id = post.get('aweme_id')
-                desc = post.get('desc', aweme_id)
-                video_detail = await self.get_video_detail(aweme_id)
-                if video_detail:
-                    media_info = self.get_media_info(video_detail)
-                    media_type = media_info.get('media_type')
-                    media_urls = media_info.get('media_urls')
+                author_name = (video.get('author') or {}).get('nickname') or 'liked'
+                raw_desc = (video.get('desc') or '').strip()
+                desc = (raw_desc.split()[0] if raw_desc.split() else f'无标题_{aweme_id}')[:30]
+                name = f"{author_name}/{desc}"
 
-                    if media_urls:
-                        if media_type == 'live_photo':
-                            await self.downloader.download_media_group(aweme_id, desc, media_urls)
-                        elif media_type == 'image':
-                            await self.downloader.download_media_group(aweme_id, desc, media_urls)
-                        else:
-                            for media in media_urls:
-                                await self.downloader.download_video_direct(aweme_id, desc, [media['url']], media_type)
+                if media_type == 'video' and len(media_urls) == 1:
+                    success = self.downloader.download_video(media_urls[0]['url'], name, aweme_id)
+                else:
+                    success = self.downloader.download_media_group(media_urls, name, aweme_id)
+
+                if success:
+                    completed += 1
+
+            return completed
         except Exception as e:
             print(f"\033[91m下载点赞视频时出错: {e}\033[0m")
+            return 0
 
     async def get_liked_authors(self, count=20):
         """获取点赞作品的作者列表，返回与parse_share_link中user数据结构相同的格式"""
@@ -822,81 +749,26 @@ class DouyinUserManager:
                 print(f"\033[91m获取点赞作者时出错: {e}\033[0m")
             return []
 
-    async def download_liked_authors(self):
+    async def download_liked_authors(self, count=20, selected_sec_uids=None):
         """下载点赞作品的作者的所有作品"""
         try:
-            # 获取用户想要获取的点赞作品数量
-            count = input("\n请输入要获取的点赞作品数量(直接回车默认20个): ") or "20"
-            count = int(count)
-            
-            params = {
-                "count": count,
-                "max_cursor": 0
-            }
-            
-            resp, succ = await self.api.common_request('/aweme/v1/web/aweme/favorite/',
-                                                     params,
-                                                     dict(self._FAVORITE_HEADERS),
-                                                     skip_sign=True)
-            if not succ:
-                print("\033[91m获取点赞视频失败\033[0m")
-                return
-
-            posts = resp.get('aweme_list', [])
-            if not posts:
-                print("\033[91m未找到点赞作品\033[0m")
-                return
-
-            # 收集所有作者信息
-            authors = {}
-            for post in posts:
-                author = post.get('author', {})
-                sec_uid = author.get('sec_uid')
-                if sec_uid and sec_uid not in authors:
-                    # 获取完整的用户信息
-                    user_detail = await self.get_user_detail(sec_uid)
-                    authors[sec_uid] = {
-                        'sec_uid': sec_uid,
-                        'nickname': user_detail.get('nickname', author.get('nickname', '未知')),
-                        'unique_id': user_detail.get('unique_id', author.get('unique_id', '未设置')),
-                        'follower_count': user_detail.get('follower_count', author.get('follower_count', 0)),
-                        'signature': user_detail.get('signature', author.get('signature', '无'))
-                    }
-                    # 添加短暂延迟避免请求过快
-                    await asyncio.sleep(0.5)
-
+            authors = await self.get_liked_authors(count)
             if not authors:
-                print("\033[91m未找到作者信息\033[0m")
-                return
+                return 0
 
-            # 显示作者列表
-            print(f"\n\033[36m找到 {len(authors)} 个作者:\033[0m")
-            for i, author in enumerate(authors.values()):
-                print(f"\n{i}. \033[95m昵称: {author['nickname']}\033[0m")
-                print(f"   \033[92m抖音号: {author['unique_id']}\033[0m")
-                print(f"   \033[35m粉丝数: {author['follower_count']}\033[0m")
-                print(f"   \033[96m主页: https://www.douyin.com/user/{author['sec_uid']}\033[0m")
-
-            # 处理用户输入
-            str_sub = input("\n\033[31m请输入要下载的作者序号\n1. 单个数字下载单个作者，多个数字用空格隔开下载多个作者\n2. 片段用-隔开\n3. 直接回车下载全部\033[0m\n")
-            
-            selected_authors = []
-            author_list = list(authors.values())
-            
-            if str_sub:
-                for part in str_sub.split():
-                    if '-' in part:
-                        start, end = map(int, part.split('-'))
-                        selected_authors.extend(author_list[start:end+1])
-                    else:
-                        selected_authors.append(author_list[int(part)])
-            else:
-                selected_authors = author_list
+            selected = set(selected_sec_uids or [])
+            selected_authors = [
+                author for author in authors
+                if not selected or author.get('sec_uid') in selected
+            ]
 
             # 下载每个选中作者的作品
             for i, author in enumerate(selected_authors, 1):
                 print(f"\n\033[36m正在处理第 {i}/{len(selected_authors)} 个作者: {author['nickname']}\033[0m")
                 await self.download_user_videos(author, auto_confirm=True)
 
+            return len(selected_authors)
+
         except Exception as e:
             print(f"\033[91m处理失败：{str(e)}\033[0m")
+            return 0

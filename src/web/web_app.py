@@ -23,13 +23,22 @@ import re
 import requests as http_requests
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 # 配置日志
 logging.basicConfig(level=logging.DEBUG if os.environ.get('DEBUG_MODE', '').lower() in ('true', '1') else logging.INFO,
                     format='[%(levelname)s] %(message)s')
 logger = logging.getLogger('web_app')
 socketio_debug = os.environ.get('DEBUG_MODE', '').lower() in ('true', '1', 'yes')
+
+ALLOWED_MEDIA_HOST_SUFFIXES = (
+    'douyin.com',
+    'douyinvod.com',
+    'douyinpic.com',
+    'douyinstatic.com',
+    'byteimg.com',
+    'ixigua.com',
+)
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -270,6 +279,29 @@ def normalize_media_urls(media_urls, raw_media_type='video'):
     return normalized_urls
 
 
+def is_allowed_media_url(url: str) -> bool:
+    """只允许代理明确属于抖音/字节媒体域名的 http(s) URL。"""
+    try:
+        parsed = urlparse((url or '').strip())
+    except Exception:
+        return False
+
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+        return False
+
+    hostname = parsed.hostname.lower().rstrip('.')
+    return any(hostname == suffix or hostname.endswith(f'.{suffix}') for suffix in ALLOWED_MEDIA_HOST_SUFFIXES)
+
+
+def should_forward_douyin_cookie(url: str) -> bool:
+    """只向 douyin.com 及其子域转发账号 Cookie。"""
+    try:
+        hostname = (urlparse((url or '').strip()).hostname or '').lower().rstrip('.')
+    except Exception:
+        return False
+    return hostname == 'douyin.com' or hostname.endswith('.douyin.com')
+
+
 def get_or_create_loop():
     global _global_loop, _loop_thread
     if _global_loop is None:
@@ -356,13 +388,12 @@ def index():
 @app.route('/api/config', methods=['GET'])
 def get_config():
     """获取配置信息"""
-    # 注意：Cookie只在localhost环境下返回给前端回显，不应在公网暴露
     return jsonify({
         'cookie_set': bool(Config.COOKIE),
         'download_dir': Config.BASE_DIR,
         'download_root': str(get_download_root()),
         'download_roots': [str(root) for root in get_all_download_roots()],
-        'cookie': Config.COOKIE if Config.COOKIE else ''
+        'cookie_preview': f"{Config.COOKIE[:12]}..." if Config.COOKIE else ''
     })
 
 @app.route('/api/config', methods=['POST'])
@@ -698,12 +729,9 @@ def move_selected_download_history_files():
 
         Config.HISTORY_DIRS = Config.normalize_history_dirs([
             *getattr(Config, 'HISTORY_DIRS', []),
-            *(str(root) for root in get_all_download_roots() if str(root).lower() != str(target_dir).lower())
+            str(target_dir)
         ])
-        Config.BASE_DIR = str(target_dir)
-        Config.DOWNLOAD_DIR = Config.BASE_DIR
         Config.save_config(Config.COOKIE, Config.BASE_DIR, Config.HISTORY_DIRS)
-        init_app()
 
         return jsonify({
             'success': True,
@@ -711,7 +739,8 @@ def move_selected_download_history_files():
             'missing_count': len(missing),
             'moved': moved,
             'missing': missing,
-            'download_root': str(get_download_root())
+            'download_root': str(get_download_root()),
+            'download_roots': [str(root) for root in get_all_download_roots()]
         })
     except Exception as e:
         logger.error(f"迁移选中文件失败: {str(e)}")
@@ -723,7 +752,7 @@ def media_proxy():
     url = request.args.get('url', '')
     requested_filename = _sanitize_download_filename(request.args.get('filename', '').strip(), default='')
     requested_media_type = request.args.get('media_type', '').strip().lower()
-    if not url or not any(d in url for d in ['douyin', 'douyinvod', 'douyinpic', 'byteimg', 'douyinstatic', 'ixigua']):
+    if not is_allowed_media_url(url):
         return 'Invalid URL', 400
 
     try:
@@ -734,7 +763,7 @@ def media_proxy():
             'Accept-Encoding': 'identity;q=1, *;q=0',
         }
 
-        if api and api.cookie:
+        if api and api.cookie and should_forward_douyin_cookie(url):
             headers['Cookie'] = api.cookie
 
         # 转发Range请求（支持视频seek）
@@ -817,7 +846,7 @@ def download_music():
     url = request.args.get('url', '').strip()
     requested_filename = request.args.get('filename', '').strip()
 
-    if not url or not any(d in url for d in ['douyin', 'douyinvod', 'douyinpic', 'byteimg', 'douyinstatic', 'ixigua']):
+    if not is_allowed_media_url(url):
         return 'Invalid URL', 400
 
     try:
@@ -828,7 +857,7 @@ def download_music():
             'Accept-Encoding': 'identity;q=1, *;q=0',
         }
 
-        if api and api.cookie:
+        if api and api.cookie and should_forward_douyin_cookie(url):
             headers['Cookie'] = api.cookie
 
         resp = http_requests.get(url, headers=headers, stream=True, timeout=(10, 120))
@@ -1458,7 +1487,7 @@ def download_user_video():
                         total_processed[0] += 1
                         idx = total_processed[0]
                         
-                        media_type, urls = user_manager._get_media_info(post)
+                        media_type, urls = user_manager.get_media_info(post)
                         desc = post.get('desc', '').strip()
                         if not desc:
                             desc = f"无标题_{post['aweme_id']}"
@@ -1538,15 +1567,14 @@ def download_user_video():
                                     bytes_total=progress_data.get('bytes_total', 0)
                                 )
 
-                            if media_type == 'video':
+                            if media_type == 'video' and len(urls) == 1:
                                 success = user_manager.downloader.download_video(
-                                    urls[0], name, aweme_id, cancel_event,
+                                    urls[0]['url'], name, aweme_id, cancel_event,
                                     socketio=socketio, task_id=task_id, progress_callback=progress_callback
                                 )
                             else:
-                                formatted_urls = [{'url': url, 'type': media_type if media_type != 'mixed' else t} for t, url in (urls if isinstance(urls[0], tuple) else [(media_type, u) for u in urls])]
                                 success = user_manager.downloader.download_media_group(
-                                    formatted_urls, name, aweme_id, socketio, task_id, cancel_event, progress_callback
+                                    urls, name, aweme_id, socketio, task_id, cancel_event, progress_callback
                                 )
 
                             if success:
@@ -1705,6 +1733,8 @@ def resume_download():
 def download_liked():
     """下载点赞视频"""
     try:
+        data = request.json or {}
+        count = int(data.get('count', 20) or 20)
         if not Config.COOKIE:
             return jsonify({'success': False, 'message': '下载点赞视频需要设置Cookie'}), 400
         
@@ -1727,14 +1757,14 @@ def download_liked():
                     'type': 'liked_videos'
                 })
                 
-                await user_manager.download_liked_videos()
+                completed = await user_manager.download_liked_videos(count)
                 
                 download_tasks[task_id]['status'] = 'completed'
                 download_tasks[task_id]['end_time'] = datetime.now()
                 
                 socketio.emit('download_completed', {
                     'task_id': task_id,
-                    'message': '点赞视频下载完成'
+                    'message': f'点赞视频下载完成，共处理 {completed} 个作品'
                 })
             except Exception as e:
                 logger.error(f"Download liked error: {e}")
@@ -1862,6 +1892,9 @@ def parse_link():
 def download_liked_authors():
     """下载点赞作者作品"""
     try:
+        data = request.json or {}
+        count = int(data.get('count', 20) or 20)
+        selected_sec_uids = data.get('selected_sec_uids') or data.get('sec_uids') or []
         if not Config.COOKIE:
             return jsonify({'success': False, 'message': '下载点赞作者作品需要设置Cookie'}), 400
         
@@ -1884,14 +1917,14 @@ def download_liked_authors():
                     'type': 'liked_authors'
                 })
                 
-                await user_manager.download_liked_authors()
+                completed = await user_manager.download_liked_authors(count=count, selected_sec_uids=selected_sec_uids)
                 
                 download_tasks[task_id]['status'] = 'completed'
                 download_tasks[task_id]['end_time'] = datetime.now()
                 
                 socketio.emit('download_completed', {
                     'task_id': task_id,
-                    'message': '点赞作者作品下载完成'
+                    'message': f'点赞作者作品下载完成，共处理 {completed} 个作者'
                 })
             except Exception as e:
                 logger.error(f"Download liked authors error: {e}")
@@ -1987,7 +2020,7 @@ def cookie_browser_login():
             socketio.emit('cookie_login_status', {
                 'event': 'success',
                 'message': 'Cookie 获取成功！已自动保存。',
-                'cookie': cookie,
+                'cookie_set': True,
             })
             logger.info("通过浏览器登录成功获取 Cookie")
         
@@ -2026,7 +2059,7 @@ def cookie_browser_login():
                         socketio.emit('cookie_login_status', {
                             'event': status_data.get('event', ''),
                             'message': status_data.get('message', ''),
-                            'cookie': status_data.get('cookie', ''),
+                            'cookie_set': bool(status_data.get('cookie')),
                         })
                     except (json.JSONDecodeError, IndexError) as e:
                         logger.warning(f"解析状态行失败: {line}, 错误: {e}")
@@ -2422,7 +2455,7 @@ def download_video_by_aweme_id():
 
         # 获取媒体信息
         media_type = detail.get('media_type', 'video')
-        media_urls = detail.get('media_urls', [])
+        media_urls = normalize_media_urls(detail.get('media_urls', []), media_type)
 
         if not media_urls:
             return jsonify({'success': False, 'message': '无法获取视频下载地址'}), 500
@@ -2437,25 +2470,17 @@ def download_video_by_aweme_id():
 
         async def do_download():
             try:
-                # 根据媒体类型选择下载方式
-                if media_type == 'video':
-                    # 单个视频
+                if len(media_urls) == 1 and media_urls[0].get('type') == 'video':
                     success = user_manager.downloader.download_video(
-                        media_urls[0], name, aweme_id,
+                        media_urls[0]['url'], name, aweme_id,
                         cancel_event=asyncio.Event(),
                         socketio=socketio, task_id=task_id
                     )
                 else:
-                    # 图文或混合内容 - 下载第一个
-                    if isinstance(media_urls[0], tuple):
-                        url = media_urls[0][1]
-                    else:
-                        url = media_urls[0]
-
-                    success = user_manager.downloader.download_video(
-                        url, name, aweme_id,
+                    success = user_manager.downloader.download_media_group(
+                        media_urls, name, aweme_id,
+                        socketio=socketio, task_id=task_id,
                         cancel_event=asyncio.Event(),
-                        socketio=socketio, task_id=task_id
                     )
 
                 if success:
@@ -2479,7 +2504,7 @@ def download_video_by_aweme_id():
                 })
 
         # 在后台线程执行下载
-        loop = get_or_create_event_loop()
+        loop = get_or_create_loop()
         asyncio.run_coroutine_threadsafe(do_download(), loop)
 
         return jsonify({'success': True, 'task_id': task_id, 'message': '已添加到下载队列'})
