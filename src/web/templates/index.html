@@ -893,7 +893,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <script src="/static/js/socket.io.min.js"></script>
     <script>
         window.SOCKET_TRANSPORTS = {{ ['polling'] if socketio_async_mode == 'threading' else ['websocket', 'polling'] | tojson }};
         window.SOCKETIO_ASYNC_MODE = {{ socketio_async_mode | tojson }};

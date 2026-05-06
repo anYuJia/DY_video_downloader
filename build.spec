@@ -4,6 +4,8 @@ import sys
 
 # 获取项目根目录，以便于寻址
 project_root = os.path.abspath('.')
+raw_app_version = os.environ.get('APP_VERSION') or os.environ.get('GITHUB_REF_NAME') or '0.0.10'
+app_version = raw_app_version[1:] if raw_app_version.startswith('v') else raw_app_version
 import webview as _pywebview
 pywebview_hooks = os.path.join(_pywebview.__path__[0], 'pkg')
 
@@ -144,8 +146,8 @@ if sys.platform == 'darwin':
         info_plist={
             'NSPrincipalClass': 'NSApplication',
             'NSHighResolutionCapable': 'True',
-            'CFBundleShortVersionString': '0.0.6',
-            'CFBundleVersion': '0.0.6',
+            'CFBundleShortVersionString': app_version,
+            'CFBundleVersion': app_version,
             'CFBundleName': 'DY Video Downloader',
             'CFBundleDisplayName': 'DY Video Downloader',
         }

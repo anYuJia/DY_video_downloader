@@ -4,12 +4,6 @@ urllib3==1.26.12
 aiohttp>=3.8.0
 aiofiles>=0.8.0
 
-# 异步支持
-asyncio==3.4.3
-
-# 数据类型
-dataclasses==0.6
-
 # JavaScript执行
 PyExecJS>=1.5.1  # 使用最新版本
 
@@ -28,10 +22,6 @@ Flask-SocketIO>=5.0.0  # WebSocket支持
 python-socketio>=5.0.0  # SocketIO客户端
 gevent>=23.0.0  # 异步WebSocket支持
 gevent-websocket>=0.10.1  # WebSocket协议支持
-
-# 测试工具
-pytest>=7.0.0
-pytest-asyncio>=0.18.0
 
 # Playwright 浏览器自动化（用于自动获取Cookie）
 playwright>=1.40.0

@@ -2531,20 +2531,23 @@ def start_server(port=None):
 
     if port is None:
         port = int(os.environ.get('PORT', 5001))
+    host = (os.environ.get('HOST') or '127.0.0.1').strip() or '127.0.0.1'
 
     # 初始化应用
     init_app()
 
     run_kwargs = {
         'app': app,
-        'host': '0.0.0.0',
+        'host': host,
         'port': port,
         'debug': False
     }
     if socketio.async_mode == 'threading':
         run_kwargs['allow_unsafe_werkzeug'] = True
 
-    logger.info(f"Web服务开始监听: 0.0.0.0:{port}")
+    if host in ('0.0.0.0', '::'):
+        logger.warning("Web服务已暴露到局域网/公网，请自行处理访问控制与 Cookie 风险")
+    logger.info(f"Web服务开始监听: {host}:{port}")
     socketio.run(**run_kwargs)
 
 
