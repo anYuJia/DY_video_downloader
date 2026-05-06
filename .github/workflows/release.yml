@@ -127,19 +127,23 @@ jobs:
             exit 1
           fi
 
-          # 1. 便携版：zip 压缩 .app（包含所有依赖文件，解压即用）
+          ls -la dist/
+
+          # 1. 便携版：使用 ditto 压缩 .app（比 zip -r 更适合 macOS app bundle）
           portable_name="DY-Video-Downloader-${TAG_NAME}-macos-${arch}-portable"
-          cd dist && zip -r "../${portable_name}.zip" "$APP_NAME" && cd ..
+          rm -f "${portable_name}.zip"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "dist/$APP_NAME" "${portable_name}.zip"
           echo "Created portable: ${portable_name}.zip"
           ls -lh "${portable_name}.zip"
 
           # 2. DMG 安装包
           dmg_name="DY-Video-Downloader-${TAG_NAME}-macos-${arch}"
           dmg_temp="dmg_temp"
+          rm -rf "$dmg_temp" "${dmg_name}.dmg"
           mkdir -p "$dmg_temp"
-          cp -r "dist/$APP_NAME" "$dmg_temp/"
+          cp -R "dist/$APP_NAME" "$dmg_temp/"
           ln -s /Applications "$dmg_temp/Applications"
-          hdiutil create -volname "DY Video Downloader" -srcfolder "$dmg_temp" -ov -format UDZO "${dmg_name}.dmg"
+          /usr/bin/hdiutil create -volname "DY Video Downloader" -srcfolder "$dmg_temp" -ov -format UDZO "${dmg_name}.dmg"
           rm -rf "$dmg_temp"
           echo "Created DMG: ${dmg_name}.dmg"
           ls -lh "${dmg_name}.dmg"
