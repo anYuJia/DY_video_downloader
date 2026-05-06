@@ -2,6 +2,7 @@ import os
 import json
 import re
 import time
+import threading
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -9,6 +10,10 @@ from typing import List
 
 from src.config.config import Config
 from src.api.api import DouyinAPI
+from src.utils.download_history_index import (
+    remove_download_history_entries,
+    upsert_download_history_entries,
+)
 
 # 带重试的 requests session
 _session = requests.Session()
@@ -22,6 +27,7 @@ class DouyinDownloader:
         self.api = api
         self.download_dir = Config.DOWNLOAD_DIR
         self.socketio = socketio  # 添加WebSocket支持
+        self._record_lock = threading.Lock()
         
         # 检查是否启用调试模式
         self.debug_mode = os.environ.get('DEBUG_MODE', '').lower() in ('true', '1', 'yes')
@@ -53,16 +59,17 @@ class DouyinDownloader:
         """加载用户下载记录"""
         record_path = self._get_record_path(user_dir)
         try:
-            if os.path.exists(record_path):
-                if self.debug_mode:
-                    print(f"\033[93m[Downloader] 加载下载记录: {record_path}\033[0m")
-                with open(record_path, 'r', encoding='utf-8') as f:
-                    records = set(json.load(f))
+            with self._record_lock:
+                if os.path.exists(record_path):
                     if self.debug_mode:
-                        print(f"\033[93m[Downloader] 已下载记录数: {len(records)}\033[0m")
-                    return records
-            elif self.debug_mode:
-                print(f"\033[93m[Downloader] 下载记录文件不存在，创建新记录\033[0m")
+                        print(f"\033[93m[Downloader] 加载下载记录: {record_path}\033[0m")
+                    with open(record_path, 'r', encoding='utf-8') as f:
+                        records = set(json.load(f))
+                        if self.debug_mode:
+                            print(f"\033[93m[Downloader] 已下载记录数: {len(records)}\033[0m")
+                        return records
+                elif self.debug_mode:
+                    print(f"\033[93m[Downloader] 下载记录文件不存在，创建新记录\033[0m")
         except Exception as e:
             if self.debug_mode:
                 print(f"\033[91m[Downloader] 加载下载记录失败: {str(e)}\033[0m")
@@ -73,17 +80,22 @@ class DouyinDownloader:
     def _save_download_record(self, user_dir: str, aweme_id: str):
         """保存下载记录"""
         record_path = self._get_record_path(user_dir)
-        downloaded = self._load_download_record(user_dir)
-        downloaded.add(aweme_id)
-        
-        if self.debug_mode:
-            print(f"\033[93m[Downloader] 添加下载记录: {aweme_id}\033[0m")
-            print(f"\033[93m[Downloader] 当前记录总数: {len(downloaded)}\033[0m")
-            
         try:
-            with open(record_path, 'w', encoding='utf-8') as f:
-                json.dump(list(downloaded), f)
-                
+            with self._record_lock:
+                downloaded = set()
+                if os.path.exists(record_path):
+                    with open(record_path, 'r', encoding='utf-8') as f:
+                        downloaded = set(json.load(f))
+
+                downloaded.add(aweme_id)
+
+                if self.debug_mode:
+                    print(f"\033[93m[Downloader] 添加下载记录: {aweme_id}\033[0m")
+                    print(f"\033[93m[Downloader] 当前记录总数: {len(downloaded)}\033[0m")
+
+                with open(record_path, 'w', encoding='utf-8') as f:
+                    json.dump(list(downloaded), f)
+
             if self.debug_mode:
                 print(f"\033[92m[Downloader] 保存下载记录成功: {record_path}\033[0m")
         except Exception as e:
@@ -195,6 +207,7 @@ class DouyinDownloader:
                         if os.path.exists(filepath):
                             os.remove(filepath)
                             print(f"\033[93m已删除：{filepath}\033[0m")
+                    remove_download_history_entries(downloaded_files)
                     return False
 
                 try:
@@ -312,6 +325,7 @@ class DouyinDownloader:
                                 for fp in downloaded_files:
                                     if os.path.exists(fp):
                                         os.remove(fp)
+                                remove_download_history_entries(downloaded_files)
                                 return False
                             if chunk:
                                 f.write(chunk)
@@ -353,6 +367,7 @@ class DouyinDownloader:
                     if self.debug_mode:
                         print(f"\033[92m[Downloader] 文件下载完成: {filepath}, 大小: {os.path.getsize(filepath)/1024:.2f} KB\033[0m")
                     
+                    upsert_download_history_entries([filepath])
                     print(f"\033[93m下载{file_type_display} ({i+1}/{len(urls)}) 成功：{user_dir}/{filename_with_index}.{extension}\033[0m")
                     
                     # 发送WebSocket进度更新 - 单个文件完成
@@ -507,6 +522,7 @@ class DouyinDownloader:
                         # 删除未完成的文件
                         if os.path.exists(filepath):
                             os.remove(filepath)
+                            remove_download_history_entries([filepath])
                         return False
                     if chunk:
                         f.write(chunk)
@@ -548,6 +564,7 @@ class DouyinDownloader:
                 file_size = os.path.getsize(filepath)
                 print(f"\033[92m[Downloader] 视频下载完成: {filepath}, 大小: {file_size/1024:.2f} KB\033[0m")
                 
+            upsert_download_history_entries([filepath])
             print(f"\033[93m下载视频成功：{user_dir}/{filename}.mp4\033[0m")
             elapsed = max(time.monotonic() - file_started_at, 0.001)
             final_size = os.path.getsize(filepath) if os.path.exists(filepath) else response_size

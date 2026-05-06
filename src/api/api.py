@@ -278,9 +278,21 @@ class DouyinAPI:
 
         # 根据方法选择 GET 或 POST
         if method.upper() == 'POST':
-            response = await asyncio.to_thread(_api_session.post, url, data=params, headers=headers)
+            response = await asyncio.to_thread(
+                _api_session.post,
+                url,
+                data=params,
+                headers=headers,
+                timeout=(10, 30),
+            )
         else:
-            response = await asyncio.to_thread(_api_session.get, url, params=params, headers=headers)
+            response = await asyncio.to_thread(
+                _api_session.get,
+                url,
+                params=params,
+                headers=headers,
+                timeout=(10, 30),
+            )
         if self.debug_mode:
             print(f'[DEBUG] response.status_code={response.status_code}, len(response.content)={len(response.content)}, len(response.text)={len(response.text)}')
             sys.stderr.write(f'*** [API] 普通请求响应：status={response.status_code}, content_len={len(response.content)} ***\n')

@@ -5,7 +5,6 @@
 // Debug mode - set to false in production
 const _DEBUG = false;
 const _log = _DEBUG ? console.log.bind(console) : () => {};
-
 // Debounce utility
 function debounce(fn, delay) {
     let timer;
@@ -58,9 +57,87 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-function proxyUrl(url) {
+function inferProxyMediaType(url, explicitType) {
+    if (explicitType) return explicitType;
     if (!url) return '';
-    return '/api/media/proxy?url=' + encodeURIComponent(url);
+
+    const lowerUrl = String(url).toLowerCase();
+
+    if (
+        lowerUrl.indexOf('/aweme/v1/play/') !== -1 ||
+        lowerUrl.indexOf('video_id=') !== -1 ||
+        lowerUrl.indexOf('packsourceenum_') !== -1 ||
+        lowerUrl.indexOf('.mp4') !== -1 ||
+        lowerUrl.indexOf('.m3u8') !== -1
+    ) {
+        return 'video';
+    }
+
+    if (
+        lowerUrl.indexOf('.mp3') !== -1 ||
+        lowerUrl.indexOf('.m4a') !== -1 ||
+        lowerUrl.indexOf('.aac') !== -1 ||
+        lowerUrl.indexOf('music') !== -1 ||
+        lowerUrl.indexOf('audio') !== -1
+    ) {
+        return 'audio';
+    }
+
+    if (
+        lowerUrl.indexOf('.jpg') !== -1 ||
+        lowerUrl.indexOf('.jpeg') !== -1 ||
+        lowerUrl.indexOf('.png') !== -1 ||
+        lowerUrl.indexOf('.webp') !== -1 ||
+        lowerUrl.indexOf('douyinpic') !== -1 ||
+        lowerUrl.indexOf('byteimg') !== -1
+    ) {
+        return 'image';
+    }
+
+    return '';
+}
+
+function proxyUrl(url, mediaType) {
+    if (!url) return '';
+    const normalizedMediaType = inferProxyMediaType(url, mediaType);
+
+    var proxiedUrl = '/api/media/proxy?url=' + encodeURIComponent(url);
+    if (normalizedMediaType) {
+        proxiedUrl += '&media_type=' + encodeURIComponent(normalizedMediaType);
+    }
+    return proxiedUrl;
+}
+
+async function downloadRemoteFile(url, filename) {
+    if (!url) throw new Error('缺少下载地址');
+
+    const safeFilename = filename || 'download';
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = safeFilename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        setTimeout(function() {
+            URL.revokeObjectURL(objectUrl);
+        }, 4000);
+
+        return true;
+    } catch (error) {
+        console.warn('[downloadRemoteFile] Fallback to direct open:', error);
+        window.open(url, '_blank', 'noopener');
+        return false;
+    }
 }
 
 function getMediaTypeDisplay(mediaType) {
@@ -102,6 +179,5 @@ function setButtonLoading(btnId, isLoading, loadingText) {
 }
 
 function _hideEmptyState() {
-    const el = document.getElementById('emptyState');
-    if (el) el.style.display = 'none';
+    hideSectionById('emptyState');
 }

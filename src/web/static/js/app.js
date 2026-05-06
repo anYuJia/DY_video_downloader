@@ -23,6 +23,12 @@ let isHomeView = true;
 
 // Search cache
 let _cachedSearchUsers = {};
+const SEARCH_HISTORY_STORAGE_KEY = 'dy_search_history_v1';
+const SEARCH_HISTORY_LIMIT = 5;
+let _searchHistory = [];
+let _searchHistoryFiltered = [];
+let _searchHistoryActiveIndex = -1;
+let _isSearchHistoryOpen = false;
 
 // ═══════════════════════════════════════════════
 // INITIALIZATION
@@ -41,6 +47,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // 自动预加载推荐视频数据（不显示界面）
     setTimeout(() => {
+        if (window.DY_ENV && window.DY_ENV.apiMode === 'web-preview') {
+            return;
+        }
         if (typeof loadRecommendedFeed === 'function' && typeof recommendedVideos !== 'undefined') {
             addLog('后台预加载推荐视频数据...', 'info');
             loadRecommendedFeed(20);  // 只加载数据，不显示界面
@@ -60,10 +69,13 @@ function setupEventListeners() {
     var selectDirBtn = document.getElementById('select-download-dir-btn');
     if (selectDirBtn) selectDirBtn.addEventListener('click', selectDownloadDirectory);
 
-    document.getElementById('search-btn').addEventListener('click', searchUser);
-    document.getElementById('search-input').addEventListener('keypress', function (e) {
-        if (e.key === 'Enter') searchUser();
+    initializeSearchHistory();
+    document.getElementById('search-btn').addEventListener('click', function () {
+        searchUser();
     });
+    document.getElementById('search-input').addEventListener('keydown', handleSearchInputKeydown);
+    document.getElementById('search-input').addEventListener('input', handleSearchInputInput);
+    document.getElementById('search-input').addEventListener('focus', handleSearchInputFocus);
 
     document.getElementById('download-link-btn').addEventListener('click', downloadFromLink);
     document.getElementById('link-input').addEventListener('keypress', function (e) {
@@ -171,14 +183,26 @@ async function loadConfig() {
         var config = await response.json();
         document.getElementById('download-dir-input').value = config.download_dir || '';
         var cookieInput = document.getElementById('cookie-input');
-        cookieInput.value = '';
-        cookieInput.dataset.cookieSet = config.cookie_set ? 'true' : 'false';
+        if (cookieInput) {
+            cookieInput.value = '';
+            cookieInput.dataset.cookieSet = config.cookie_set ? 'true' : 'false';
+            cookieInput.placeholder = config.cookie_set
+                ? 'Cookie 已保存；输入新 Cookie 可替换'
+                : '粘贴抖音Cookie';
+        }
+        var downloadQualitySelect = document.getElementById('download-quality-select');
+        if (downloadQualitySelect) {
+            downloadQualitySelect.value = config.download_quality || 'auto';
+        }
+        var maxConcurrentSelect = document.getElementById('max-concurrent-select');
+        if (maxConcurrentSelect && config.max_concurrent) {
+            maxConcurrentSelect.value = config.max_concurrent;
+        }
 
         if (config.cookie_set) {
             updateStatus('ready', '已配置');
         } else {
             updateStatus('error', '需要配置Cookie');
-            setTimeout(function() { showCookieSetupModal(); }, 500);
         }
     } catch (error) {
         console.error('加载配置失败:', error);
@@ -187,17 +211,23 @@ async function loadConfig() {
 }
 
 async function saveConfig() {
-    var cookieValue = document.getElementById('cookie-input').value.trim();
-    var validation = validateCookie(cookieValue);
-    if (!validation.isValid && validation.status !== 'empty') {
+    var cookieInput = document.getElementById('cookie-input');
+    var cookieValue = cookieInput ? cookieInput.value.trim() : '';
+    var hasSavedCookie = cookieInput && cookieInput.dataset.cookieSet === 'true';
+    var validation = cookieValue
+        ? validateCookie(cookieValue)
+        : (hasSavedCookie ? { isValid: true, status: 'saved', message: 'Cookie 已保存', missingParams: [], loginType: 'saved' } : validateCookie(''));
+    if (cookieValue && !validation.isValid) {
         showToast('Cookie验证失败，请检查必要参数', 'error');
         updateCookieValidationUI(validation);
         return;
     }
     var config = {
-        download_dir: document.getElementById('download-dir-input').value
+        download_dir: document.getElementById('download-dir-input').value,
+        download_quality: document.getElementById('download-quality-select').value || 'auto',
+        max_concurrent: parseInt(document.getElementById('max-concurrent-select').value) || 3
     };
-    if (cookieValue || document.getElementById('cookie-input').dataset.cookieSet !== 'true') {
+    if (cookieValue) {
         config.cookie = cookieValue;
     }
     try {
@@ -207,8 +237,23 @@ async function saveConfig() {
             body: JSON.stringify(config)
         });
         var result = await response.json();
-        if (result.success) showToast('配置保存成功', 'success');
-        else showToast(result.message, 'error');
+        if (result.success) {
+            if (cookieInput && cookieValue) {
+                cookieInput.value = '';
+                cookieInput.dataset.cookieSet = 'true';
+                cookieInput.placeholder = 'Cookie 已保存；输入新 Cookie 可替换';
+                validation = { isValid: true, status: 'saved', message: 'Cookie 已保存', missingParams: [], loginType: 'saved' };
+            }
+
+            updateStatus(validation.isValid ? 'ready' : 'error', validation.isValid ? '已配置' : '需要配置Cookie');
+            if (typeof checkCookieStatusOnStartup === 'function') {
+                checkCookieStatusOnStartup();
+            }
+
+            showToast('配置保存成功', 'success');
+        } else {
+            showToast(result.message, 'error');
+        }
     } catch (error) {
         showToast('保存配置失败', 'error');
     }
@@ -234,12 +279,308 @@ async function selectDownloadDirectory() {
     }
 }
 
+function loadSearchHistory() {
+    try {
+        const raw = localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed)
+            ? parsed.map(item => String(item || '').trim()).filter(Boolean).slice(0, SEARCH_HISTORY_LIMIT)
+            : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function persistSearchHistory() {
+    localStorage.setItem(SEARCH_HISTORY_STORAGE_KEY, JSON.stringify(_searchHistory.slice(0, SEARCH_HISTORY_LIMIT)));
+}
+
+function normalizeSearchKeyword(keyword) {
+    return String(keyword || '').replace(/\s+/g, ' ').trim();
+}
+
+function initializeSearchHistory() {
+    _searchHistory = loadSearchHistory();
+
+    const shell = document.querySelector('.nav-search-shell');
+    const panel = document.getElementById('searchHistoryPanel');
+    const list = document.getElementById('searchHistoryList');
+    const clearBtn = document.getElementById('searchHistoryClearBtn');
+    const searchInput = document.getElementById('search-input');
+
+    if (panel && panel.dataset.bound !== 'true') {
+        panel.dataset.bound = 'true';
+        panel.addEventListener('mousedown', function (event) {
+            event.preventDefault();
+        });
+    }
+
+    if (list && list.dataset.bound !== 'true') {
+        list.dataset.bound = 'true';
+        list.addEventListener('click', handleSearchHistoryListClick);
+    }
+
+    if (clearBtn && clearBtn.dataset.bound !== 'true') {
+        clearBtn.dataset.bound = 'true';
+        clearBtn.addEventListener('click', function () {
+            clearSearchHistory();
+            if (searchInput) searchInput.focus();
+        });
+    }
+
+    if (searchInput && searchInput.dataset.blurBound !== 'true') {
+        searchInput.dataset.blurBound = 'true';
+        searchInput.addEventListener('blur', function () {
+            window.setTimeout(function () {
+                if (shell && !shell.contains(document.activeElement)) {
+                    closeSearchHistoryPanel();
+                }
+            }, 120);
+        });
+    }
+
+    if (!document.body.dataset.searchHistoryOutsideBound) {
+        document.body.dataset.searchHistoryOutsideBound = 'true';
+        document.addEventListener('click', function (event) {
+            const currentShell = document.querySelector('.nav-search-shell');
+            if (!currentShell || currentShell.contains(event.target)) return;
+            closeSearchHistoryPanel();
+        });
+    }
+
+    renderSearchHistoryPanel();
+}
+
+function updateSearchHistory(keyword) {
+    const normalized = normalizeSearchKeyword(keyword);
+    if (!normalized) return;
+
+    const deduped = _searchHistory.filter(item => item.toLowerCase() !== normalized.toLowerCase());
+    deduped.unshift(normalized);
+    _searchHistory = deduped.slice(0, SEARCH_HISTORY_LIMIT);
+    persistSearchHistory();
+    refreshSearchHistoryPanel();
+}
+
+function removeSearchHistoryKeyword(keyword) {
+    const normalized = normalizeSearchKeyword(keyword);
+    if (!normalized) return;
+
+    _searchHistory = _searchHistory.filter(item => item.toLowerCase() !== normalized.toLowerCase());
+    persistSearchHistory();
+    refreshSearchHistoryPanel();
+}
+
+function clearSearchHistory() {
+    _searchHistory = [];
+    persistSearchHistory();
+    closeSearchHistoryPanel();
+    renderSearchHistoryPanel();
+}
+
+function getSearchHistoryMatches(query) {
+    const normalized = normalizeSearchKeyword(query).toLowerCase();
+    if (!normalized) return _searchHistory.slice();
+
+    return _searchHistory.filter(item => item.toLowerCase().includes(normalized));
+}
+
+function escapeSearchHistoryRegExp(text) {
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function highlightSearchHistoryText(text, query) {
+    const safeText = escapeHtml(text || '');
+    const normalized = normalizeSearchKeyword(query);
+    if (!safeText || !normalized) return safeText;
+
+    const terms = Array.from(new Set(normalized.split(/\s+/).filter(Boolean))).sort((a, b) => b.length - a.length);
+    if (!terms.length) return safeText;
+
+    const pattern = terms.map(escapeSearchHistoryRegExp).join('|');
+    return safeText.replace(new RegExp('(' + pattern + ')', 'gi'), '<mark class="search-history-highlight">$1</mark>');
+}
+
+function refreshSearchHistoryPanel() {
+    const searchInput = document.getElementById('search-input');
+    _searchHistoryFiltered = getSearchHistoryMatches(searchInput ? searchInput.value : '');
+    if (_searchHistoryActiveIndex >= _searchHistoryFiltered.length) {
+        _searchHistoryActiveIndex = _searchHistoryFiltered.length - 1;
+    }
+    renderSearchHistoryPanel();
+}
+
+function renderSearchHistoryPanel() {
+    const panel = document.getElementById('searchHistoryPanel');
+    const list = document.getElementById('searchHistoryList');
+    const clearBtn = document.getElementById('searchHistoryClearBtn');
+    const searchInput = document.getElementById('search-input');
+
+    if (!panel || !list || !clearBtn) return;
+
+    if (!_searchHistory.length) {
+        list.innerHTML = '<div class="search-history-empty">还没有搜索记录</div>';
+        clearBtn.disabled = true;
+        panel.classList.remove('is-open');
+        panel.style.display = 'none';
+        _isSearchHistoryOpen = false;
+        return;
+    }
+
+    clearBtn.disabled = false;
+    const currentQuery = searchInput ? searchInput.value : '';
+    list.innerHTML = _searchHistoryFiltered.length
+        ? _searchHistoryFiltered.map(function (keyword, index) {
+            return '<div class="search-history-item' + (index === _searchHistoryActiveIndex ? ' is-active' : '') + '">'
+                + '<button type="button" class="search-history-item__main" data-action="select" data-keyword="' + encodeURIComponent(keyword) + '">'
+                + '<span class="search-history-item__icon"><i class="bi bi-clock-history"></i></span>'
+                + '<span class="search-history-item__text">' + highlightSearchHistoryText(keyword, currentQuery) + '</span>'
+                + '</button>'
+                + '<button type="button" class="search-history-item__delete" data-action="remove" data-keyword="' + encodeURIComponent(keyword) + '" title="删除记录">'
+                + '<i class="bi bi-x-lg"></i>'
+                + '</button>'
+                + '</div>';
+        }).join('')
+        : '<div class="search-history-empty">没有匹配的历史记录</div>';
+
+    if (!_isSearchHistoryOpen || !_searchHistoryFiltered.length) {
+        panel.classList.remove('is-open');
+        panel.style.display = _isSearchHistoryOpen && !_searchHistoryFiltered.length ? 'block' : (_isSearchHistoryOpen ? 'block' : 'none');
+        if (_isSearchHistoryOpen && !_searchHistoryFiltered.length) {
+            requestAnimationFrame(function () {
+                panel.classList.add('is-open');
+            });
+        }
+        if (!_isSearchHistoryOpen) panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = 'block';
+    requestAnimationFrame(function () {
+        panel.classList.add('is-open');
+    });
+}
+
+function openSearchHistoryPanel() {
+    if (!_searchHistory.length) {
+        closeSearchHistoryPanel();
+        return;
+    }
+
+    _isSearchHistoryOpen = true;
+    _searchHistoryFiltered = getSearchHistoryMatches(document.getElementById('search-input').value);
+    if (_searchHistoryActiveIndex >= _searchHistoryFiltered.length) {
+        _searchHistoryActiveIndex = -1;
+    }
+    renderSearchHistoryPanel();
+}
+
+function closeSearchHistoryPanel() {
+    const panel = document.getElementById('searchHistoryPanel');
+    if (!panel) return;
+
+    _isSearchHistoryOpen = false;
+    _searchHistoryActiveIndex = -1;
+    panel.classList.remove('is-open');
+    panel.style.display = 'none';
+}
+
+function handleSearchHistoryListClick(event) {
+    const actionBtn = event.target.closest('[data-action]');
+    if (!actionBtn) return;
+
+    const keyword = decodeURIComponent(actionBtn.dataset.keyword || '');
+    const action = actionBtn.dataset.action;
+    if (!keyword) return;
+
+    if (action === 'remove') {
+        removeSearchHistoryKeyword(keyword);
+        return;
+    }
+
+    if (action === 'select') {
+        applySearchHistoryKeyword(keyword, true);
+    }
+}
+
+function applySearchHistoryKeyword(keyword, triggerSearch) {
+    const searchInput = document.getElementById('search-input');
+    const normalized = normalizeSearchKeyword(keyword);
+    if (!searchInput || !normalized) return;
+
+    searchInput.value = normalized;
+    closeSearchHistoryPanel();
+
+    if (triggerSearch) {
+        searchUser(normalized);
+    }
+}
+
+function handleSearchInputFocus() {
+    refreshSearchHistoryPanel();
+    openSearchHistoryPanel();
+}
+
+function handleSearchInputInput() {
+    _searchHistoryActiveIndex = -1;
+    refreshSearchHistoryPanel();
+    openSearchHistoryPanel();
+}
+
+function handleSearchInputKeydown(event) {
+    if (event.isComposing) return;
+
+    if (event.key === 'ArrowDown') {
+        if (!_isSearchHistoryOpen) {
+            refreshSearchHistoryPanel();
+            openSearchHistoryPanel();
+        }
+        if (_searchHistoryFiltered.length) {
+            event.preventDefault();
+            _searchHistoryActiveIndex = Math.min(_searchHistoryActiveIndex + 1, _searchHistoryFiltered.length - 1);
+            renderSearchHistoryPanel();
+        }
+        return;
+    }
+
+    if (event.key === 'ArrowUp') {
+        if (_searchHistoryFiltered.length) {
+            event.preventDefault();
+            if (_searchHistoryActiveIndex < 0) {
+                _searchHistoryActiveIndex = _searchHistoryFiltered.length - 1;
+            } else {
+                _searchHistoryActiveIndex = Math.max(_searchHistoryActiveIndex - 1, 0);
+            }
+            renderSearchHistoryPanel();
+        }
+        return;
+    }
+
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        if (_isSearchHistoryOpen && _searchHistoryActiveIndex >= 0 && _searchHistoryFiltered[_searchHistoryActiveIndex]) {
+            applySearchHistoryKeyword(_searchHistoryFiltered[_searchHistoryActiveIndex], true);
+            return;
+        }
+        searchUser();
+        return;
+    }
+
+    if (event.key === 'Escape') {
+        closeSearchHistoryPanel();
+    }
+}
+
 // ═══════════════════════════════════════════════
 // SEARCH
 // ═══════════════════════════════════════════════
-async function searchUser() {
-    var keyword = document.getElementById('search-input').value.trim();
+async function searchUser(keywordOverride) {
+    var searchInput = document.getElementById('search-input');
+    var keyword = normalizeSearchKeyword(typeof keywordOverride === 'string' ? keywordOverride : (searchInput ? searchInput.value : ''));
     if (!keyword) { showToast('请输入搜索关键词', 'error'); return; }
+    if (searchInput) searchInput.value = keyword;
+    closeSearchHistoryPanel();
+    updateSearchHistory(keyword);
 
     var btn = document.getElementById('search-btn');
     btn.disabled = true;
@@ -293,7 +634,7 @@ function showMultipleUsers(users) {
 }
 
 function createUserCard(user, showDownloadBtn) {
-    var avatarUrl = user.avatar_thumb || user.avatar_larger || '/static/default-avatar.svg';
+    var avatarUrl = user.avatar_thumb || user.avatar_larger || '/default-avatar.svg';
     var nickEscaped = escapeHtml(user.nickname);
     var sigEscaped = escapeHtml(user.signature || '无简介');
     var nickForAttr = nickEscaped.replace(/'/g, "\\'");
@@ -302,7 +643,7 @@ function createUserCard(user, showDownloadBtn) {
         : '<button class="btn btn-primary btn-sm" onclick="selectUser(\'' + user.sec_uid + '\', \'' + nickForAttr + '\')"><i class="bi bi-check"></i> 选择</button>';
     return '<div class="col-md-6 mb-3"><div class="card user-card h-100"><div class="card-body">' +
         '<div class="d-flex align-items-center mb-3">' +
-        '<img src="' + avatarUrl + '" alt="头像" class="rounded-circle me-3" style="width:50px;height:50px;object-fit:cover;" onerror="this.src=\'/static/default-avatar.svg\'">' +
+        '<img src="' + avatarUrl + '" alt="头像" class="rounded-circle me-3" style="width:50px;height:50px;object-fit:cover;" onerror="this.src=\'/default-avatar.svg\'">' +
         '<div class="flex-grow-1"><h6 class="card-title mb-1">' + nickEscaped + '</h6>' +
         '<small class="text-muted">抖音号: ' + (user.unique_id || '未设置') + '</small></div></div>' +
         '<p class="card-text"><small class="text-muted">粉丝: ' + user.follower_count + '</small><br>' +
@@ -324,7 +665,7 @@ async function selectUser(secUid, nickname) {
     fetch('/api/user_detail', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sec_uid: secUid, nickname: nickname || '' }) })
     .then(function(response) { return response.json(); })
     .then(function(data) {
-        if (data.need_verify) showVerifyDialog();
+        if (data.need_verify) showVerifyDialog(data.verify_url);
         else if (data.success) { currentUser = data.user; showUserDetail(data.user); }
         else showToast(data.message || '获取用户详情失败', 'error');
     })
@@ -336,24 +677,21 @@ async function selectUser(secUid, nickname) {
 // ═══════════════════════════════════════════════
 function goBackToHome() {
     ['userDetailSection', 'userVideosSection', 'likedVideosSection', 'likedAuthorsSection', 'linkParseResult', 'recommendedFeedSection', 'myDownloadsSection'].forEach(function(id) {
-        var el = document.getElementById(id);
-        if (el) el.style.display = 'none';
+        hideSectionById(id);
     });
-    var emptyState = document.getElementById('emptyState');
-    if (emptyState) emptyState.style.display = '';
-    document.getElementById('back-btn').style.display = 'none';
+    revealSectionById('emptyState', 'flex');
+    setBackButtonVisible(false);
     currentUser = null;
     allVideos = [];
     isHomeView = true;
 }
 
 function showUserDetail(user) {
-    var emptyState = document.getElementById('emptyState');
-    if (emptyState) emptyState.style.display = 'none';
-    document.getElementById('back-btn').style.display = 'flex';
-    var avatarUrl = user.avatar_larger || user.avatar_thumb || '/static/default-avatar.svg';
+    hideSectionById('emptyState');
+    setBackButtonVisible(true);
+    var avatarUrl = user.avatar_larger || user.avatar_thumb || '/default-avatar.svg';
     document.getElementById('userAvatar').src = avatarUrl;
-    document.getElementById('userAvatar').onerror = function () { this.src = '/static/default-avatar.svg'; };
+    document.getElementById('userAvatar').onerror = function () { this.src = '/default-avatar.svg'; };
     document.getElementById('userNickname').textContent = user.nickname;
     document.getElementById('userUniqueId').textContent = '@' + (user.unique_id || '未设置');
     document.getElementById('userSignature').textContent = user.signature || '暂无简介';
@@ -361,7 +699,7 @@ function showUserDetail(user) {
     document.getElementById('userFollowerCount').textContent = formatNumber(user.follower_count || 0);
     document.getElementById('userFollowingCount').textContent = user.following_count != null ? formatNumber(user.following_count) : '-';
     document.getElementById('userTotalFavorited').textContent = formatNumber(user.total_favorited || 0);
-    document.getElementById('userDetailSection').style.display = 'block';
+    revealSectionById('userDetailSection');
 }
 
 // ═══════════════════════════════════════════════
@@ -375,7 +713,7 @@ function loadUserVideos() {
     _selectedVideos.clear();
     _selectMode = false;
 
-    document.getElementById('userVideosSection').style.display = 'block';
+    revealSectionById('userVideosSection');
     var videosList = document.getElementById('userVideosList');
     videosList.innerHTML = '';
     // Show skeleton loading placeholders
@@ -399,7 +737,7 @@ async function _loadNextPage() {
             body: JSON.stringify({ sec_uid: currentUser.sec_uid, cursor: _loadCursor, count: 18 })
         });
         var data = await response.json();
-        if (data.need_verify) { showVerifyDialog(); _loadingVideos = false; return; }
+        if (data.need_verify) { showVerifyDialog(data.verify_url); _loadingVideos = false; return; }
         if (data.success && data.videos.length > 0) {
             if (allVideos.length === 0) document.getElementById('userVideosList').innerHTML = '';
             allVideos = allVideos.concat(data.videos);
@@ -478,7 +816,7 @@ function getVideoCardMediaType(video) {
 }
 
 function getVideoCardCover(video) {
-    return video.cover_url || (video.video && video.video.cover) || '/static/default-cover.svg';
+    return video.cover_url || (video.video && video.video.cover) || '/default-cover.svg';
 }
 
 function getVideoCardDuration(video) {
@@ -515,9 +853,9 @@ function createVideoCardElement(video, options) {
     var stats = getVideoCardStats(video);
     var author = normalizeVideoAuthor(video);
 
-    var openAction = options.openAction || ('openUnifiedPlayerFromCurrentVideos(' + awemeLiteral + ')');
-    var downloadAction = options.downloadAction || ('downloadVideoFromList(' + awemeLiteral + ')');
-    var detailAction = options.detailAction || ('showVideoDetail(' + awemeLiteral + ')');
+    var openAction = options.openAction || 'openVideoCardFromElement(this)';
+    var downloadAction = options.downloadAction || 'downloadVideoCardFromElement(this)';
+    var detailAction = options.detailAction || 'showVideoCardDetailFromElement(this)';
     var playAction = options.playAction || openAction;
     var showDetailButton = options.showDetailButton !== false;
     var showAuthorButton = !!options.showAuthorButton && !!author.sec_uid;
@@ -548,7 +886,7 @@ function createVideoCardElement(video, options) {
     col.className = 'col-md-3 col-sm-6 mb-3';
     col.innerHTML = '<div class="card h-100 video-card" data-aweme-id="' + escapeHtml(video.aweme_id || '') + '">' +
         '<div class="position-relative video-cover-container" onclick="' + openAction + '">' +
-        '<img src="' + coverUrl + '" class="card-img-top video-cover" alt="封面" loading="lazy" onerror="this.src=\'/static/default-cover.svg\'">' +
+        '<img src="' + coverUrl + '" class="card-img-top video-cover" alt="封面" loading="lazy" onerror="this.src=\'/default-cover.svg\'">' +
         '<i class="bi bi-play-circle-fill video-play-icon"></i>' +
         '<div class="video-overlay"><div class="video-stats">' +
         '<div class="stat-item"><i class="bi bi-heart-fill"></i><span>' + formatNumber(stats.diggCount) + '</span></div>' +
@@ -571,6 +909,105 @@ function createVideoCardElement(video, options) {
         '</div></div></div>';
 
     return col;
+}
+
+function resolveVideoCardAwemeId(trigger) {
+    var card = trigger && typeof trigger.closest === 'function'
+        ? trigger.closest('.video-card')
+        : null;
+    return card ? String(card.getAttribute('data-aweme-id') || '').trim() : '';
+}
+
+function resolveVideoFromKnownCollections(awemeId) {
+    if (!awemeId) return null;
+
+    if (Array.isArray(window.currentVideos)) {
+        var currentVideo = window.currentVideos.find(function(video) { return video && video.aweme_id === awemeId; });
+        if (currentVideo) return currentVideo;
+    }
+
+    if (typeof recommendedVideos !== 'undefined' && Array.isArray(recommendedVideos)) {
+        var recommendedVideo = recommendedVideos.find(function(video) { return video && video.aweme_id === awemeId; });
+        if (recommendedVideo) return recommendedVideo;
+    }
+
+    if (Array.isArray(window.parsedVideosData)) {
+        var parsedVideo = window.parsedVideosData.find(function(video) { return video && video.aweme_id === awemeId; });
+        if (parsedVideo) return parsedVideo;
+    }
+
+    if (typeof VideoStorage !== 'undefined' && typeof VideoStorage.getVideo === 'function') {
+        return VideoStorage.getVideo(awemeId);
+    }
+
+    return null;
+}
+
+function openVideoCardFromElement(trigger) {
+    var awemeId = resolveVideoCardAwemeId(trigger);
+    if (!awemeId) {
+        showToast('无法获取作品ID', 'error');
+        return;
+    }
+
+    if (trigger && typeof trigger.closest === 'function' && trigger.closest('#recommendedFeedList')) {
+        if (typeof openUnifiedPlayer === 'function') {
+            openUnifiedPlayer(awemeId);
+            return;
+        }
+    }
+
+    if (trigger && typeof trigger.closest === 'function' && trigger.closest('#parsedVideosList')) {
+        var parsedVideo = resolveVideoFromKnownCollections(awemeId);
+        if (parsedVideo && typeof openUnifiedPlayerFromVideoCollection === 'function') {
+            openUnifiedPlayerFromVideoCollection([parsedVideo], awemeId, 'parsed-video');
+            return;
+        }
+    }
+
+    if (typeof openUnifiedPlayerFromCurrentVideos === 'function') {
+        openUnifiedPlayerFromCurrentVideos(awemeId);
+        return;
+    }
+
+    var storedVideo = resolveVideoFromKnownCollections(awemeId);
+    if (storedVideo && typeof openUnifiedPlayerFromVideoCollection === 'function') {
+        openUnifiedPlayerFromVideoCollection([storedVideo], awemeId, 'stored-video');
+        return;
+    }
+
+    showToast('找不到视频数据', 'error');
+}
+
+async function downloadVideoCardFromElement(trigger) {
+    var awemeId = resolveVideoCardAwemeId(trigger);
+    if (!awemeId) {
+        showToast('无法获取作品ID', 'error');
+        return;
+    }
+
+    var video = resolveVideoFromKnownCollections(awemeId);
+    if (!video) {
+        showToast('找不到视频数据', 'error');
+        return;
+    }
+
+    await downloadSingleVideoWithData(
+        awemeId,
+        video.desc || '视频',
+        video.media_urls || [],
+        video.raw_media_type || video.media_type || 'video',
+        video.author ? video.author.nickname : '未知作者'
+    );
+}
+
+function showVideoCardDetailFromElement(trigger) {
+    var awemeId = resolveVideoCardAwemeId(trigger);
+    if (!awemeId) {
+        showToast('无法获取作品ID', 'error');
+        return;
+    }
+    showVideoDetail(awemeId);
 }
 
 function normalizeVideoForUnifiedPlayer(video) {
@@ -816,7 +1253,7 @@ function showUserVideos(videos) {
     document.getElementById('userVideosList').innerHTML = '';
     displayVideos(videos, false);
     document.getElementById('videoCount').textContent = videos.length + ' 个作品';
-    document.getElementById('userVideosSection').style.display = 'block';
+    revealSectionById('userVideosSection');
 }
 
 function displayVideos(videos, append) {
@@ -881,36 +1318,56 @@ function normalizeMediaUrlsForDownload(mediaUrls, rawMediaType) {
     }).filter(function(item) { return !!item; });
 }
 
-function downloadSingleVideoWithData(awemeId, desc, mediaUrls, rawMediaType, authorName) {
+async function downloadSingleVideoWithData(awemeId, desc, mediaUrls, rawMediaType, authorName) {
     var storedVideo = VideoStorage.getVideo(awemeId);
     var fvd = storedVideo ? { aweme_id: awemeId, desc: storedVideo.desc || desc, media_urls: storedVideo.media_urls || mediaUrls, raw_media_type: storedVideo.raw_media_type || storedVideo.media_type || rawMediaType, author_name: storedVideo.author ? storedVideo.author.nickname : (authorName || '未知作者') }
         : { aweme_id: awemeId, desc: desc, media_urls: mediaUrls, raw_media_type: rawMediaType, author_name: authorName || '未知作者' };
     fvd.media_urls = normalizeMediaUrlsForDownload(fvd.media_urls, fvd.raw_media_type);
-    if (!fvd.media_urls || fvd.media_urls.length === 0) { showToast('媒体URL不能为空', 'error'); return; }
-    fetch('/api/download_single_video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fvd) })
-    .then(function(r) { return r.json(); })
-    .then(function(data) { if (data.success) { showToast('开始下载媒体', 'success'); addLog('开始下载媒体: ' + fvd.desc + ' (' + fvd.media_urls.length + '个文件)'); } else showToast(data.message, 'error'); })
-    .catch(function() { showToast('下载失败', 'error'); });
+    if ((!fvd.media_urls || fvd.media_urls.length === 0) && awemeId && typeof fetchFreshVideoDetail === 'function') {
+        try {
+            var freshVideo = await fetchFreshVideoDetail(awemeId);
+            if (freshVideo) {
+                VideoStorage.saveVideo(freshVideo);
+                fvd = {
+                    aweme_id: awemeId,
+                    desc: freshVideo.desc || fvd.desc,
+                    media_urls: freshVideo.media_urls || [],
+                    raw_media_type: freshVideo.raw_media_type || freshVideo.media_type || fvd.raw_media_type,
+                    author_name: freshVideo.author ? freshVideo.author.nickname : fvd.author_name
+                };
+                fvd.media_urls = normalizeMediaUrlsForDownload(fvd.media_urls, fvd.raw_media_type);
+            }
+        } catch (error) {}
+    }
+    if (!fvd.media_urls || fvd.media_urls.length === 0) { showToast('没有可用的媒体URL', 'error'); return; }
+    try {
+        var response = await fetch('/api/download_single_video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fvd) });
+        var data = await response.json();
+        if (data.success) { showToast('开始下载媒体', 'success'); addLog('开始下载媒体: ' + fvd.desc + ' (' + fvd.media_urls.length + '个文件)'); }
+        else showToast(data.message, 'error');
+    } catch (error) {
+        showToast('下载失败', 'error');
+    }
 }
 
-function downloadVideoFromList(awemeId) {
+async function downloadVideoFromList(awemeId) {
     _log('开始下载视频:', awemeId);
     addLog('点击下载按钮，视频ID: ' + awemeId);
     var storedVideo = VideoStorage.getVideo(awemeId);
-    var fvd;
+    var video = null;
     if (storedVideo) {
-        fvd = { aweme_id: awemeId, desc: storedVideo.desc || '视频', media_urls: storedVideo.media_urls || [], raw_media_type: storedVideo.raw_media_type || storedVideo.media_type || 'video', author_name: storedVideo.author ? storedVideo.author.nickname : '未知作者' };
+        video = storedVideo;
     } else {
-        var video = window.currentVideos ? window.currentVideos.find(function(v) { return v.aweme_id === awemeId; }) : null;
-        if (video) { fvd = { aweme_id: awemeId, desc: video.desc || '视频', media_urls: video.media_urls || [], raw_media_type: video.raw_media_type || video.media_type || 'video', author_name: video.author ? video.author.nickname : '未知作者' }; }
-        else { showToast('找不到视频数据', 'error'); return; }
+        video = window.currentVideos ? window.currentVideos.find(function(v) { return v.aweme_id === awemeId; }) : null;
+        if (!video) { showToast('找不到视频数据', 'error'); return; }
     }
-    fvd.media_urls = normalizeMediaUrlsForDownload(fvd.media_urls, fvd.raw_media_type);
-    if (!fvd.media_urls || fvd.media_urls.length === 0) { showToast('媒体URL不能为空', 'error'); return; }
-    fetch('/api/download_single_video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fvd) })
-    .then(function(r) { return r.json(); })
-    .then(function(data) { if (data.success) { showToast('开始下载媒体', 'success'); addLog('下载任务已启动: ' + fvd.desc + ' (任务ID: ' + (data.task_id || '未知') + ')'); } else showToast(data.message || '下载失败', 'error'); })
-    .catch(function() { showToast('下载请求失败', 'error'); });
+    await downloadSingleVideoWithData(
+        awemeId,
+        video.desc || '视频',
+        video.media_urls || [],
+        video.raw_media_type || video.media_type || 'video',
+        video.author ? video.author.nickname : '未知作者'
+    );
 }
 
 function downloadUserVideos(secUidOverride) {
@@ -985,12 +1442,12 @@ function showParseResults(videos) {
                 if (index === 0) addLog('解析的视频已存储到本地: ' + video.aweme_id);
             }
         }
-        var coverUrl = video.cover_url || '/static/default-cover.svg';
-        var avatarUrl = video.author.avatar_thumb || '/static/default-avatar.svg';
+        var coverUrl = video.cover_url || '/default-cover.svg';
+        var avatarUrl = video.author.avatar_thumb || '/default-avatar.svg';
         var h = '<div class="row mb-2 border-bottom pb-2" data-aweme-id="' + video.aweme_id + '">' +
-            '<div class="col-4"><img src="' + coverUrl + '" class="img-fluid rounded" alt="封面" style="max-height:60px;object-fit:cover;" onerror="this.src=\'/static/default-cover.svg\';"></div>' +
+            '<div class="col-4"><img src="' + coverUrl + '" class="img-fluid rounded" alt="封面" style="max-height:60px;object-fit:cover;" onerror="this.src=\'/default-cover.svg\';"></div>' +
             '<div class="col-8"><h6 class="small fw-bold mb-1" style="font-size:0.75rem;">' + escapeHtml(video.desc || '无描述') + '</h6>' +
-            '<p class="text-muted mb-1 small" style="font-size:0.7rem;"><img src="' + avatarUrl + '" class="rounded-circle me-1" width="14" height="14" onerror="this.src=\'/static/default-avatar.svg\';">' +
+            '<p class="text-muted mb-1 small" style="font-size:0.7rem;"><img src="' + avatarUrl + '" class="rounded-circle me-1" width="14" height="14" onerror="this.src=\'/default-avatar.svg\';">' +
             '<span>' + escapeHtml(video.author.nickname || '未知作者') + '</span></p>' +
             '<div class="d-flex justify-content-between text-muted mb-1" style="font-size:0.65rem;">' +
             '<span>' + formatNumber(video.digg_count || 0) + '</span><span>' + formatNumber(video.comment_count || 0) + '</span><span>' + formatNumber(video.share_count || 0) + '</span></div>' +
@@ -998,13 +1455,13 @@ function showParseResults(videos) {
             '<button class="btn btn-outline-info btn-sm" style="font-size:0.65rem;padding:1px 4px;" onclick="showVideoDetail(\'' + video.aweme_id + '\')">详情</button></div></div></div>';
         parsedVideosList.innerHTML += h;
     });
-    document.getElementById('linkParseResult').style.display = 'block';
-    document.getElementById('back-btn').style.display = 'flex';
+    revealSectionById('linkParseResult');
+    setBackButtonVisible(true);
     _hideEmptyState();
 }
 
 function clearParseResult() {
-    document.getElementById('linkParseResult').style.display = 'none';
+    hideSectionById('linkParseResult');
     document.getElementById('parsedVideosList').innerHTML = '';
     window.parsedVideosData = null;
 }
@@ -1056,9 +1513,9 @@ async function showVideoDetail(awemeId) {
 function renderVideoDetail(video, awemeId) {
     var typeBadge = document.getElementById('videoDetailTypeBadge');
     if (typeBadge) { var tm = { video: '视频', image: '图集', live_photo: 'Live Photo', mixed: '混合' }; typeBadge.textContent = tm[video.media_type || video.raw_media_type] || '作品'; }
-    document.getElementById('videoDetailCover').src = video.cover_url || '/static/default-cover.svg';
+    document.getElementById('videoDetailCover').src = video.cover_url || '/default-cover.svg';
     var author = video.author || {};
-    document.getElementById('videoDetailAuthorAvatar').src = author.avatar_thumb || '/static/default-avatar.svg';
+    document.getElementById('videoDetailAuthorAvatar').src = author.avatar_thumb || '/default-avatar.svg';
     document.getElementById('videoDetailAuthorName').textContent = author.nickname || '未知作者';
     document.getElementById('videoDetailTime').textContent = video.create_time ? new Date(video.create_time * 1000).toLocaleString() : '';
     document.getElementById('videoDetailDesc').textContent = video.desc || '无描述';
@@ -1111,7 +1568,7 @@ function renderVideoDetail(video, awemeId) {
             : ((video.music_title || video.desc || '背景音乐').slice(0, 50) + '.mp3');
         var proxiedBgmUrl = typeof buildMusicProxyUrl === 'function'
             ? buildMusicProxyUrl(bgmUrl, musicFilename)
-            : proxyUrl(bgmUrl);
+            : proxyUrl(bgmUrl, 'audio');
         if (audioSection) audioSection.style.display = '';
         if (downloadAudioBtn) downloadAudioBtn.style.display = 'inline-block';
         if (audioUrlsContainer) {
@@ -1172,13 +1629,12 @@ async function downloadAudioFromDetail() {
     var bgmUrl = btn.getAttribute('data-bgm-url');
     var filename = btn.getAttribute('data-filename') || '背景音乐.mp3';
     if (!bgmUrl) { showToast('没有可下载的音频', 'error'); return; }
-    var link = document.createElement('a');
-    link.href = '/api/download_music?url=' + encodeURIComponent(bgmUrl) + '&filename=' + encodeURIComponent(filename);
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showToast('开始下载音乐', 'success');
+    try {
+        await downloadRemoteFile(bgmUrl, filename);
+        showToast('开始下载音乐', 'success');
+    } catch (error) {
+        showToast('下载音乐失败', 'error');
+    }
 }
 
 // ═══════════════════════════════════════════════
@@ -1237,7 +1693,7 @@ function displayLikedVideos(videos) {
         });
         videosList.appendChild(vc);
     });
-    section.style.display = 'block';
+    revealSectionById('likedVideosSection');
     _hideEmptyState();
 }
 
@@ -1252,7 +1708,7 @@ function displayLikedAuthors(authors) {
         ac.className = 'col-md-4 col-sm-6 mb-3';
         ac.innerHTML = '<div class="card h-100 author-card"><div class="card-body author-card-body">' +
             '<div class="d-flex align-items-center mb-2">' +
-            '<img src="' + (author.avatar_thumb || '/static/default-avatar.svg') + '" class="rounded-circle me-3" style="width:50px;height:50px;object-fit:cover;" onerror="this.src=\'/static/default-avatar.svg\'">' +
+            '<img src="' + (author.avatar_thumb || '/default-avatar.svg') + '" class="rounded-circle me-3" style="width:50px;height:50px;object-fit:cover;" onerror="this.src=\'/default-avatar.svg\'">' +
             '<div class="flex-grow-1"><h6 class="mb-0 text-truncate">' + escapeHtml(author.nickname) + '</h6>' +
             '<small class="text-muted">@' + (author.unique_id || author.sec_uid) + '</small></div></div>' +
             '<p class="card-text author-desc">' + escapeHtml(author.signature || '暂无签名') + '</p>' +
@@ -1267,7 +1723,7 @@ function displayLikedAuthors(authors) {
             '</div></div></div>';
         authorsList.appendChild(ac);
     });
-    section.style.display = 'block';
+    revealSectionById('likedAuthorsSection');
     _hideEmptyState();
 }
 
@@ -1300,11 +1756,27 @@ async function downloadAuthorAndWait(secUid, nickname) {
             var taskId = result.task_id;
             if (!taskId) { resolve({ success: false }); return; }
             createDownloadProgressElement(taskId, nickname + ' 的视频');
-            var onDone = function(d) { if (d.task_id === taskId) { socket.off('download_completed', onDone); socket.off('download_error', onErr); resolve({ success: true }); } };
-            var onErr = function(d) { if (d.task_id === taskId) { socket.off('download_completed', onDone); socket.off('download_error', onErr); resolve({ success: false }); } };
-            socket.on('download_completed', onDone);
+            var settled = false;
+            var cleanup = function() {
+                socket.off('batch_download_completed', onDone);
+                socket.off('batch_download_cancelled', onErr);
+                socket.off('download_failed', onErr);
+                socket.off('download_error', onErr);
+                clearTimeout(timeoutId);
+            };
+            var finish = function(success) {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                resolve({ success: success });
+            };
+            var onDone = function(d) { if (d.task_id === taskId) finish(true); };
+            var onErr = function(d) { if (d.task_id === taskId) finish(false); };
+            var timeoutId = setTimeout(function() { finish(false); }, 30 * 60 * 1000);
+            socket.on('batch_download_completed', onDone);
+            socket.on('batch_download_cancelled', onErr);
+            socket.on('download_failed', onErr);
             socket.on('download_error', onErr);
-            setTimeout(function() { socket.off('download_completed', onDone); socket.off('download_error', onErr); resolve({ success: false }); }, 30 * 60 * 1000);
         } catch (e) { resolve({ success: false }); }
     });
 }

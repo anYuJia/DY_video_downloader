@@ -21,6 +21,8 @@ import subprocess
 import shutil
 import re
 import time
+import webbrowser
+import concurrent.futures
 import requests as http_requests
 from datetime import datetime
 from pathlib import Path
@@ -39,7 +41,20 @@ ALLOWED_MEDIA_HOST_SUFFIXES = (
     'douyinstatic.com',
     'byteimg.com',
     'ixigua.com',
+    'amemv.com',
+    'snssdk.com',
+    'pstatp.com',
 )
+COOKIE_MEDIA_HOST_SUFFIXES = (
+    'douyin.com',
+    'amemv.com',
+    'snssdk.com',
+)
+MEDIA_PROXY_INITIAL_VIDEO_RANGE = 'bytes=0-1048575'
+MEDIA_PROXY_MAX_RETRIES = 3
+LATEST_RELEASE_API_URL = 'https://api.github.com/repos/anYuJia/DY_video_downloader/releases/latest'
+LATEST_RELEASE_PAGE_URL = 'https://github.com/anYuJia/DY_video_downloader/releases/latest'
+MEDIA_PROXY_REDIRECT_CACHE = {}
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -58,6 +73,14 @@ from src.api.native_cookie_login import (
     serialize_cookie_entries,
 )
 from src.downloader.downloader import DouyinDownloader
+from src.utils.download_history_index import (
+    get_download_history_items,
+    invalidate_download_history_cache,
+    move_download_history_entries,
+    rebuild_download_history_index,
+    remove_download_history_entries,
+    upsert_download_history_entries,
+)
 from src.user.user_manager import DouyinUserManager
 
 # 移除增强下载器支持
@@ -100,6 +123,24 @@ def favicon():
         get_resource_path('src/web/static/favicon.svg'),
         mimetype='image/svg+xml',
         max_age=86400
+    )
+
+
+@app.route('/default-avatar.svg')
+def default_avatar():
+    return send_file(
+        get_resource_path('src/web/static/default-avatar.svg'),
+        mimetype='image/svg+xml',
+        max_age=86400,
+    )
+
+
+@app.route('/default-cover.svg')
+def default_cover():
+    return send_file(
+        get_resource_path('src/web/static/default-cover.svg'),
+        mimetype='image/svg+xml',
+        max_age=86400,
     )
 
 # 全局 Loop 处理
@@ -158,35 +199,7 @@ def _safe_history_path(raw_path: str) -> Path:
 
 
 def build_download_history() -> list[dict]:
-    items = []
-    for root in get_all_download_roots():
-        if not root.exists():
-            continue
-
-        for path in root.rglob('*'):
-            if not path.is_file():
-                continue
-            if path.name == 'download_record.json':
-                continue
-
-            stat = path.stat()
-            rel_path = path.relative_to(root)
-            parts = rel_path.parts
-            author = parts[0] if len(parts) > 1 else ''
-
-            items.append({
-                'name': path.name,
-                'path': str(path),
-                'relative_path': str(rel_path),
-                'root_path': str(root),
-                'author': author,
-                'size': stat.st_size,
-                'modified_at': int(stat.st_mtime),
-                'extension': path.suffix.lower(),
-            })
-
-    items.sort(key=lambda item: item['modified_at'], reverse=True)
-    return items
+    return get_download_history_items()
 
 
 def move_directory_contents(source_dir: Path, target_dir: Path) -> int:
@@ -307,12 +320,177 @@ def is_allowed_media_url(url: str) -> bool:
 
 
 def should_forward_douyin_cookie(url: str) -> bool:
-    """只向 douyin.com 及其子域转发账号 Cookie。"""
+    """只向登录相关域名转发账号 Cookie。"""
     try:
         hostname = (urlparse((url or '').strip()).hostname or '').lower().rstrip('.')
     except Exception:
         return False
-    return hostname == 'douyin.com' or hostname.endswith('.douyin.com')
+    return any(hostname == suffix or hostname.endswith(f'.{suffix}') for suffix in COOKIE_MEDIA_HOST_SUFFIXES)
+
+
+def _allowed_media_request_origin() -> tuple[bool, str | None]:
+    origin = (request.headers.get('Origin') or '').strip()
+    if not origin or origin == 'null':
+        return True, None
+
+    try:
+        parsed = urlparse(origin)
+    except Exception:
+        return False, None
+
+    hostname = (parsed.hostname or '').lower().rstrip('.')
+    if parsed.scheme not in ('http', 'https') or not hostname:
+        return False, None
+
+    request_host = (request.host or '').split(':', 1)[0].lower().rstrip('.')
+    allowed_hosts = {'127.0.0.1', 'localhost', 'tauri.localhost'}
+    if request_host:
+        allowed_hosts.add(request_host)
+
+    if hostname in allowed_hosts:
+        return True, origin
+
+    return False, None
+
+
+def _resolve_media_redirect_target(current_url: str, location: str) -> str | None:
+    if not location:
+        return None
+    try:
+        return http_requests.compat.urljoin(current_url, location)
+    except Exception:
+        return None
+
+
+def _normalize_version_text(version: str) -> str:
+    return str(version or '').strip().lstrip('vV')
+
+
+def _parse_version_parts(version: str) -> tuple[int, ...]:
+    parts = [int(part) for part in re.findall(r'\d+', _normalize_version_text(version))]
+    return tuple(parts) if parts else (0,)
+
+
+def _is_newer_version(latest_version: str, current_version: str) -> bool:
+    latest = _parse_version_parts(latest_version)
+    current = _parse_version_parts(current_version)
+    max_len = max(len(latest), len(current))
+    latest += (0,) * (max_len - len(latest))
+    current += (0,) * (max_len - len(current))
+    return latest > current
+
+
+def _get_current_app_version() -> str:
+    env_version = _normalize_version_text(os.environ.get('APP_VERSION') or os.environ.get('GITHUB_REF_NAME') or '')
+    if env_version:
+        return env_version
+
+    config_version = _normalize_version_text(getattr(Config, 'APP_VERSION', ''))
+    if config_version:
+        return config_version
+
+    try:
+        result = subprocess.run(
+            ['git', 'describe', '--tags', '--always', '--dirty'],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=str(Path(__file__).resolve().parents[2]),
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return _normalize_version_text(result.stdout.strip())
+    except Exception:
+        pass
+
+    return '0.0.13'
+
+
+def _fetch_latest_release() -> dict:
+    response = http_requests.get(
+        LATEST_RELEASE_API_URL,
+        headers={
+            'Accept': 'application/vnd.github+json',
+            'User-Agent': f'DY-Video-Downloader/{_get_current_app_version()}',
+        },
+        timeout=(5, 15),
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError('GitHub release payload invalid')
+    return payload
+
+
+def _select_release_asset(release: dict) -> tuple[str, bool]:
+    assets = release.get('assets') or []
+    machine = platform.machine().lower()
+
+    preferred_suffixes: list[tuple[str, bool]] = []
+    if IS_WINDOWS:
+        preferred_suffixes = [
+            ('windows-x64-installer.exe', False),
+            ('windows-x64-portable.zip', True),
+        ]
+    elif IS_MACOS:
+        if 'arm' in machine or 'aarch64' in machine:
+            preferred_suffixes = [
+                ('macos-arm64.dmg', False),
+                ('macos-arm64-portable.zip', True),
+            ]
+        else:
+            preferred_suffixes = [
+                ('macos-x64.dmg', False),
+                ('macos-x64-portable.zip', True),
+            ]
+    else:
+        preferred_suffixes = [
+            ('linux-x64.tar.gz', True),
+        ]
+
+    normalized_assets = [
+        {
+            'name': str(asset.get('name') or ''),
+            'name_lower': str(asset.get('name') or '').lower(),
+            'url': str(asset.get('browser_download_url') or ''),
+        }
+        for asset in assets
+        if asset.get('browser_download_url')
+    ]
+
+    for suffix, portable in preferred_suffixes:
+        for asset in normalized_assets:
+            if asset['name_lower'].endswith(suffix):
+                return asset['url'], portable
+
+    for asset in normalized_assets:
+        name = asset['name_lower']
+        if IS_WINDOWS and name.endswith('.exe'):
+            return asset['url'], 'portable' in name
+        if IS_MACOS and (name.endswith('.dmg') or name.endswith('.zip')):
+            return asset['url'], 'portable' in name
+        if not IS_WINDOWS and not IS_MACOS and (name.endswith('.tar.gz') or name.endswith('.appimage') or name.endswith('.deb') or name.endswith('.rpm')):
+            return asset['url'], True
+
+    return str(release.get('html_url') or LATEST_RELEASE_PAGE_URL), False
+
+
+def _open_external_target(target: str) -> bool:
+    if not target:
+        return False
+
+    try:
+        if IS_WINDOWS:
+            os.startfile(target)
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', target])
+        else:
+            subprocess.Popen(['xdg-open', target])
+        return True
+    except Exception:
+        try:
+            return bool(webbrowser.open(target))
+        except Exception:
+            return False
 
 
 def get_or_create_loop():
@@ -324,15 +502,15 @@ def get_or_create_loop():
         logger.info("Global asyncio loop started in background thread")
     return _global_loop
 
-def run_async(coro):
-    """在全局循环中运行异步任务并等待结果"""
-    import sys
-    sys.stderr.write(f'[run_async] 开始执行 coro={coro}\n')
-    sys.stderr.flush()
+def run_async(coro, timeout: float | None = 120):
+    """在全局循环中运行异步任务并等待结果。"""
     loop = get_or_create_loop()
     future = asyncio.run_coroutine_threadsafe(coro, loop)
-    result = future.result()
-    return result
+    try:
+        return future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError as exc:
+        future.cancel()
+        raise TimeoutError(f'异步任务执行超时（{timeout}s）') from exc
 
 class WebDownloadProgress:
     """Web下载进度回调"""
@@ -406,7 +584,10 @@ def get_config():
         'download_dir': Config.BASE_DIR,
         'download_root': str(get_download_root()),
         'download_roots': [str(root) for root in get_all_download_roots()],
-        'cookie_preview': f"{Config.COOKIE[:12]}..." if Config.COOKIE else ''
+        'cookie_preview': f"{Config.COOKIE[:12]}..." if Config.COOKIE else '',
+        'download_quality': getattr(Config, 'DOWNLOAD_QUALITY', 'auto'),
+        'max_concurrent': getattr(Config, 'MAX_CONCURRENT', 3),
+        'app_version': _get_current_app_version(),
     })
 
 @app.route('/api/config', methods=['POST'])
@@ -414,7 +595,7 @@ def set_config():
     """设置配置"""
     global api, downloader, user_manager
     try:
-        data = request.json
+        data = request.json or {}
         previous_download_dir = str(get_download_root())
         previous_all_roots = [str(root) for root in get_all_download_roots()]
         
@@ -423,6 +604,13 @@ def set_config():
         if 'download_dir' in data:
             Config.BASE_DIR = data['download_dir']
             Config.DOWNLOAD_DIR = Config.BASE_DIR
+        if 'download_quality' in data:
+            Config.DOWNLOAD_QUALITY = str(data.get('download_quality') or 'auto')
+        if 'max_concurrent' in data:
+            try:
+                Config.MAX_CONCURRENT = max(1, min(10, int(data.get('max_concurrent') or 3)))
+            except Exception:
+                Config.MAX_CONCURRENT = 3
 
         move_existing_files = bool(data.get('move_existing_files'))
         history_dirs = list(getattr(Config, 'HISTORY_DIRS', []))
@@ -449,7 +637,18 @@ def set_config():
             moved_count = 0
 
         Config.HISTORY_DIRS = Config.normalize_history_dirs(history_dirs)
-        Config.save_config(Config.COOKIE, Config.BASE_DIR, Config.HISTORY_DIRS)
+        Config.save_config(
+            Config.COOKIE,
+            Config.BASE_DIR,
+            Config.HISTORY_DIRS,
+            download_quality=Config.DOWNLOAD_QUALITY,
+            max_concurrent=Config.MAX_CONCURRENT,
+        )
+
+        if previous_download_dir.lower() != new_download_dir.lower():
+            rebuild_download_history_index()
+        else:
+            invalidate_download_history_cache(drop_disk=False)
         
         # 重新初始化API和下载器
         init_app()
@@ -459,10 +658,85 @@ def set_config():
             'message': '配置保存成功',
             'moved_count': moved_count,
             'download_root': str(get_download_root()),
-            'download_roots': [str(root) for root in get_all_download_roots()]
+            'download_roots': [str(root) for root in get_all_download_roots()],
+            'download_quality': Config.DOWNLOAD_QUALITY,
+            'max_concurrent': Config.MAX_CONCURRENT,
         })
     except Exception as e:
         return jsonify({'success': False, 'message': f'配置保存失败: {str(e)}'}), 500
+
+
+@app.route('/api/get_app_version', methods=['GET'])
+def get_app_version():
+    """返回当前应用版本。"""
+    return jsonify(_get_current_app_version())
+
+
+@app.route('/api/check_update', methods=['GET'])
+def check_update():
+    """检查 GitHub Releases 上是否有新版本。"""
+    current_version = _get_current_app_version()
+
+    try:
+        release = _fetch_latest_release()
+        latest_version = _normalize_version_text(release.get('tag_name') or release.get('name') or '')
+        has_update = bool(latest_version) and _is_newer_version(latest_version, current_version)
+        asset_url, portable = _select_release_asset(release)
+
+        return jsonify({
+            'success': True,
+            'has_update': has_update,
+            'current_version': current_version,
+            'version': latest_version or current_version,
+            'notes': release.get('body') or '暂无更新说明',
+            'html_url': release.get('html_url') or LATEST_RELEASE_PAGE_URL,
+            'download_url': asset_url,
+            'portable': portable,
+            'install_mode': 'browser',
+        })
+    except Exception as e:
+        logger.error(f"检查更新失败: {e}")
+        return jsonify({
+            'success': False,
+            'has_update': False,
+            'current_version': current_version,
+            'message': f'检查更新失败: {str(e)}'
+        })
+
+
+@app.route('/api/download_update', methods=['GET'])
+def download_update():
+    """打开对应平台的发布资源或 Releases 页面。"""
+    try:
+        release = _fetch_latest_release()
+        download_url, portable = _select_release_asset(release)
+        target_url = download_url or str(release.get('html_url') or LATEST_RELEASE_PAGE_URL)
+
+        if not _open_external_target(target_url):
+            return jsonify({
+                'success': False,
+                'message': '无法打开下载页面，请手动前往 Releases 页面'
+            }), 500
+
+        return jsonify({
+            'success': True,
+            'mode': 'browser',
+            'portable': portable,
+            'download_url': target_url,
+            'message': '已打开下载页面，请完成安装后手动重启应用'
+        })
+    except Exception as e:
+        logger.error(f"打开更新下载失败: {e}")
+        return jsonify({'success': False, 'message': f'打开下载页面失败: {str(e)}'}), 500
+
+
+@app.route('/api/restart_app', methods=['GET'])
+def restart_app():
+    """Python 打包版不支持原地热更新重启，保留兼容接口。"""
+    return jsonify({
+        'success': False,
+        'message': '当前版本更新后需要手动重启应用'
+    }), 501
 
 
 @app.route('/api/select_directory', methods=['POST'])
@@ -516,13 +790,14 @@ def select_directory():
 def get_download_history():
     """获取下载历史文件列表。"""
     try:
+        force_refresh = str(request.args.get('refresh', '')).lower() in ('1', 'true', 'yes')
         root = get_download_root()
         return jsonify({
             'success': True,
             'download_root': str(root),
             'download_roots': [str(item) for item in get_all_download_roots()],
             'base_dir': Config.BASE_DIR,
-            'items': build_download_history()
+            'items': get_download_history_items(force_refresh=force_refresh)
         })
     except Exception as e:
         logger.error(f"获取下载历史失败: {str(e)}")
@@ -582,6 +857,26 @@ def open_download_history_location():
         return jsonify({'success': False, 'message': f'打开文件位置失败: {str(e)}'}), 500
 
 
+@app.route('/api/download_history/open_directory', methods=['POST'])
+def open_download_history_directory():
+    """打开当前下载目录。"""
+    try:
+        download_root = get_download_root()
+        download_root.mkdir(parents=True, exist_ok=True)
+
+        if IS_WINDOWS:
+            os.startfile(str(download_root))
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', str(download_root)])
+        else:
+            subprocess.Popen(['xdg-open', str(download_root)])
+
+        return jsonify({'success': True, 'path': str(download_root)})
+    except Exception as e:
+        logger.error(f"打开下载目录失败: {str(e)}")
+        return jsonify({'success': False, 'message': f'打开下载目录失败: {str(e)}'}), 500
+
+
 @app.route('/api/download_history/delete', methods=['POST'])
 def delete_download_history_files():
     """删除下载文件，支持批量。"""
@@ -628,6 +923,9 @@ def delete_download_history_files():
     except Exception as e:
         logger.error(f"删除下载文件失败: {str(e)}")
         return jsonify({'success': False, 'message': f'删除下载文件失败: {str(e)}'}), 500
+    finally:
+        if 'deleted' in locals() and deleted:
+            remove_download_history_entries(deleted)
 
 
 @app.route('/api/download_history/move_selected', methods=['POST'])
@@ -648,6 +946,7 @@ def move_selected_download_history_files():
 
         moved = []
         missing = []
+        moved_map = {}
 
         for raw_path in raw_paths:
             try:
@@ -670,6 +969,7 @@ def move_selected_download_history_files():
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(file_path), str(destination))
             moved.append(str(destination))
+            moved_map[str(file_path)] = str(destination)
 
             parent = file_path.parent
             while parent != root and parent.exists():
@@ -684,7 +984,14 @@ def move_selected_download_history_files():
             *getattr(Config, 'HISTORY_DIRS', []),
             str(target_dir)
         ])
-        Config.save_config(Config.COOKIE, Config.BASE_DIR, Config.HISTORY_DIRS)
+        Config.save_config(
+            Config.COOKIE,
+            Config.BASE_DIR,
+            Config.HISTORY_DIRS,
+            download_quality=Config.DOWNLOAD_QUALITY,
+            max_concurrent=Config.MAX_CONCURRENT,
+        )
+        move_download_history_entries(moved_map)
 
         return jsonify({
             'success': True,
@@ -700,70 +1007,150 @@ def move_selected_download_history_files():
         return jsonify({'success': False, 'message': f'迁移选中文件失败: {str(e)}'}), 500
 @app.route('/api/media/proxy')
 def media_proxy():
-    """代理抖音媒体资源，添加必要的Referer和Cookie头"""
+    """代理抖音媒体资源，限制来源并安全处理重定向。"""
 
-    url = request.args.get('url', '')
+    url = request.args.get('url', '').strip()
     requested_filename = _sanitize_download_filename(request.args.get('filename', '').strip(), default='')
     requested_media_type = request.args.get('media_type', '').strip().lower()
+    allow_origin, origin_value = _allowed_media_request_origin()
+
+    if not allow_origin:
+        return 'Forbidden', 403
     if not is_allowed_media_url(url):
         return 'Invalid URL', 400
 
+    request_range = request.headers.get('Range')
+    request_range_str = request_range or ''
+    should_seed_video_range = not request_range and (requested_media_type == 'video' or '/play/' in url)
+    upstream_range_value = request_range or (MEDIA_PROXY_INITIAL_VIDEO_RANGE if should_seed_video_range else None)
+    cache_key = url if '/aweme/v1/play/' in url else None
+    upstream_url = MEDIA_PROXY_REDIRECT_CACHE.get(cache_key, url) if cache_key else url
+
+    retry_count = 0
+    redirect_hops = 0
+    start_time = time.time()
+    resp = None
+
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-            'Referer': 'https://www.douyin.com/',
-            'Accept': '*/*',
-            'Accept-Encoding': 'identity;q=1, *;q=0',
-        }
+        while True:
+            if not is_allowed_media_url(upstream_url):
+                if cache_key:
+                    MEDIA_PROXY_REDIRECT_CACHE.pop(cache_key, None)
+                return 'Invalid URL', 400
 
-        if api and api.cookie and should_forward_douyin_cookie(url):
-            headers['Cookie'] = api.cookie
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+                'Referer': 'https://www.douyin.com/',
+                'Accept': '*/*',
+                'Accept-Encoding': 'identity;q=1, *;q=0',
+            }
 
-        # 转发Range请求（支持视频seek）
-        range_header = request.headers.get('Range')
-        if range_header:
-            headers['Range'] = range_header
+            if api and api.cookie and should_forward_douyin_cookie(upstream_url):
+                headers['Cookie'] = api.cookie
+            if upstream_range_value:
+                headers['Range'] = upstream_range_value
 
-        import time
-        t0 = time.time()
-        resp = http_requests.get(url, headers=headers, stream=True, timeout=(10, 30))
-        t1 = time.time()
-        logger.info('[media_proxy] 上游响应耗时 %.2fs, status=%s, url=%s', t1 - t0, resp.status_code, url[:120])
+            try:
+                resp = http_requests.get(
+                    upstream_url,
+                    headers=headers,
+                    stream=True,
+                    timeout=(10, 30),
+                    allow_redirects=False,
+                )
+            except Exception as e:
+                if retry_count < MEDIA_PROXY_MAX_RETRIES:
+                    retry_count += 1
+                    logger.warning(
+                        '[media_proxy] 网络错误，准备重试 %s/%s: %s',
+                        retry_count,
+                        MEDIA_PROXY_MAX_RETRIES,
+                        e,
+                    )
+                    time.sleep(0.5 * retry_count)
+                    continue
 
-        # 构建响应头
+                if cache_key:
+                    MEDIA_PROXY_REDIRECT_CACHE.pop(cache_key, None)
+                logger.error(
+                    '[media_proxy] 请求失败, elapsed=%sms seeded_range=%s range="%s" url=%s error=%s',
+                    int((time.time() - start_time) * 1000),
+                    should_seed_video_range,
+                    request_range_str,
+                    upstream_url[:120],
+                    e,
+                )
+                return 'Proxy error', 502
+
+            if 300 <= resp.status_code < 400:
+                location = resp.headers.get('Location', '')
+                next_url = _resolve_media_redirect_target(resp.url, location)
+                resp.close()
+
+                if not location or redirect_hops >= 4 or not next_url or not is_allowed_media_url(next_url):
+                    if cache_key:
+                        MEDIA_PROXY_REDIRECT_CACHE.pop(cache_key, None)
+                    return 'Invalid redirect URL', 400
+
+                redirect_hops += 1
+                upstream_url = next_url
+                continue
+
+            if 500 <= resp.status_code < 600 and retry_count < MEDIA_PROXY_MAX_RETRIES:
+                retry_count += 1
+                logger.warning(
+                    '[media_proxy] 上游服务错误，准备重试 %s/%s: status=%s url=%s',
+                    retry_count,
+                    MEDIA_PROXY_MAX_RETRIES,
+                    resp.status_code,
+                    upstream_url[:120],
+                )
+                resp.close()
+                time.sleep(0.5 * retry_count)
+                continue
+
+            break
+
+        if cache_key and upstream_url != url:
+            MEDIA_PROXY_REDIRECT_CACHE[cache_key] = upstream_url
+
+        logger.info(
+            '[media_proxy] 上游响应耗时 %.2fs, status=%s, seeded_range=%s, range="%s", url=%s',
+            time.time() - start_time,
+            resp.status_code,
+            should_seed_video_range,
+            request_range_str,
+            upstream_url[:120],
+        )
+
         resp_headers = {}
         for key in ['Content-Type', 'Content-Range', 'Accept-Ranges']:
             if key in resp.headers:
                 resp_headers[key] = resp.headers[key]
 
-        # 对于视频/音频：小 Range 请求（seek）返回 Content-Length，大范围请求不返回
-        # 这样浏览器不会等整个文件缓冲完才播放
-        is_media = requested_media_type in ('audio', 'video') or 'video' in resp_headers.get('Content-Type', '')
+        upstream_content_type = resp.headers.get('Content-Type', '')
+        normalized_content_type = upstream_content_type.split(';', 1)[0].strip().lower() if upstream_content_type else ''
+        is_media = requested_media_type in ('audio', 'video') or 'video' in normalized_content_type
         content_length = resp.headers.get('Content-Length', '')
         if content_length:
             try:
                 cl = int(content_length)
-                # 小于 2MB 的响应（seek 片段）保留 Content-Length
                 if cl < 2 * 1024 * 1024 or not is_media:
                     resp_headers['Content-Length'] = content_length
             except ValueError:
                 resp_headers['Content-Length'] = content_length
 
-        upstream_content_type = resp_headers.get('Content-Type', '')
-        normalized_content_type = upstream_content_type.split(';', 1)[0].strip().lower() if upstream_content_type else ''
-        inferred_name = requested_filename or url
-
-        # 如果没有 Content-Type，或者上游只给了 octet-stream，则按媒体类型兜底。
+        inferred_name = requested_filename or upstream_url
         if requested_media_type == 'audio':
             resp_headers['Content-Type'] = _guess_audio_content_type(inferred_name, normalized_content_type)
-        elif not normalized_content_type:
-            if '.mp4' in url or 'video' in url:
+        elif not normalized_content_type or normalized_content_type == 'application/octet-stream':
+            if '.mp4' in upstream_url or '/play/' in upstream_url or requested_media_type == 'video':
                 resp_headers['Content-Type'] = 'video/mp4'
-            elif '.jpg' in url or '.jpeg' in url:
+            elif '.jpg' in upstream_url or '.jpeg' in upstream_url:
                 resp_headers['Content-Type'] = 'image/jpeg'
-            elif '.png' in url:
+            elif '.png' in upstream_url:
                 resp_headers['Content-Type'] = 'image/png'
-            elif '.webp' in url:
+            elif '.webp' in upstream_url:
                 resp_headers['Content-Type'] = 'image/webp'
 
         if requested_media_type in ('audio', 'video') and 'Accept-Ranges' not in resp_headers:
@@ -773,23 +1160,38 @@ def media_proxy():
         if content_disposition:
             resp_headers['Content-Disposition'] = content_disposition
 
-        resp_headers['Access-Control-Allow-Origin'] = '*'
+        resp_headers['Access-Control-Allow-Origin'] = origin_value or '*'
         resp_headers['Cache-Control'] = 'public, max-age=3600'
 
         def generate():
             total = 0
-            t_start = time.time()
-            for chunk in resp.iter_content(chunk_size=65536):
-                if chunk:
-                    total += len(chunk)
-                    yield chunk
-            logger.info('[media_proxy] 传输完成, 共 %.2fMB, 耗时 %.2fs, url=%s',
-                        total / 1048576, time.time() - t_start, url[:120])
+            stream_start = time.time()
+            try:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    if chunk:
+                        total += len(chunk)
+                        yield chunk
+            finally:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
+                logger.info(
+                    '[media_proxy] 传输完成, 共 %.2fMB, 耗时 %.2fs, url=%s',
+                    total / 1048576,
+                    time.time() - stream_start,
+                    upstream_url[:120],
+                )
 
-        status_code = resp.status_code
-        return Response(generate(), status=status_code, headers=resp_headers)
+        return Response(generate(), status=resp.status_code, headers=resp_headers)
 
     except Exception as e:
+        logger.error(f"[media_proxy] Proxy error: {e}")
+        if resp is not None:
+            try:
+                resp.close()
+            except Exception:
+                pass
         return f'Proxy error: {str(e)}', 502
 
 
@@ -1144,6 +1546,7 @@ def get_user_videos():
                 'share_count': video.get('statistics', {}).get('share_count', 0),
                 'cover_url': cover_url,
                 'media_type': media_type,
+                'raw_media_type': media_type,
                 'media_urls': media_urls,
                 'bgm_url': bgm_url,
                 'music': music_info,
@@ -1173,7 +1576,7 @@ def get_user_videos():
 def download_single_video():
     """下载单个作品（视频、图集或Live Photo）"""
     try:
-        data = request.json
+        data = request.json or {}
         aweme_id = data.get('aweme_id', '').strip()
         video_desc = data.get('desc', '未知作品')
         media_urls = data.get('media_urls', [])
@@ -1186,17 +1589,38 @@ def download_single_video():
         if not user_manager or not downloader:
             return jsonify({'success': False, 'message': '服务未完全初始化'}), 500
 
-        # 如果前端没有提供媒体URL，则从API获取
-        if not media_urls:
-            # ... (省略了从API获取媒体详情和URL的逻辑，因为前端现在会提供)
-            pass
+        media_urls = normalize_media_urls(media_urls, raw_media_type) if media_urls else []
+
+        should_refresh_video_media = (
+            raw_media_type == 'video'
+            or (
+                raw_media_type not in ('image', 'live_photo', 'mixed')
+                and any(item.get('type') == 'video' for item in media_urls)
+            )
+            or not media_urls
+        )
+
+        if should_refresh_video_media and aweme_id:
+            detail = run_async(user_manager.get_video_detail(aweme_id))
+            if isinstance(detail, dict) and detail.get('_need_verify'):
+                return jsonify({
+                    'success': False,
+                    'need_verify': True,
+                    'verify_url': detail.get('_verify_url'),
+                    'message': '需要完成滑块验证',
+                })
+
+            if detail:
+                detail_media_type = detail.get('raw_media_type') or detail.get('media_type') or raw_media_type
+                detail_media_urls = normalize_media_urls(detail.get('media_urls', []), detail_media_type)
+                if detail_media_urls:
+                    media_urls = detail_media_urls
+                    raw_media_type = detail_media_type
+                    video_desc = detail.get('desc') or video_desc
+                    author_name = detail.get('author', {}).get('nickname') or author_name
 
         if not media_urls:
             return jsonify({'success': False, 'message': '没有可用的媒体URL'}), 400
-
-        media_urls = normalize_media_urls(media_urls, raw_media_type)
-        if not media_urls:
-            return jsonify({'success': False, 'message': '没有有效的媒体URL'}), 400
 
         task_id = str(uuid.uuid4())
 
@@ -1273,7 +1697,25 @@ def download_single_video():
                 try:
                     # 统一下载处理，直接传入urls参数
                     logger.debug(f" 开始下载: {len(urls)} 个文件")
-                    success = downloader.download_media_group(urls, file_path, aweme_id, socketio=socketio, task_id=task_id)
+                    if len(urls) == 1 and urls[0].get('type') == 'video':
+                        success = await asyncio.to_thread(
+                            downloader.download_video,
+                            urls[0]['url'],
+                            file_path,
+                            aweme_id,
+                            None,
+                            socketio,
+                            task_id,
+                        )
+                    else:
+                        success = await asyncio.to_thread(
+                            downloader.download_media_group,
+                            urls,
+                            file_path,
+                            aweme_id,
+                            socketio,
+                            task_id,
+                        )
                     
                     if success:
                         socketio.emit('download_progress', {
@@ -1290,10 +1732,6 @@ def download_single_video():
                             'message': f'✅ 下载完成: {len(urls)} 个文件',
                             'timestamp': datetime.now().strftime('%H:%M:%S')
                         })
-                        
-                        # 如果全部成功，记录作品ID
-                        if aweme_id:
-                            downloader._save_download_record(author_name, aweme_id)
                     else:
                         raise Exception('下载失败')
                         
@@ -1393,6 +1831,7 @@ def download_user_video():
                 total_discovered = [0]
                 total_processed = [0] # 包含已跳过的
                 total_videos = aweme_count # 初始总量
+                consumer_count = max(1, int(getattr(Config, 'MAX_CONCURRENT', 3) or 1))
                 
                 # 发送初始总量信息
                 if total_videos > 0:
@@ -1555,13 +1994,26 @@ def download_user_video():
                                 )
 
                             if media_type == 'video' and len(urls) == 1:
-                                success = user_manager.downloader.download_video(
-                                    urls[0]['url'], name, aweme_id, cancel_event,
-                                    socketio=socketio, task_id=task_id, progress_callback=progress_callback
+                                success = await asyncio.to_thread(
+                                    user_manager.downloader.download_video,
+                                    urls[0]['url'],
+                                    name,
+                                    aweme_id,
+                                    cancel_event,
+                                    socketio,
+                                    task_id,
+                                    progress_callback,
                                 )
                             else:
-                                success = user_manager.downloader.download_media_group(
-                                    urls, name, aweme_id, socketio, task_id, cancel_event, progress_callback
+                                success = await asyncio.to_thread(
+                                    user_manager.downloader.download_media_group,
+                                    urls,
+                                    name,
+                                    aweme_id,
+                                    socketio,
+                                    task_id,
+                                    cancel_event,
+                                    progress_callback,
                                 )
 
                             if success:
@@ -1600,7 +2052,10 @@ def download_user_video():
                 # 获取视频抓取任务（需要能响应取消）
                 fetch_coro = user_manager.get_user_videos(sec_uid, limit=1000, on_batch=on_batch)
                 fetch_task = asyncio.create_task(fetch_coro)
-                consume_task = asyncio.create_task(downloader_consumer())
+                consume_tasks = [
+                    asyncio.create_task(downloader_consumer())
+                    for _ in range(consumer_count)
+                ]
                 
                 # 循环检查取消
                 while not fetch_task.done():
@@ -1610,7 +2065,7 @@ def download_user_video():
                     await asyncio.sleep(0.5)
                 
                 fetching_done.set()
-                await consume_task
+                await asyncio.gather(*consume_tasks, return_exceptions=True)
                 
                 if cancel_event.is_set():
                     download_tasks[task_id]['status'] = 'cancelled'
@@ -1867,7 +2322,9 @@ def parse_link():
                 'create_time': video_info.get('create_time', 0),
                 'desc': video_info.get('desc', ''),
                 'digg_count': video_info.get('digg_count', 0),
+                'duration': video_info.get('duration', 0),
                 'media_type': video_info.get('media_type', ''),
+                'raw_media_type': video_info.get('raw_media_type', video_info.get('media_type', '')),
                 'media_urls': video_info.get('media_urls', []),
                 'share_count': video_info.get('share_count', 0)
             }
@@ -2522,7 +2979,7 @@ def download_video_by_aweme_id():
         # 生成文件名
         author_name = detail.get('author', {}).get('nickname', '未知作者')
         desc = detail.get('desc', '未知作品')[:50]
-        name = f"{author_name}_{desc}_{aweme_id}"
+        name = f"{author_name}/{desc}_{aweme_id}"
 
         # 添加到下载队列
         task_id = str(uuid.uuid4())
@@ -2530,16 +2987,24 @@ def download_video_by_aweme_id():
         async def do_download():
             try:
                 if len(media_urls) == 1 and media_urls[0].get('type') == 'video':
-                    success = user_manager.downloader.download_video(
-                        media_urls[0]['url'], name, aweme_id,
-                        cancel_event=asyncio.Event(),
-                        socketio=socketio, task_id=task_id
+                    success = await asyncio.to_thread(
+                        user_manager.downloader.download_video,
+                        media_urls[0]['url'],
+                        name,
+                        aweme_id,
+                        asyncio.Event(),
+                        socketio,
+                        task_id,
                     )
                 else:
-                    success = user_manager.downloader.download_media_group(
-                        media_urls, name, aweme_id,
-                        socketio=socketio, task_id=task_id,
-                        cancel_event=asyncio.Event(),
+                    success = await asyncio.to_thread(
+                        user_manager.downloader.download_media_group,
+                        media_urls,
+                        name,
+                        aweme_id,
+                        socketio,
+                        task_id,
+                        asyncio.Event(),
                     )
 
                 if success:

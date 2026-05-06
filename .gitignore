@@ -51,6 +51,7 @@ venv.bak/
 config.json
 data/
 *.log
+download_history_index.json
 
 # 调试和临时文件
 debug_*.json

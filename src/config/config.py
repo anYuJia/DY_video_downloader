@@ -27,11 +27,14 @@ class Config:
     
     # Cookie设置
     COOKIE = ""
-    
+    APP_VERSION = (os.environ.get("APP_VERSION") or os.environ.get("GITHUB_REF_NAME") or "0.0.13").lstrip("v")
+
     # 文件保存路径默认在执行文件旁边
     BASE_DIR = os.path.join(APP_EXEC_DIR, "douyin_download")
     DOWNLOAD_DIR = BASE_DIR
     HISTORY_DIRS = []
+    DOWNLOAD_QUALITY = "auto"
+    MAX_CONCURRENT = 3
     
     # 请求参数
     HOST = 'https://www.douyin.com'
@@ -95,7 +98,12 @@ class Config:
         cls.BASE_DIR = os.environ.get("DOUYIN_BASE_DIR", cls.BASE_DIR)
         cls.DOWNLOAD_DIR = cls.BASE_DIR
         cls.HISTORY_DIRS = []
-        
+        cls.DOWNLOAD_QUALITY = os.environ.get("DOUYIN_DOWNLOAD_QUALITY", cls.DOWNLOAD_QUALITY)
+        try:
+            cls.MAX_CONCURRENT = max(1, min(10, int(os.environ.get("DOUYIN_MAX_CONCURRENT", cls.MAX_CONCURRENT))))
+        except Exception:
+            cls.MAX_CONCURRENT = 3
+
         # 然后尝试从配置文件加载
         if os.path.exists(cls.CONFIG_FILE):
             try:
@@ -105,6 +113,11 @@ class Config:
                     cls.BASE_DIR = config_data.get("base_dir", cls.BASE_DIR)
                     cls.DOWNLOAD_DIR = cls.BASE_DIR
                     cls.HISTORY_DIRS = cls.normalize_history_dirs(config_data.get("history_dirs", []))
+                    cls.DOWNLOAD_QUALITY = str(config_data.get("download_quality", cls.DOWNLOAD_QUALITY) or "auto")
+                    try:
+                        cls.MAX_CONCURRENT = max(1, min(10, int(config_data.get("max_concurrent", cls.MAX_CONCURRENT) or 3)))
+                    except Exception:
+                        cls.MAX_CONCURRENT = 3
                     legacy_dir = os.path.join(cls.BASE_DIR, "douyin_download")
                     if os.path.isdir(legacy_dir) and os.path.abspath(legacy_dir).lower() != os.path.abspath(cls.DOWNLOAD_DIR).lower():
                         cls.HISTORY_DIRS = cls.normalize_history_dirs([*cls.HISTORY_DIRS, legacy_dir])
@@ -140,12 +153,20 @@ class Config:
         return normalized
 
     @classmethod
-    def save_config(cls, cookie, base_dir, history_dirs=None):
+    def save_config(cls, cookie, base_dir, history_dirs=None, download_quality=None, max_concurrent=None):
         """保存配置到配置文件"""
+        resolved_quality = str(download_quality or cls.DOWNLOAD_QUALITY or "auto")
+        try:
+            resolved_max_concurrent = max(1, min(10, int(max_concurrent if max_concurrent is not None else cls.MAX_CONCURRENT)))
+        except Exception:
+            resolved_max_concurrent = cls.MAX_CONCURRENT
+
         config_data = {
             "cookie": cookie,
             "base_dir": base_dir,
-            "history_dirs": cls.normalize_history_dirs(history_dirs if history_dirs is not None else cls.HISTORY_DIRS)
+            "history_dirs": cls.normalize_history_dirs(history_dirs if history_dirs is not None else cls.HISTORY_DIRS),
+            "download_quality": resolved_quality,
+            "max_concurrent": resolved_max_concurrent,
         }
         try:
             with open(cls.CONFIG_FILE, 'w', encoding='utf-8') as f:

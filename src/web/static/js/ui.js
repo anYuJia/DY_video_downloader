@@ -165,6 +165,133 @@ function showToast(message, type) {
 // ═══════════════════════════════════════════════
 // SECTIONS
 // ═══════════════════════════════════════════════
+const APP_SECTION_IDS = [
+    'emptyState',
+    'userDetailSection',
+    'userVideosSection',
+    'likedVideosSection',
+    'likedAuthorsSection',
+    'linkParseResult',
+    'recommendedFeedSection',
+    'myDownloadsSection'
+];
+const APP_SECTION_DISPLAY = {
+    emptyState: 'flex'
+};
+const SECTION_REVEAL_DURATION_MS = 560;
+let _sectionMotionInitialized = false;
+
+function prefersReducedMotion() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+
+function ensureSectionMotionSetup() {
+    if (_sectionMotionInitialized) return;
+    _sectionMotionInitialized = true;
+
+    APP_SECTION_IDS.forEach(sectionId => {
+        const element = document.getElementById(sectionId);
+        if (element) element.classList.add('app-section');
+    });
+
+    const backBtn = document.getElementById('back-btn');
+    if (backBtn) backBtn.classList.add('motion-managed');
+}
+
+function clearSectionRevealState(element) {
+    if (!element) return;
+    if (element._revealTimer) {
+        clearTimeout(element._revealTimer);
+        element._revealTimer = null;
+    }
+    element.classList.remove('is-revealing');
+}
+
+function hideSectionById(sectionId) {
+    ensureSectionMotionSetup();
+    const element = document.getElementById(sectionId);
+    if (!element) return;
+    clearSectionRevealState(element);
+    element.style.display = 'none';
+}
+
+function revealSectionById(sectionId, displayMode) {
+    ensureSectionMotionSetup();
+    const element = document.getElementById(sectionId);
+    if (!element) return;
+
+    const resolvedDisplay = displayMode || APP_SECTION_DISPLAY[sectionId] || 'block';
+    const wasVisible = window.getComputedStyle(element).display !== 'none';
+    clearSectionRevealState(element);
+    element.style.display = resolvedDisplay;
+
+    if (prefersReducedMotion() || wasVisible) return;
+
+    requestAnimationFrame(() => {
+        element.classList.remove('is-revealing');
+        void element.offsetWidth;
+        element.classList.add('is-revealing');
+        element._revealTimer = setTimeout(() => {
+            element.classList.remove('is-revealing');
+            element._revealTimer = null;
+        }, SECTION_REVEAL_DURATION_MS);
+    });
+}
+
+function setBackButtonVisible(visible) {
+    ensureSectionMotionSetup();
+    const backBtn = document.getElementById('back-btn');
+    if (!backBtn) return;
+
+    if (backBtn._hideTimer) {
+        clearTimeout(backBtn._hideTimer);
+        backBtn._hideTimer = null;
+    }
+
+    if (visible) {
+        backBtn.style.display = 'flex';
+        if (prefersReducedMotion()) {
+            backBtn.classList.add('is-visible');
+            return;
+        }
+
+        requestAnimationFrame(() => {
+            backBtn.classList.add('is-visible');
+        });
+        return;
+    }
+
+    backBtn.classList.remove('is-visible');
+    if (prefersReducedMotion()) {
+        backBtn.style.display = 'none';
+        return;
+    }
+
+    backBtn._hideTimer = setTimeout(() => {
+        backBtn.style.display = 'none';
+        backBtn._hideTimer = null;
+    }, 180);
+}
+
+function initSectionMotion() {
+    ensureSectionMotionSetup();
+    const emptyState = document.getElementById('emptyState');
+    if (emptyState && window.getComputedStyle(emptyState).display !== 'none') {
+        revealSectionById('emptyState', 'flex');
+    }
+
+    const backBtn = document.getElementById('back-btn');
+    if (backBtn && window.getComputedStyle(backBtn).display !== 'none') {
+        backBtn.classList.add('is-visible');
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSectionMotion);
+} else {
+    initSectionMotion();
+}
+
 function hideAllSections(fromCache) {
     const sections = [
         'userDetailSection',
@@ -173,21 +300,16 @@ function hideAllSections(fromCache) {
         'likedAuthorsSection',
         'linkParseResult',
         'recommendedFeedSection',
-        'myDownloadsSection'  // 添加我的下载区域
+        'myDownloadsSection'
     ];
 
-    sections.forEach(sectionId => {
-        const element = document.getElementById(sectionId);
-        if (element) element.style.display = 'none';
-    });
+    sections.forEach(hideSectionById);
 
     // Show empty state
-    const emptyState = document.getElementById('emptyState');
-    if (emptyState) emptyState.style.display = 'flex';
+    revealSectionById('emptyState', 'flex');
 
     // Hide back button
-    const backBtn = document.getElementById('back-btn');
-    if (backBtn) backBtn.style.display = 'none';
+    setBackButtonVisible(false);
 
     const parsedVideosList = document.getElementById('parsedVideosList');
     if (parsedVideosList) parsedVideosList.textContent = '';
@@ -205,7 +327,7 @@ async function apiFetch(url, options) {
     const resp = await fetch(url, options);
     const data = await resp.json();
     if (data.need_verify) {
-        showVerifyDialog();
+        showVerifyDialog(data.verify_url);
         throw new Error('need_verify');
     }
     return data;
@@ -215,38 +337,40 @@ function showVerifyDialog(verifyUrl) {
     // 检查是否是临时 cookie（未登录）
     const cookieInput = document.getElementById('cookie-input');
     const cookieValue = cookieInput ? cookieInput.value : '';
-    const hasLoginCookie = cookieValue.includes('sessionid');
+    const hasLoginCookie = cookieValue.includes('sessionid') || (cookieInput && cookieInput.dataset.cookieSet === 'true');
 
     if (!hasLoginCookie) {
         // 未登录状态，提示可能需要验证
         showToast('临时 Cookie 可能触发验证，建议登录账号以获得更稳定的使用体验', 'warning');
         addLog('提示：使用临时 Cookie 可能会遇到验证。建议登录账号以避免验证。', 'warning');
     } else {
-        showToast('正在打开验证窗口...', 'info');
-        addLog('触发滑块验证，正在使用已保存 Cookie 打开验证窗口...', 'warning');
+        showToast('正在打开验证浏览器...', 'info');
+        addLog('触发滑块验证，正在使用已存储的Cookie打开浏览器...', 'warning');
     }
 
-    var url = verifyUrl || 'https://www.douyin.com/';
-
-    // 调用后端API，优先使用应用内验证窗口
+    // 调用后端API，使用已存储的Cookie打开浏览器
     fetch('/api/open_verify_browser', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_url: url })
+        body: JSON.stringify({ target_url: verifyUrl || '' })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            showToast('请在验证窗口中完成验证，然后重试', 'info');
-            addLog('验证窗口已打开，请完成验证后重试', 'info');
+            showToast('请在浏览器中完成验证，然后重新搜索', 'info');
+            addLog('浏览器已打开，请在浏览器中完成验证后重新搜索', 'info');
         } else {
-            showToast(data.message || '无法打开验证窗口', 'error');
-            addLog(data.message || '无法打开验证窗口，请在桌面模式下完成验证', 'error');
+            // 如果后端打开失败，尝试直接打开
+            window.open(verifyUrl || 'https://www.douyin.com/', 'douyin_verify', 'width=1100,height=750,scrollbars=yes');
+            showToast('需要滑块验证，请在弹出窗口中完成验证后重试', 'warning');
+            addLog('触发滑块验证，请在弹出窗口中完成后重新搜索', 'warning');
         }
     })
     .catch(err => {
         console.error('打开验证浏览器失败:', err);
-        showToast('无法打开验证窗口，请重试', 'error');
+        // 回退到直接打开
+        window.open(verifyUrl || 'https://www.douyin.com/', 'douyin_verify', 'width=1100,height=750,scrollbars=yes');
+        showToast('需要滑块验证，请在弹出窗口中完成验证后重试', 'warning');
     });
 }
 
@@ -366,7 +490,7 @@ function displayStorageVideos(videos) {
 
         const safeDesc = escapeHtml(video.desc || '无描述');
         const safeAuthor = escapeHtml(video.author?.nickname || '未知作者');
-        const coverSrc = escapeHtml(video.cover || video.cover_url || '/static/placeholder.jpg');
+        const coverSrc = escapeHtml(video.cover || video.cover_url || '/default-cover.svg');
         const aid = escapeHtml(video.aweme_id);
 
         return '<div class="card mb-2" id="storage-card-' + aid + '">'
@@ -627,7 +751,7 @@ function setupMediaPreview(video) {
 
     video.media_urls.forEach((media, index) => {
         const mediaType = media.type || 'unknown';
-        const mediaUrl = proxyUrl(media.url || '');
+        const mediaUrl = proxyUrl(media.url || '', mediaType);
         const wrapper = document.createElement('div');
         wrapper.className = 'mb-3';
 
@@ -778,7 +902,7 @@ function setupMediaPreviewControls(video) {
         if (hasVideo) {
             const videoUrl = video.media_urls.find(media => media.type === 'video')?.url;
             if (videoUrl) {
-                videoPlayer.src = proxyUrl(videoUrl);
+                videoPlayer.src = proxyUrl(videoUrl, 'video');
                 showVideoBtn.style.display = 'inline-block';
             }
         }
@@ -818,7 +942,7 @@ function setupImageCarousel(imageMedias) {
             video.className = 'd-block w-100 rounded';
             video.controls = true;
             const source = document.createElement('source');
-            source.src = proxyUrl(media.url);
+            source.src = proxyUrl(media.url, 'video');
             source.type = 'video/mp4';
             video.appendChild(source);
             carouselItem.appendChild(video);
@@ -832,7 +956,7 @@ function setupImageCarousel(imageMedias) {
             carouselItem.appendChild(caption);
         } else {
             const img = document.createElement('img');
-            img.src = proxyUrl(media.url);
+            img.src = proxyUrl(media.url, 'image');
             img.className = 'd-block w-100 rounded';
             img.alt = '图片 ' + (index + 1);
             carouselItem.appendChild(img);
@@ -1021,7 +1145,7 @@ function _shouldUseSeparateBgm(item) {
 function _startPlayerBgm() {
     if (!_playerBgmUrl) return;
     if (!_playerBgmAudio) {
-        _playerBgmAudio = new Audio(proxyUrl(_playerBgmUrl));
+        _playerBgmAudio = new Audio(proxyUrl(_playerBgmUrl, 'audio'));
         _playerBgmAudio.loop = true;
     }
     _playerBgmAudio.play().catch(() => {});
@@ -1427,3 +1551,260 @@ function playerSeek(e) {
 // DEBOUNCED FILTER
 // ═══════════════════════════════════════════════
 const debouncedFilterStorageVideos = debounce(filterStorageVideos, 300);
+
+// ═══════════════════════════════════════════════
+// AUTO-UPDATE FUNCTIONALITY
+// ═══════════════════════════════════════════════
+function initUpdateChecker() {
+    fetch('/api/get_app_version')
+        .then(function(response) { return response.json(); })
+        .then(function(version) {
+            const versionEl = document.getElementById('app-version-text');
+            if (versionEl) {
+                versionEl.textContent = '当前版本: v' + version;
+            }
+        })
+        .catch(function(error) {
+            console.error('Failed to get app version:', error);
+        });
+
+    const checkBtn = document.getElementById('check-update-btn');
+    if (checkBtn) {
+        checkBtn.addEventListener('click', function() {
+            checkForUpdates(true);
+        });
+    }
+
+    const downloadBtn = document.getElementById('update-download-btn');
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', function() {
+            downloadAndInstallUpdate();
+        });
+    }
+
+    const restartBtn = document.getElementById('update-restart-btn');
+    if (restartBtn) {
+        restartBtn.addEventListener('click', function() {
+            fetch('/api/restart_app').catch(function(error) {
+                console.error('Restart app failed:', error);
+                showToast('重启应用失败，请手动重启', 'error');
+            });
+        });
+    }
+
+    setTimeout(function() {
+        checkForUpdates(false);
+    }, 3000);
+}
+
+function formatUpdateVersion(value) {
+    if (value === null || value === undefined || value === '') {
+        return '未知';
+    }
+
+    const text = String(value);
+    return text.charAt(0).toLowerCase() === 'v' ? text : 'v' + text;
+}
+
+function checkForUpdates(showNoUpdateToast) {
+    const statusEl = document.getElementById('update-status');
+    const modal = new bootstrap.Modal(document.getElementById('updateModal'));
+
+    if (statusEl) {
+        statusEl.textContent = '正在检查更新...';
+        statusEl.className = 'text-info';
+    }
+
+    fetch('/api/check_update')
+        .then(function(response) { return response.json(); })
+        .then(function(result) {
+            if (result.success && result.has_update) {
+                const currentVersionEl = document.getElementById('update-current-version');
+                const newVersionEl = document.getElementById('update-new-version');
+                const notesEl = document.getElementById('update-release-notes');
+                const progressArea = document.getElementById('update-progress-area');
+                const progressText = document.getElementById('update-progress-text');
+                const progressBar = document.getElementById('update-progress-bar');
+                const downloadBtn = document.getElementById('update-download-btn');
+                const restartBtn = document.getElementById('update-restart-btn');
+
+                const currentVersion = result.current_version || result.currentVersion || result.current || '';
+                const newVersion = result.version || result.latest_version || result.latestVersion || '';
+
+                if (currentVersionEl) {
+                    currentVersionEl.textContent = formatUpdateVersion(currentVersion);
+                }
+                if (newVersionEl) {
+                    newVersionEl.textContent = formatUpdateVersion(newVersion);
+                }
+                if (notesEl) {
+                    notesEl.textContent = result.notes || '暂无更新说明';
+                }
+                if (progressArea) {
+                    progressArea.style.display = 'none';
+                }
+                if (progressBar) {
+                    progressBar.style.width = '0%';
+                }
+                if (progressText) {
+                    progressText.textContent = '';
+                }
+                if (downloadBtn) {
+                    downloadBtn.style.display = 'inline-block';
+                    downloadBtn.disabled = false;
+                    downloadBtn.innerHTML = '<i class="bi bi-download"></i> 立即更新';
+                    downloadBtn.dataset.updateMode = result.install_mode || (result.portable ? 'portable' : '');
+                }
+                if (restartBtn) {
+                    restartBtn.style.display = 'none';
+                }
+
+                modal.show();
+            } else if (result.success && !result.has_update) {
+                if (statusEl) {
+                    statusEl.textContent = '当前已是最新版本';
+                    statusEl.className = 'text-success';
+                }
+                if (showNoUpdateToast) {
+                    showToast('当前已是最新版本', 'success');
+                }
+            } else {
+                if (statusEl) {
+                    statusEl.textContent = '检查失败: ' + (result.message || '未知错误');
+                    statusEl.className = 'text-danger';
+                }
+                if (showNoUpdateToast) {
+                    showToast('检查更新失败: ' + (result.message || '未知错误'), 'error');
+                }
+            }
+        })
+        .catch(function(error) {
+            console.error('Check update failed:', error);
+            if (statusEl) {
+                statusEl.textContent = '检查失败';
+                statusEl.className = 'text-danger';
+            }
+            if (showNoUpdateToast) {
+                showToast('检查更新失败', 'error');
+            }
+        });
+}
+
+function downloadAndInstallUpdate() {
+    const downloadBtn = document.getElementById('update-download-btn');
+    const restartBtn = document.getElementById('update-restart-btn');
+    const progressBar = document.getElementById('update-progress-bar');
+    const progressArea = document.getElementById('update-progress-area');
+    const progressText = document.getElementById('update-progress-text');
+    const statusEl = document.getElementById('update-status');
+    const portableMode = downloadBtn && downloadBtn.dataset.updateMode === 'portable';
+
+    if (downloadBtn) {
+        downloadBtn.disabled = true;
+        downloadBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> 下载中...';
+    }
+    if (progressArea) {
+        progressArea.style.display = 'block';
+    }
+    if (progressBar) {
+        progressBar.style.width = '0%';
+    }
+    if (progressText) {
+        progressText.textContent = portableMode ? '准备下载便携版更新...' : '准备下载...';
+    }
+    if (statusEl) {
+        statusEl.textContent = portableMode ? '正在下载便携版更新...' : '正在下载更新...';
+        statusEl.className = 'text-info';
+    }
+
+    let progress = 0;
+    const progressInterval = setInterval(function() {
+        progress += Math.random() * 10;
+        if (progress > 90) progress = 90;
+        if (progressBar) {
+            progressBar.style.width = Math.round(progress) + '%';
+        }
+        if (progressText) {
+            progressText.textContent = '已下载 ' + Math.round(progress) + '%';
+        }
+    }, 300);
+
+    fetch('/api/download_update')
+        .then(function(response) { return response.json(); })
+        .then(function(result) {
+            clearInterval(progressInterval);
+            if (progressBar) {
+                progressBar.style.width = '100%';
+            }
+            if (progressText) {
+                progressText.textContent = result.success
+                    ? (portableMode ? '下载完成，正在替换程序' : '下载并安装完成')
+                    : '下载失败';
+            }
+
+            if (result.success) {
+                if (result.mode === 'browser') {
+                    if (statusEl) {
+                        statusEl.textContent = result.message || '已打开下载页面';
+                        statusEl.className = 'text-success';
+                    }
+                    if (downloadBtn) {
+                        downloadBtn.disabled = false;
+                        downloadBtn.innerHTML = '<i class="bi bi-box-arrow-up-right"></i> 重新打开下载页';
+                    }
+                    if (progressText) {
+                        progressText.textContent = '已为你打开 GitHub Releases 下载页面';
+                    }
+                    showToast(result.message || '已打开下载页面', 'success');
+                    return;
+                }
+
+                if (statusEl) {
+                    statusEl.textContent = portableMode ? '便携版更新已下载，正在自动替换并重启...' : '更新已安装，重启后生效';
+                    statusEl.className = 'text-success';
+                }
+                if (downloadBtn) {
+                    downloadBtn.style.display = 'none';
+                }
+                if (restartBtn) {
+                    restartBtn.style.display = portableMode ? 'none' : 'inline-block';
+                }
+                showToast(portableMode ? '便携版更新已下载，应用将自动重启' : '更新已安装，重启后生效', 'success');
+            } else {
+                if (statusEl) {
+                    statusEl.textContent = '下载失败: ' + (result.message || '未知错误');
+                    statusEl.className = 'text-danger';
+                }
+                if (downloadBtn) {
+                    downloadBtn.disabled = false;
+                    downloadBtn.innerHTML = '<i class="bi bi-download"></i> 立即更新';
+                }
+                showToast('下载更新失败: ' + (result.message || '未知错误'), 'error');
+            }
+        })
+        .catch(function(error) {
+            clearInterval(progressInterval);
+            console.error('Download update failed:', error);
+            if (progressBar) {
+                progressBar.style.width = '100%';
+            }
+            if (progressText) {
+                progressText.textContent = '下载失败';
+            }
+            if (statusEl) {
+                statusEl.textContent = '下载失败';
+                statusEl.className = 'text-danger';
+            }
+            if (downloadBtn) {
+                downloadBtn.disabled = false;
+                downloadBtn.innerHTML = '<i class="bi bi-download"></i> 立即更新';
+            }
+            showToast('下载更新失败', 'error');
+        });
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initUpdateChecker);
+} else {
+    initUpdateChecker();
+}

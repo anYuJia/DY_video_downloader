@@ -6,6 +6,19 @@ let _myDownloadsItems = [];
 let _myDownloadsFiltered = [];
 let _myDownloadsSelected = new Set();
 let _myDownloadsRoot = '';
+let _myDownloadsSearchState = {
+    raw: '',
+    terms: [],
+    type: 'all',
+    sort: 'date_desc'
+};
+
+const MY_DOWNLOADS_TYPE_EXTS = {
+    video: ['mp4', 'avi', 'mov', 'mkv', 'webm'],
+    image: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'],
+    audio: ['mp3', 'wav', 'flac', 'aac', 'ogg']
+};
+const MY_DOWNLOADS_SEARCHABLE_FIELDS = new Set(['author', 'name', 'path', 'ext', 'date', 'type']);
 
 document.addEventListener('DOMContentLoaded', function () {
     initMyDownloadsUI();
@@ -14,6 +27,17 @@ document.addEventListener('DOMContentLoaded', function () {
 function initMyDownloadsUI() {
     const openBtn = document.getElementById('download-history-btn');
     if (openBtn) openBtn.addEventListener('click', showMyDownloads);
+
+    const searchInput = document.getElementById('myDownloadsSearch');
+    if (searchInput && searchInput.dataset.bound !== 'true') {
+        searchInput.dataset.bound = 'true';
+        searchInput.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && searchInput.value) {
+                event.preventDefault();
+                clearMyDownloadsSearch();
+            }
+        });
+    }
 }
 
 // 显示我的下载主界面
@@ -25,20 +49,17 @@ function showMyDownloads() {
         'recommendedFeedSection'
     ];
     sections.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = 'none';
+        hideSectionById(id);
     });
 
     // 显示我的下载区域
-    const section = document.getElementById('myDownloadsSection');
-    if (section) section.style.display = 'block';
+    revealSectionById('myDownloadsSection');
 
     // 显示返回按钮
-    const backBtn = document.getElementById('back-btn');
-    if (backBtn) backBtn.style.display = 'flex';
+    setBackButtonVisible(true);
 
     // 加载数据
-    refreshMyDownloads();
+    refreshMyDownloads(false);
 }
 
 // 关闭我的下载
@@ -47,16 +68,15 @@ function closeMyDownloads() {
 }
 
 // 刷新我的下载
-async function refreshMyDownloads() {
+async function refreshMyDownloads(forceRefresh) {
     const list = document.getElementById('myDownloadsList');
-    const stats = document.getElementById('myDownloadsStats');
 
     if (!list) return;
 
     list.innerHTML = '<div class="col-12 text-center py-4"><div class="spinner-border spinner-border-sm me-2" role="status"></div>正在加载...</div>';
 
     try {
-        const response = await fetch('/api/download_history');
+        const response = await fetch(forceRefresh ? '/api/download_history?refresh=1' : '/api/download_history');
         const result = await response.json();
 
         if (!result.success) {
@@ -66,21 +86,6 @@ async function refreshMyDownloads() {
         _myDownloadsItems = Array.isArray(result.items) ? result.items : [];
         _myDownloadsRoot = result.download_root || '';
         _myDownloadsSelected.clear();
-
-        // 更新统计
-        const totalSize = _myDownloadsItems.reduce((sum, item) => sum + (Number(item.size) || 0), 0);
-        if (stats) {
-            stats.innerHTML = `
-                <i class="bi bi-folder me-1"></i>
-                共 <strong>${_myDownloadsItems.length}</strong> 个文件，
-                总计 <strong>${formatBytes(totalSize)}</strong>
-                <span class="ms-3 text-muted"><i class="bi bi-folder2-open me-1"></i>${escapeHtml(_myDownloadsRoot || '未设置')}</span>
-            `;
-        }
-
-        // 更新计数
-        const countEl = document.getElementById('myDownloadsCount');
-        if (countEl) countEl.textContent = `${_myDownloadsItems.length} 个文件`;
 
         // 应用筛选
         filterMyDownloads();
@@ -94,37 +99,222 @@ async function refreshMyDownloads() {
     }
 }
 
+function getMyDownloadsFileExt(name) {
+    return ((name || '').split('.').pop() || '').toLowerCase();
+}
+
+function getMyDownloadsFileType(item) {
+    const ext = getMyDownloadsFileExt(item && item.name);
+    if (MY_DOWNLOADS_TYPE_EXTS.video.includes(ext)) return 'video';
+    if (MY_DOWNLOADS_TYPE_EXTS.image.includes(ext)) return 'image';
+    if (MY_DOWNLOADS_TYPE_EXTS.audio.includes(ext)) return 'audio';
+    return 'other';
+}
+
+function getMyDownloadsRelativePath(item) {
+    const fullPath = item && item.path ? String(item.path) : '';
+    if (!fullPath) return '';
+
+    const normalizedRoot = (_myDownloadsRoot || '').replace(/[\\/]+$/, '');
+    if (normalizedRoot && fullPath.startsWith(normalizedRoot)) {
+        return fullPath.slice(normalizedRoot.length).replace(/^[/\\]+/, '');
+    }
+
+    return fullPath;
+}
+
+function parseMyDownloadsSearchQuery(rawQuery) {
+    const normalized = (rawQuery || '').trim().toLowerCase();
+    if (!normalized) return [];
+
+    return normalized.split(/\s+/)
+        .map(token => token.trim())
+        .filter(Boolean)
+        .map(token => {
+            const separatorIndex = token.indexOf(':');
+            if (separatorIndex > 0) {
+                const field = token.slice(0, separatorIndex);
+                const value = token.slice(separatorIndex + 1).trim();
+                if (value && MY_DOWNLOADS_SEARCHABLE_FIELDS.has(field)) {
+                    return { field, value };
+                }
+            }
+            return { field: 'any', value: token };
+        });
+}
+
+function buildMyDownloadsSearchFields(item) {
+    const name = String(item.name || '').toLowerCase();
+    const author = String(item.author || '').toLowerCase();
+    const relativePath = getMyDownloadsRelativePath(item).toLowerCase();
+    const fullPath = String(item.path || '').toLowerCase();
+    const ext = getMyDownloadsFileExt(item.name);
+    const type = getMyDownloadsFileType(item);
+    const date = formatTime(item.modified_at || 0).toLowerCase();
+
+    return {
+        name,
+        author,
+        path: relativePath || fullPath,
+        fullPath,
+        ext,
+        type,
+        date,
+        any: [name, author, relativePath, fullPath, ext, type, date].filter(Boolean).join(' ')
+    };
+}
+
+function matchesMyDownloadsSearch(item, terms) {
+    if (!terms.length) return true;
+
+    const fields = buildMyDownloadsSearchFields(item);
+    return terms.every(term => {
+        const value = term.value;
+        if (!value) return true;
+
+        switch (term.field) {
+            case 'author':
+                return fields.author.includes(value);
+            case 'name':
+                return fields.name.includes(value);
+            case 'path':
+                return fields.path.includes(value) || fields.fullPath.includes(value);
+            case 'ext':
+                return fields.ext.includes(value.replace(/^\./, ''));
+            case 'date':
+                return fields.date.includes(value);
+            case 'type':
+                return fields.type.includes(value);
+            default:
+                return fields.any.includes(value);
+        }
+    });
+}
+
+function getMyDownloadsHighlightTerms(field) {
+    return _myDownloadsSearchState.terms
+        .filter(term => term.field === 'any' || term.field === field)
+        .map(term => term.value)
+        .filter(Boolean);
+}
+
+function escapeRegExp(text) {
+    return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function highlightMyDownloadsText(text, terms) {
+    const safeText = escapeHtml(text || '');
+    if (!safeText || !terms || !terms.length) return safeText;
+
+    const normalizedTerms = Array.from(new Set(
+        terms
+            .map(term => String(term || '').trim())
+            .filter(Boolean)
+            .sort((a, b) => b.length - a.length)
+    ));
+
+    if (!normalizedTerms.length) return safeText;
+
+    const pattern = normalizedTerms.map(escapeRegExp).join('|');
+    return safeText.replace(new RegExp(`(${pattern})`, 'gi'), '<mark class="my-downloads-highlight">$1</mark>');
+}
+
+function updateMyDownloadsSearchUI() {
+    const clearBtn = document.getElementById('myDownloadsSearchClearBtn');
+    if (clearBtn) {
+        clearBtn.disabled = !_myDownloadsSearchState.raw;
+    }
+}
+
+function updateMyDownloadsStats() {
+    const stats = document.getElementById('myDownloadsStats');
+    const countEl = document.getElementById('myDownloadsCount');
+    const totalCount = _myDownloadsItems.length;
+    const filteredCount = _myDownloadsFiltered.length;
+    const totalSize = _myDownloadsItems.reduce((sum, item) => sum + (Number(item.size) || 0), 0);
+    const filteredSize = _myDownloadsFiltered.reduce((sum, item) => sum + (Number(item.size) || 0), 0);
+    const hasFilters = !!(_myDownloadsSearchState.terms.length || _myDownloadsSearchState.type !== 'all');
+    const typeLabels = {
+        all: '全部',
+        video: '视频',
+        image: '图片',
+        audio: '音频'
+    };
+
+    if (countEl) {
+        countEl.textContent = hasFilters
+            ? `${filteredCount} / ${totalCount} 个文件`
+            : `${totalCount} 个文件`;
+    }
+
+    if (!stats) return;
+
+    const filterSummary = [];
+    if (_myDownloadsSearchState.raw) {
+        filterSummary.push(`搜索：<strong>${escapeHtml(_myDownloadsSearchState.raw)}</strong>`);
+    }
+    if (_myDownloadsSearchState.type !== 'all') {
+        filterSummary.push(`类型：<strong>${typeLabels[_myDownloadsSearchState.type] || _myDownloadsSearchState.type}</strong>`);
+    }
+
+    const primarySummary = hasFilters
+        ? `显示 <strong>${filteredCount}</strong> / <strong>${totalCount}</strong> 个文件，匹配大小 <strong>${formatBytes(filteredSize)}</strong>`
+        : `共 <strong>${totalCount}</strong> 个文件，总计 <strong>${formatBytes(totalSize)}</strong>`;
+
+    stats.innerHTML = `
+        <div>
+            <i class="bi bi-folder me-1"></i>
+            ${primarySummary}
+            <span class="ms-3 text-muted"><i class="bi bi-folder2-open me-1"></i>${escapeHtml(_myDownloadsRoot || '未设置')}</span>
+        </div>
+        ${filterSummary.length ? `<div class="mt-1">${filterSummary.join(' <span class="text-muted">·</span> ')}</div>` : ''}
+    `;
+}
+
+function clearMyDownloadsSearch() {
+    const searchInput = document.getElementById('myDownloadsSearch');
+    if (!searchInput) return;
+
+    searchInput.value = '';
+    filterMyDownloads();
+    searchInput.focus();
+}
+
+function resetMyDownloadsFilters() {
+    const searchInput = document.getElementById('myDownloadsSearch');
+    const typeFilter = document.getElementById('myDownloadsTypeFilter');
+
+    if (searchInput) searchInput.value = '';
+    if (typeFilter) typeFilter.value = 'all';
+
+    filterMyDownloads();
+}
+
 // 筛选我的下载
 function filterMyDownloads() {
     const searchInput = document.getElementById('myDownloadsSearch');
     const typeFilter = document.getElementById('myDownloadsTypeFilter');
     const sortSelect = document.getElementById('myDownloadsSort');
 
-    const search = (searchInput?.value || '').toLowerCase().trim();
+    const rawSearch = searchInput?.value || '';
+    const searchTerms = parseMyDownloadsSearchQuery(rawSearch);
     const type = typeFilter?.value || 'all';
     const sort = sortSelect?.value || 'date_desc';
 
+    _myDownloadsSearchState = {
+        raw: rawSearch.trim(),
+        terms: searchTerms,
+        type: type,
+        sort: sort
+    };
+
     // 筛选
     _myDownloadsFiltered = _myDownloadsItems.filter(item => {
-        // 搜索
-        if (search) {
-            const name = (item.name || '').toLowerCase();
-            const author = (item.author || '').toLowerCase();
-            if (!name.includes(search) && !author.includes(search)) {
-                return false;
-            }
-        }
+        if (!matchesMyDownloadsSearch(item, searchTerms)) return false;
 
         // 类型筛选
         if (type !== 'all') {
-            const ext = (item.name || '').split('.').pop().toLowerCase();
-            const videoExts = ['mp4', 'avi', 'mov', 'mkv', 'webm'];
-            const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
-            const audioExts = ['mp3', 'wav', 'flac', 'aac', 'ogg'];
-
-            if (type === 'video' && !videoExts.includes(ext)) return false;
-            if (type === 'image' && !imageExts.includes(ext)) return false;
-            if (type === 'audio' && !audioExts.includes(ext)) return false;
+            if (getMyDownloadsFileType(item) !== type) return false;
         }
 
         return true;
@@ -142,14 +332,16 @@ function filterMyDownloads() {
             case 'size_asc':
                 return (a.size || 0) - (b.size || 0);
             case 'name_asc':
-                return (a.name || '').localeCompare(b.name || '');
+                return (a.name || '').localeCompare(b.name || '', 'zh-Hans-CN');
             case 'name_desc':
-                return (b.name || '').localeCompare(a.name || '');
+                return (b.name || '').localeCompare(a.name || '', 'zh-Hans-CN');
             default:
                 return 0;
         }
     });
 
+    updateMyDownloadsSearchUI();
+    updateMyDownloadsStats();
     renderMyDownloads();
 }
 
@@ -159,10 +351,17 @@ function renderMyDownloads() {
     if (!list) return;
 
     if (!_myDownloadsFiltered.length) {
+        const hasActiveFilters = !!(_myDownloadsSearchState.terms.length || _myDownloadsSearchState.type !== 'all');
         list.innerHTML = `
             <div class="col-12 text-center py-5">
                 <i class="bi bi-folder2-open" style="font-size: 3rem; opacity: 0.3;"></i>
-                <p class="text-muted mt-3 mb-0">还没有下载文件</p>
+                <p class="text-muted mt-3 mb-0">${_myDownloadsItems.length && hasActiveFilters ? '没有符合条件的文件' : '还没有下载文件'}</p>
+                ${_myDownloadsItems.length && hasActiveFilters ? `
+                    <p class="small text-muted mt-2 mb-3">试试搜索作者、路径、扩展名，或使用 <code>author:</code>、<code>ext:</code> 前缀</p>
+                    <button class="btn btn-outline-light btn-sm my-downloads-empty-action" onclick="resetMyDownloadsFilters()">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>清除筛选
+                    </button>
+                ` : ''}
             </div>
         `;
         updateMyDownloadsBatchUI();
@@ -171,19 +370,21 @@ function renderMyDownloads() {
 
     list.innerHTML = _myDownloadsFiltered.map((item, index) => {
         const isSelected = _myDownloadsSelected.has(item.path);
-        const ext = (item.name || '').split('.').pop().toLowerCase();
-        const videoExts = ['mp4', 'avi', 'mov', 'mkv', 'webm'];
-        const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'];
+        const ext = getMyDownloadsFileExt(item.name);
+        const relativePath = getMyDownloadsRelativePath(item);
+        const displayName = highlightMyDownloadsText(item.name || '未命名文件', getMyDownloadsHighlightTerms('name'));
+        const displayAuthor = highlightMyDownloadsText(item.author || '未知', getMyDownloadsHighlightTerms('author'));
+        const displayPath = highlightMyDownloadsText(relativePath, getMyDownloadsHighlightTerms('path'));
 
         let icon = 'bi-file-earmark';
         let iconColor = 'var(--text-muted)';
-        if (videoExts.includes(ext)) {
+        if (MY_DOWNLOADS_TYPE_EXTS.video.includes(ext)) {
             icon = 'bi-play-circle-fill';
             iconColor = 'var(--accent)';
-        } else if (imageExts.includes(ext)) {
+        } else if (MY_DOWNLOADS_TYPE_EXTS.image.includes(ext)) {
             icon = 'bi-image-fill';
             iconColor = 'var(--success)';
-        } else if (['mp3', 'wav', 'flac', 'aac'].includes(ext)) {
+        } else if (MY_DOWNLOADS_TYPE_EXTS.audio.includes(ext)) {
             icon = 'bi-music-note-beamed';
             iconColor = 'var(--info)';
         }
@@ -199,8 +400,9 @@ function renderMyDownloads() {
                         <div class="d-flex align-items-start mb-2" style="padding-left: 20px;">
                             <i class="bi ${icon} me-2" style="font-size: 1.5rem; color: ${iconColor};"></i>
                             <div class="flex-grow-1 min-width-0">
-                                <div class="fw-semibold text-truncate" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
-                                <small class="text-muted">${escapeHtml(item.author || '未知')}</small>
+                                <div class="fw-semibold text-truncate" title="${escapeHtml(item.name)}">${displayName}</div>
+                                <small class="text-muted d-block text-truncate" title="${escapeHtml(item.author || '未知')}">${displayAuthor}</small>
+                                ${relativePath ? `<div class="my-downloads-card-path text-truncate" title="${escapeHtml(relativePath)}">${displayPath}</div>` : ''}
                             </div>
                         </div>
                         <div class="d-flex justify-content-between align-items-center small text-muted mb-2">
@@ -301,6 +503,23 @@ async function openMyDownloadsLocation(encodedPath) {
             throw new Error(result.message || '打开失败');
         }
         showToast('已打开文件位置', 'success');
+    } catch (error) {
+        showToast(error.message || '打开失败', 'error');
+    }
+}
+
+// 打开下载目录
+async function openMyDownloadsDirectory() {
+    try {
+        const response = await fetch('/api/download_history/open_directory', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const result = await response.json();
+        if (!result.success) {
+            throw new Error(result.message || '打开失败');
+        }
+        showToast('已打开下载目录', 'success');
     } catch (error) {
         showToast(error.message || '打开失败', 'error');
     }
@@ -410,6 +629,20 @@ style.textContent = `
     }
     .min-width-0 {
         min-width: 0;
+    }
+    .my-downloads-card-path {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        margin-top: 2px;
+    }
+    .my-downloads-highlight {
+        padding: 0 0.12em;
+        border-radius: 0.25rem;
+        background: rgba(254, 44, 85, 0.18);
+        color: inherit;
+    }
+    .my-downloads-empty-action {
+        min-width: 108px;
     }
 `;
 document.head.appendChild(style);

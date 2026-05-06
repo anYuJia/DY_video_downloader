@@ -6,6 +6,7 @@ import urllib.parse
 from typing import List, Dict, Optional, Tuple, Union
 
 from src.api.api import DouyinAPI
+from src.config.config import Config
 from src.downloader.downloader import DouyinDownloader
 
 # 移除增强下载器支持
@@ -20,11 +21,117 @@ class DouyinUserManager:
         self.downloader = downloader
         self.socketio = socketio  # 添加WebSocket支持
         self.cookie = cookie
+        self._user_detail_cache = {}
         # 检查是否启用调试模式
         self.debug_mode = os.environ.get('DEBUG_MODE', '').lower() in ('true', '1', 'yes')
         if self.debug_mode:
             downloader_type = "Standard"
             print(f"\033[94m[UserManager] 调试模式已启用，使用 {downloader_type} 下载器\033[0m")
+
+    def _first_url(self, value) -> str:
+        if isinstance(value, str):
+            return value.strip()
+
+        if isinstance(value, dict):
+            url_list = value.get('url_list')
+            if isinstance(url_list, list):
+                for item in url_list:
+                    if isinstance(item, str) and item.strip():
+                        return item.strip()
+            nested = value.get('play_addr') or value.get('play_url') or value.get('download_addr')
+            if nested is not None and nested is not value:
+                return self._first_url(nested)
+
+        if isinstance(value, list):
+            for item in value:
+                url = self._first_url(item)
+                if url:
+                    return url
+
+        return ''
+
+    def _video_download_quality(self) -> str:
+        quality = str(getattr(Config, 'DOWNLOAD_QUALITY', 'auto') or 'auto').strip().lower()
+        if quality not in ('auto', 'highest', 'h264', 'smallest'):
+            return 'auto'
+        return quality
+
+    def _collect_video_candidates(self, video_data: dict) -> list[dict]:
+        candidates = []
+        seen = set()
+
+        def push_candidate(url: str, metric: int, is_h264: bool = False, is_download_addr: bool = False, is_lowbr: bool = False) -> None:
+            normalized_url = str(url or '').strip()
+            if not normalized_url or normalized_url in seen:
+                return
+            seen.add(normalized_url)
+            candidates.append({
+                'url': normalized_url,
+                'metric': int(metric or 0),
+                'is_h264': bool(is_h264),
+                'is_download_addr': bool(is_download_addr),
+                'is_lowbr': bool(is_lowbr),
+            })
+
+        push_candidate(self._first_url(video_data.get('download_addr')), 10**18, False, True, False)
+        push_candidate(self._first_url(video_data.get('play_addr_h264')), 10**18 - 1, True, False, False)
+        push_candidate(self._first_url(video_data.get('play_addr_lowbr')), 1, True, False, True)
+
+        for bit_rate in video_data.get('bit_rate') or []:
+            if not isinstance(bit_rate, dict):
+                continue
+            metric = int(bit_rate.get('data_size') or bit_rate.get('bit_rate') or 0)
+            push_candidate(self._first_url(bit_rate.get('play_addr_h264')), metric, True, False, False)
+            push_candidate(
+                self._first_url(bit_rate.get('play_addr')),
+                metric,
+                not bool(bit_rate.get('is_h265')),
+                False,
+                False,
+            )
+
+        push_candidate(self._first_url(video_data.get('preview_addr')), 0, False, False, False)
+        push_candidate(self._first_url(video_data.get('play_addr')), 0, False, False, False)
+        return candidates
+
+    def _select_video_url(self, video_data: dict) -> str:
+        candidates = self._collect_video_candidates(video_data or {})
+        if not candidates:
+            return ''
+
+        download_addr = next((candidate for candidate in candidates if candidate['is_download_addr']), None)
+        h264_candidates = [candidate for candidate in candidates if candidate['is_h264']]
+        h264_best = max(h264_candidates, key=lambda item: item['metric'], default=None)
+        highest_metric = max(candidates, key=lambda item: item['metric'], default=None)
+        lowbr = next((candidate for candidate in candidates if candidate['is_lowbr']), None)
+        metric_candidates = [candidate for candidate in candidates if candidate['metric'] > 0]
+        smallest_metric = min(metric_candidates, key=lambda item: item['metric'], default=None)
+        first = candidates[0] if candidates else None
+
+        quality = self._video_download_quality()
+        if quality == 'highest':
+            selected = download_addr or highest_metric or first
+        elif quality == 'h264':
+            selected = h264_best or download_addr or highest_metric or first
+        elif quality == 'smallest':
+            selected = lowbr or smallest_metric or h264_best or first
+        else:
+            selected = download_addr or h264_best or highest_metric or first
+
+        return selected['url'] if selected else ''
+
+    def _build_video_media_urls(self, video_data: dict) -> list[dict]:
+        selected_url = self._select_video_url(video_data or {})
+        return [{'type': 'video', 'url': selected_url}] if selected_url else []
+
+    def _normalize_duration_seconds(self, value) -> int:
+        try:
+            duration = float(value or 0)
+        except (TypeError, ValueError):
+            return 0
+        if duration > 1000:
+            return int(round(duration / 1000))
+        return int(round(duration))
         
     async def get_user_videos(self, user_id: str, offset: int = 0, limit: int = 1000, on_batch=None) -> List[dict]:
         """获取用户视频列表
@@ -39,6 +146,7 @@ class DouyinUserManager:
         has_more = True
         
         while has_more and len(videos) < limit:
+            request_count = 18 if on_batch is None else min(50, max(18, limit - len(videos)))
             params = {
                 "publish_video_strategy_type": 2,
                 "max_cursor": max_cursor,
@@ -48,7 +156,7 @@ class DouyinUserManager:
                 'need_time_list': 0,
                 'time_list_query': 0,
                 'whale_cut_token': '',
-                'count': 18
+                'count': request_count
             }
             # 不再直接传递cookie，让API类处理cookie
             resp, succ = await self.api.common_request('/aweme/v1/web/aweme/post/', 
@@ -69,8 +177,11 @@ class DouyinUserManager:
             
         return videos[:limit]
 
-    async def get_user_detail(self, user_id: str) -> dict:
+    async def get_user_detail(self, user_id: str, force_refresh: bool = False) -> dict:
         """获取用户详情"""
+        if not force_refresh and user_id in self._user_detail_cache:
+            return dict(self._user_detail_cache[user_id])
+
         params = {
             "sec_user_id": user_id,
             "personal_center_strategy": 1,
@@ -86,7 +197,10 @@ class DouyinUserManager:
                 '_need_verify': True,
                 '_verify_url': resp.get('_verify_url'),
             }
-        return resp.get('user', {}) if succ else {}
+        result = resp.get('user', {}) if succ else {}
+        if succ and isinstance(result, dict) and result:
+            self._user_detail_cache[user_id] = dict(result)
+        return result
 
     async def search_user(self, keyword: str) -> Optional[dict]:
         """搜索用户
@@ -265,10 +379,10 @@ class DouyinUserManager:
 
         # 检查是否为视频帖
         elif post.get("video") and post["video"].get("play_addr"):
-            video_urls = post["video"]["play_addr"].get("url_list", [])
+            video_urls = self._build_video_media_urls(post.get("video") or {})
             if video_urls:
                 media_type = 'video'
-                urls.append({'type': 'video', 'url': video_urls[0]})
+                urls.extend(video_urls)
 
         return media_type, urls
 
@@ -333,11 +447,14 @@ class DouyinUserManager:
             
             # 获取媒体信息
             media_type, urls = self.get_media_info(post)
+            video_data = post.get('video') or {}
+            selected_video_url = self._select_video_url(video_data)
             # 构建详情信息
             detail = {
                 'aweme_id': post.get('aweme_id', ''),
                 'desc': post.get('desc', ''),
                 'create_time': post.get('create_time', 0),
+                'duration': self._normalize_duration_seconds(video_data.get('duration', 0)),
                 'digg_count': post.get('statistics', {}).get('digg_count', 0),
                 'comment_count': post.get('statistics', {}).get('comment_count', 0),
                 'share_count': post.get('statistics', {}).get('share_count', 0),
@@ -356,21 +473,31 @@ class DouyinUserManager:
                 'media_type': media_type,
                 'media_urls': urls,
                 'raw_media_type': media_type,
-                'cover_url': post.get('video', {}).get('cover', {}).get('url_list', [''])[0],
+                'cover_url': self._first_url(video_data.get('cover')),
                 # 保留原始数据字段用于调试
                 'images': post.get('images'),
-                # 移除 video 字段（复杂对象，会导致 localStorage 溢出）
-                # 添加 videos 字段（复数）以匹配前端期望
-                'videos': urls
+                'videos': urls,
+                'video': {
+                    'play_addr': selected_video_url or self._first_url(video_data.get('play_addr')),
+                    'preview_addr': self._first_url(video_data.get('preview_addr')) or selected_video_url,
+                    'play_addr_h264': self._first_url(video_data.get('play_addr_h264')),
+                    'play_addr_lowbr': self._first_url(video_data.get('play_addr_lowbr')),
+                    'download_addr': self._first_url(video_data.get('download_addr')),
+                    'cover': self._first_url(video_data.get('cover')),
+                    'dynamic_cover': self._first_url(video_data.get('dynamic_cover')),
+                    'width': video_data.get('width', 0),
+                    'height': video_data.get('height', 0),
+                    'duration': self._normalize_duration_seconds(video_data.get('duration', 0)),
+                }
             }
             
             # 获取封面图
             if media_type == 'video':
-                detail['cover_url'] = post.get('video', {}).get('cover', {}).get('url_list', [''])[0]
+                detail['cover_url'] = self._first_url(video_data.get('cover'))
             elif media_type in ['image', 'live_photo', 'mixed']:
                 images = post.get('images', [])
                 if images:
-                    detail['cover_url'] = images[0].get('url_list', [''])[-1]
+                    detail['cover_url'] = self._first_url(images[0])
 
             detail['bgm_url'] = self._extract_bgm_url(post)
 
@@ -571,9 +698,13 @@ class DouyinUserManager:
                 continue
             
             if media_type in ['mixed', 'live_photo', 'image']:
-                success = self.downloader.download_media_group(urls, name, aweme_id)
+                success = await asyncio.to_thread(
+                    self.downloader.download_media_group,
+                    urls,
+                    name,
+                    aweme_id,
+                )
                 if success:
-                    self.downloader._save_download_record(nickname, aweme_id)
                     success_msg = f"作品 {name} 下载完成"
                     if web_socket and self.socketio:
                         self.socketio.emit('download_success', {'message': success_msg})
@@ -587,7 +718,12 @@ class DouyinUserManager:
                         print(f"\033[91m{error_msg}\033[0m")
                 
             elif media_type == 'video':
-                success = self.downloader.download_video(urls[0]['url'], name, aweme_id)
+                success = await asyncio.to_thread(
+                    self.downloader.download_video,
+                    urls[0]['url'],
+                    name,
+                    aweme_id,
+                )
                 if success:
                     success_msg = f"作品 {name} 下载完成"
                     if web_socket and self.socketio:
@@ -648,6 +784,7 @@ class DouyinUserManager:
                     'share_count': post.get('statistics', {}).get('share_count', 0),
                     'cover_url': cover_url,
                     'media_type': media_type,
+                    'raw_media_type': media_type,
                     'media_urls': media_urls,
                     'bgm_url': self._extract_bgm_url(post),
                     'author': {
@@ -672,28 +809,41 @@ class DouyinUserManager:
             if not videos:
                 return 0
 
-            completed = 0
-            for video in videos:
+            max_workers = max(1, int(getattr(Config, 'MAX_CONCURRENT', 3) or 1))
+            semaphore = asyncio.Semaphore(max_workers)
+
+            async def download_one(video: dict) -> int:
                 aweme_id = video.get('aweme_id')
                 media_type = video.get('media_type', 'unknown')
                 media_urls = video.get('media_urls') or []
                 if not aweme_id or not media_urls:
-                    continue
+                    return 0
 
                 author_name = (video.get('author') or {}).get('nickname') or 'liked'
                 raw_desc = (video.get('desc') or '').strip()
                 desc = (raw_desc.split()[0] if raw_desc.split() else f'无标题_{aweme_id}')[:30]
                 name = f"{author_name}/{desc}"
 
-                if media_type == 'video' and len(media_urls) == 1:
-                    success = self.downloader.download_video(media_urls[0]['url'], name, aweme_id)
-                else:
-                    success = self.downloader.download_media_group(media_urls, name, aweme_id)
+                async with semaphore:
+                    if media_type == 'video' and len(media_urls) == 1:
+                        success = await asyncio.to_thread(
+                            self.downloader.download_video,
+                            media_urls[0]['url'],
+                            name,
+                            aweme_id,
+                        )
+                    else:
+                        success = await asyncio.to_thread(
+                            self.downloader.download_media_group,
+                            media_urls,
+                            name,
+                            aweme_id,
+                        )
 
-                if success:
-                    completed += 1
+                return 1 if success else 0
 
-            return completed
+            results = await asyncio.gather(*(download_one(video) for video in videos), return_exceptions=True)
+            return sum(result for result in results if isinstance(result, int))
         except Exception as e:
             print(f"\033[91m下载点赞视频时出错: {e}\033[0m")
             return 0
@@ -716,43 +866,59 @@ class DouyinUserManager:
             if not posts:
                 return []
                 
-            # 收集所有作者信息
-            authors = {}
+            unique_authors = []
+            seen = set()
             for post in posts:
                 author = post.get('author', {})
                 sec_uid = author.get('sec_uid')
-                if sec_uid and sec_uid not in authors:
-                    # 获取完整的用户信息
+                if sec_uid and sec_uid not in seen:
+                    seen.add(sec_uid)
+                    unique_authors.append((sec_uid, author))
+
+            detail_concurrency = max(1, min(int(getattr(Config, 'MAX_CONCURRENT', 3) or 1), 5))
+            semaphore = asyncio.Semaphore(detail_concurrency)
+
+            async def load_author_detail(sec_uid: str, author: dict) -> dict:
+                async with semaphore:
                     user_detail = await self.get_user_detail(sec_uid)
-                    if user_detail:
-                        authors[sec_uid] = {
-                            'nickname': user_detail.get('nickname', author.get('nickname', '')),
-                            'unique_id': user_detail.get('unique_id', ''),
-                            'follower_count': user_detail.get('follower_count', 0),
-                            'following_count': user_detail.get('following_count', 0),
-                            'total_favorited': user_detail.get('total_favorited', 0),
-                            'aweme_count': user_detail.get('aweme_count', 0),
-                            'signature': user_detail.get('signature', ''),
-                            'sec_uid': sec_uid,
-                            'avatar_thumb': user_detail.get('avatar_thumb', {}).get('url_list', [''])[0] if user_detail.get('avatar_thumb') else '',
-                            'avatar_larger': user_detail.get('avatar_larger', {}).get('url_list', [''])[0] if user_detail.get('avatar_larger') else ''
-                        }
-                    else:
-                        # 降级：用帖子里的基础信息
-                        authors[sec_uid] = {
-                            'nickname': author.get('nickname', ''),
-                            'unique_id': '',
-                            'follower_count': 0,
-                            'following_count': 0,
-                            'total_favorited': 0,
-                            'aweme_count': 0,
-                            'signature': '',
-                            'sec_uid': sec_uid,
-                            'avatar_thumb': author.get('avatar_thumb', {}).get('url_list', [''])[0] if author.get('avatar_thumb') else '',
-                        }
-                    await asyncio.sleep(0.2)  # 避免请求过快
-                    
-            return list(authors.values())
+
+                if user_detail:
+                    return {
+                        'nickname': user_detail.get('nickname', author.get('nickname', '')),
+                        'unique_id': user_detail.get('unique_id', ''),
+                        'follower_count': user_detail.get('follower_count', 0),
+                        'following_count': user_detail.get('following_count', 0),
+                        'total_favorited': user_detail.get('total_favorited', 0),
+                        'aweme_count': user_detail.get('aweme_count', 0),
+                        'signature': user_detail.get('signature', ''),
+                        'sec_uid': sec_uid,
+                        'avatar_thumb': user_detail.get('avatar_thumb', {}).get('url_list', [''])[0] if user_detail.get('avatar_thumb') else '',
+                        'avatar_larger': user_detail.get('avatar_larger', {}).get('url_list', [''])[0] if user_detail.get('avatar_larger') else ''
+                    }
+
+                return {
+                    'nickname': author.get('nickname', ''),
+                    'unique_id': '',
+                    'follower_count': 0,
+                    'following_count': 0,
+                    'total_favorited': 0,
+                    'aweme_count': 0,
+                    'signature': '',
+                    'sec_uid': sec_uid,
+                    'avatar_thumb': author.get('avatar_thumb', {}).get('url_list', [''])[0] if author.get('avatar_thumb') else '',
+                }
+
+            author_results = await asyncio.gather(
+                *(load_author_detail(sec_uid, author) for sec_uid, author in unique_authors),
+                return_exceptions=True,
+            )
+
+            authors = []
+            for result in author_results:
+                if isinstance(result, dict):
+                    authors.append(result)
+
+            return authors
         except Exception as e:
             if self.debug_mode:
                 print(f"\033[91m[UserManager] 获取点赞作者时出错: {e}\033[0m")
@@ -773,12 +939,20 @@ class DouyinUserManager:
                 if not selected or author.get('sec_uid') in selected
             ]
 
-            # 下载每个选中作者的作品
-            for i, author in enumerate(selected_authors, 1):
-                print(f"\n\033[36m正在处理第 {i}/{len(selected_authors)} 个作者: {author['nickname']}\033[0m")
-                await self.download_user_videos(author, auto_confirm=True)
+            max_workers = max(1, int(getattr(Config, 'MAX_CONCURRENT', 3) or 1))
+            semaphore = asyncio.Semaphore(max_workers)
 
-            return len(selected_authors)
+            async def download_one_author(author: dict) -> int:
+                async with semaphore:
+                    print(f"\n\033[36m正在处理作者: {author['nickname']}\033[0m")
+                    await self.download_user_videos(author, auto_confirm=True)
+                return 1
+
+            results = await asyncio.gather(
+                *(download_one_author(author) for author in selected_authors),
+                return_exceptions=True,
+            )
+            return sum(result for result in results if isinstance(result, int))
 
         except Exception as e:
             print(f"\033[91m处理失败：{str(e)}\033[0m")

@@ -2,31 +2,53 @@
 // DY Downloader — Cookie Validation & Setup
 // ═══════════════════════════════════════════════
 
-let _cookieSetupModal = null;
 let _browserLoginActive = false;
 let _browserLoginTimer = null;
 
 // 检查Cookie状态（启动时调用）
 function checkCookieStatusOnStartup() {
-    const banner = document.getElementById('cookieStatusBanner');
+    const validation = getCurrentCookieValidation();
 
-    fetch('/api/config')
-        .then(function(response) { return response.json(); })
-        .then(function(config) {
-            if (banner) banner.style.display = config.cookie_set ? 'none' : 'flex';
-            console.log(config.cookie_set ? '[cookie] Cookie已配置' : '[cookie] Cookie未设置，显示提示横幅');
-        })
-        .catch(function() {
-            if (banner) banner.style.display = 'flex';
-        });
+    updateCookieOnboardingState(validation);
+    updateCookieValidationUI(validation);
+
+    _log(validation.isValid ? '[cookie] Cookie有效' : '[cookie] Cookie无效或未设置，显示首页引导');
 }
 
-// 关闭Cookie提示横幅
-function closeCookieBanner() {
-    const banner = document.getElementById('cookieStatusBanner');
-    if (banner) {
-        banner.style.display = 'none';
+function updateCookieOnboardingState(validation) {
+    const onboardingCard = document.getElementById('cookieOnboardingCard');
+    const heroTitle = document.getElementById('emptyHeroTitle');
+    const heroDesc = document.getElementById('emptyHeroDesc');
+
+    if (onboardingCard) {
+        onboardingCard.style.display = validation.isValid ? 'none' : 'flex';
     }
+
+    if (heroTitle) {
+        heroTitle.textContent = validation.isValid ? '搜索用户，开始下载' : '先配置 Cookie，再开始下载';
+    }
+
+    if (heroDesc) {
+        heroDesc.innerHTML = validation.isValid
+            ? '在上方搜索框输入用户昵称或抖音号<br>也可以直接粘贴视频链接到工具栏'
+            : '配置后可稳定使用搜索、推荐和批量下载功能<br>完成后再搜索用户或粘贴链接';
+    }
+}
+
+function openCookieSetupDrawer() {
+    const drawer = document.getElementById('settings-drawer');
+    const overlay = document.getElementById('settings-overlay');
+    const loginBtn = document.getElementById('cookie-login-btn');
+
+    if (drawer) drawer.classList.add('open');
+    if (overlay) overlay.classList.add('open');
+
+    setTimeout(function() {
+        if (loginBtn) {
+            loginBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            loginBtn.focus();
+        }
+    }, 80);
 }
 
 function validateCookie(cookieString) {
@@ -67,12 +89,39 @@ function validateCookie(cookieString) {
     }
 }
 
+function getSavedCookieValidation() {
+    return {
+        isValid: true,
+        status: 'saved',
+        message: 'Cookie 已保存',
+        missingParams: [],
+        loginType: 'saved'
+    };
+}
+
+function getCurrentCookieValidation() {
+    const cookieInput = document.getElementById('cookie-input');
+    const cookieValue = cookieInput && cookieInput.value.trim() ? cookieInput.value.trim() : '';
+
+    if (cookieValue) {
+        return validateCookie(cookieValue);
+    }
+
+    if (cookieInput && cookieInput.dataset.cookieSet === 'true') {
+        return getSavedCookieValidation();
+    }
+
+    return validateCookie('');
+}
+
 function setupCookieValidation() {
     const cookieInput = document.getElementById('cookie-input');
     if (!cookieInput) return;
 
     cookieInput.addEventListener('input', function () {
-        const validation = validateCookie(this.value);
+        const validation = this.value.trim()
+            ? validateCookie(this.value)
+            : (this.dataset.cookieSet === 'true' ? getSavedCookieValidation() : validateCookie(''));
         updateCookieValidationUI(validation);
     });
 }
@@ -88,6 +137,7 @@ function updateCookieValidationUI(validation) {
 
     if (validation.status === 'empty') {
         statusContainer.style.display = 'none';
+        updateFeatureAvailability(false);
         return;
     }
 
@@ -95,6 +145,7 @@ function updateCookieValidationUI(validation) {
 
     switch (validation.status) {
         case 'logged_in':
+        case 'saved':
             statusIcon.className = 'bi bi-check-circle-fill text-success me-1';
             statusText.className = 'text-success';
             statusText.textContent = validation.message;
@@ -159,7 +210,7 @@ function updateFeatureAvailability(isLoggedIn) {
     });
 }
 
-// 直接在设置面板中启动登录窗口
+// 直接在设置面板中启动浏览器登录
 function startBrowserLoginDirect() {
     if (_browserLoginActive) return;
     _browserLoginActive = true;
@@ -171,7 +222,7 @@ function startBrowserLoginDirect() {
     statusContainer.style.display = 'block';
     statusIcon.className = 'bi bi-hourglass-split text-primary me-1';
     statusText.className = 'text-primary';
-    statusText.textContent = '正在打开登录窗口...';
+    statusText.textContent = '正在启动浏览器...';
 
     fetch('/api/cookie/browser_login', {
         method: 'POST',
@@ -196,17 +247,7 @@ function startBrowserLoginDirect() {
 }
 
 function showCookieSetupModal() {
-    const modalEl = document.getElementById('cookieSetupModal');
-    if (!modalEl) return;
-    if (!_cookieSetupModal) {
-        _cookieSetupModal = new bootstrap.Modal(modalEl);
-    }
-    const mainCookie = document.getElementById('cookie-input');
-    const modalCookie = document.getElementById('cookie-modal-input');
-    if (mainCookie && modalCookie) {
-        modalCookie.value = mainCookie.value;
-    }
-    _cookieSetupModal.show();
+    openCookieSetupDrawer();
 }
 
 function switchCookieTab(tab) {
@@ -255,14 +296,21 @@ function saveCookieFromModal() {
         if (data.success) {
             showToast('Cookie 保存成功！', 'success');
             updateStatus('ready', '已配置');
-            document.getElementById('cookie-input').value = cookieValue;
-            document.getElementById('cookie-input').dataset.cookieSet = 'true';
+            const settingsCookieInput = document.getElementById('cookie-input');
+            if (settingsCookieInput) {
+                settingsCookieInput.value = '';
+                settingsCookieInput.dataset.cookieSet = 'true';
+                settingsCookieInput.placeholder = 'Cookie 已保存；输入新 Cookie 可替换';
+            }
+            const modalCookieInput = document.getElementById('cookie-modal-input');
+            if (modalCookieInput) {
+                modalCookieInput.value = '';
+            }
+            checkCookieStatusOnStartup();
 
-            // 隐藏Cookie提示横幅
-            const banner = document.getElementById('cookieStatusBanner');
-            if (banner) banner.style.display = 'none';
-
-            if (_cookieSetupModal) _cookieSetupModal.hide();
+            const modalEl = document.getElementById('cookieSetupModal');
+            const modal = modalEl ? bootstrap.Modal.getInstance(modalEl) : null;
+            if (modal) modal.hide();
         } else {
             showToast('保存失败: ' + (data.message || ''), 'error');
         }
@@ -274,8 +322,9 @@ function saveCookieFromModal() {
 function testCookieValidity() {
     const cookieValue = document.getElementById('cookie-modal-input').value.trim() ||
                         document.getElementById('cookie-input').value.trim();
+    const settingsCookieInput = document.getElementById('cookie-input');
 
-    if (!cookieValue) {
+    if (!cookieValue && !(settingsCookieInput && settingsCookieInput.dataset.cookieSet === 'true')) {
         showToast('请先输入 Cookie', 'warning');
         return;
     }
@@ -286,11 +335,15 @@ function testCookieValidity() {
         testBtn.textContent = '测试中...';
     }
 
-    fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cookie: cookieValue, download_dir: document.getElementById('download-dir-input').value })
-    })
+    const saveCookiePromise = cookieValue
+        ? fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cookie: cookieValue, download_dir: document.getElementById('download-dir-input').value })
+        })
+        : Promise.resolve();
+
+    saveCookiePromise
     .then(function() {
         return fetch('/api/search_user', {
             method: 'POST',
@@ -337,14 +390,14 @@ function startBrowserLogin() {
     spinnerEl.className = 'spinner-border spinner-border-sm me-2';
     spinnerEl.setAttribute('role', 'status');
     startBtn.appendChild(spinnerEl);
-    startBtn.appendChild(document.createTextNode(' 正在打开登录窗口...'));
+    startBtn.appendChild(document.createTextNode(' 正在启动浏览器...'));
 
     cancelBtn.style.display = 'block';
     statusEl.style.display = 'flex';
     statusEl.className = 'cookie-browser-status';
     spinner.style.display = 'block';
     resultIcon.style.display = 'none';
-    statusText.textContent = '正在打开登录窗口...';
+    statusText.textContent = '正在启动浏览器...';
 
     // Start countdown timer (5 minutes)
     var remaining = 300;
@@ -410,7 +463,7 @@ function resetBrowserLoginUI() {
         var icon = document.createElement('i');
         icon.className = 'bi bi-box-arrow-up-right';
         startBtn.appendChild(icon);
-        startBtn.appendChild(document.createTextNode(' 打开登录窗口'));
+        startBtn.appendChild(document.createTextNode(' 打开浏览器登录'));
     }
     if (cancelBtn) cancelBtn.style.display = 'none';
 }
@@ -441,8 +494,13 @@ function handleCookieLoginStatus(data) {
             }
             resetBrowserLoginUI();
             if (data.cookie_set) {
-                document.getElementById('cookie-input').value = '';
-                document.getElementById('cookie-input').dataset.cookieSet = 'true';
+                const settingsCookieInput = document.getElementById('cookie-input');
+                if (settingsCookieInput) {
+                    settingsCookieInput.value = '';
+                    settingsCookieInput.dataset.cookieSet = 'true';
+                    settingsCookieInput.placeholder = 'Cookie 已保存；输入新 Cookie 可替换';
+                }
+
                 // 更新设置面板状态
                 if (settingsStatusContainer) {
                     settingsStatusContainer.style.display = 'block';
@@ -450,15 +508,17 @@ function handleCookieLoginStatus(data) {
                     settingsStatusText.className = 'text-success';
                     settingsStatusText.textContent = '登录成功，Cookie 已保存！';
                 }
-
-                // 隐藏Cookie提示横幅
-                const banner = document.getElementById('cookieStatusBanner');
-                if (banner) banner.style.display = 'none';
             }
             updateStatus('ready', '已配置');
+            checkCookieStatusOnStartup();
             showToast('Cookie 获取成功！', 'success');
             setTimeout(function() {
-                if (_cookieSetupModal) _cookieSetupModal.hide();
+                const modalEl = document.getElementById('cookieSetupModal');
+                const modal = modalEl ? bootstrap.Modal.getInstance(modalEl) : null;
+                if (modal) modal.hide();
+                if (typeof closeSettingsDrawer === 'function') {
+                    closeSettingsDrawer();
+                }
             }, 1500);
             break;
 
@@ -529,8 +589,7 @@ function checkLoginRequired(element) {
     if (element.hasAttribute('data-requires-login')) {
         const isLoggedIn = !element.disabled;
         if (!isLoggedIn) {
-            showToast('此功能需要登录后才能使用，请在 Cookie 设置中登录账号', 'warning');
-            // 打开 cookie 设置 modal
+            showToast('此功能需要先配置 Cookie，已为你打开设置', 'warning');
             showCookieSetupModal();
             return false;
         }

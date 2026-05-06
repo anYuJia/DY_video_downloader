@@ -178,6 +178,18 @@ function createDownloadProgressElement(taskId, nickname) {
     }
     globalDownloadPanel.nickname = nickname;
 
+    // 初始化任务计时
+    downloadTasks[taskId] = {
+        id: taskId,
+        name: nickname,
+        progress: 0,
+        completed: 0,
+        total: 0,
+        status: 'running',
+        startTime: new Date(),
+        isBatch: true
+    };
+
     const progressElement = document.createElement('div');
     progressElement.id = 'global-download-panel';
     progressElement.className = 'progress-task-item border rounded p-3 mb-2';
@@ -208,15 +220,15 @@ function createDownloadProgressElement(taskId, nickname) {
         <!-- 当前作品进度 -->
         <div class="mb-3">
             <div class="d-flex justify-content-between align-items-center mb-1">
-                <small class="text-muted">当前作品</small>
-                <small class="text-muted" id="current-progress-text">0%</small>
+                <small class="text-muted" id="current-status">等待中...</small>
+                <small class="text-muted" id="current-speed">速度: --</small>
             </div>
             <div class="progress" style="height: 8px;">
                 <div class="progress-bar bg-info" id="current-progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
             </div>
             <div class="d-flex justify-content-between mt-1">
-                <small class="text-muted" id="current-status">等待中...</small>
-                <small class="text-muted" id="current-speed">速度: --</small>
+                <small class="text-muted text-truncate" id="current-video-name" style="max-width: 70%;"></small>
+                <small class="text-muted" id="current-progress-text">0%</small>
             </div>
         </div>
 
@@ -231,7 +243,7 @@ function createDownloadProgressElement(taskId, nickname) {
                 </button>
             </div>
             <div>
-                <small class="text-muted" id="elapsed-time">用时: 0s</small>
+                <small class="text-muted" id="elapsed-time">用时: 0:00</small>
                 <small class="text-muted ms-2" id="download-eta">预计: --</small>
             </div>
         </div>
@@ -242,6 +254,52 @@ function createDownloadProgressElement(taskId, nickname) {
     progressContainer.appendChild(progressElement);
 
     updateActiveTasksCount();
+
+    // 启动计时器更新用时
+    startElapsedTimer(taskId);
+}
+
+// 用时计时器
+var elapsedTimers = {};
+
+function startElapsedTimer(taskId) {
+    if (elapsedTimers[taskId]) {
+        clearInterval(elapsedTimers[taskId]);
+    }
+
+    var task = downloadTasks[taskId];
+    if (!task || !task.startTime) return;
+
+    elapsedTimers[taskId] = setInterval(function() {
+        if (!downloadTasks[taskId] || downloadTasks[taskId].status !== 'running') {
+            clearInterval(elapsedTimers[taskId]);
+            delete elapsedTimers[taskId];
+            return;
+        }
+
+        var elapsed = Math.floor((new Date() - task.startTime) / 1000);
+        var mins = Math.floor(elapsed / 60);
+        var secs = elapsed % 60;
+
+        var elapsedEl = document.getElementById('elapsed-time');
+        if (elapsedEl) {
+            elapsedEl.textContent = '用时: ' + mins + ':' + (secs < 10 ? '0' : '') + secs;
+        }
+
+        // 计算预计时间
+        var progress = task.progress || 0;
+        if (progress > 0 && progress < 100) {
+            var totalEstimate = elapsed / (progress / 100);
+            var remaining = Math.floor(totalEstimate - elapsed);
+            var remainMins = Math.floor(remaining / 60);
+            var remainSecs = remaining % 60;
+
+            var etaEl = document.getElementById('download-eta');
+            if (etaEl) {
+                etaEl.textContent = '预计: ' + remainMins + ':' + (remainSecs < 10 ? '0' : '') + remainSecs;
+            }
+        }
+    }, 1000);
 }
 
 function togglePause() {
@@ -249,13 +307,24 @@ function togglePause() {
 
     isPaused = !isPaused;
     const pauseBtn = document.getElementById('pause-btn');
+    const taskId = globalDownloadPanel.taskId;
 
     if (isPaused) {
+        // 立即停止计时器
+        if (elapsedTimers[taskId]) {
+            clearInterval(elapsedTimers[taskId]);
+            delete elapsedTimers[taskId];
+        }
+        // 更新任务状态为暂停
+        if (downloadTasks[taskId]) {
+            downloadTasks[taskId].status = 'paused';
+        }
+
         // 调用暂停 API
         fetch('/api/pause_download', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ task_id: globalDownloadPanel.taskId })
+            body: JSON.stringify({ task_id: taskId })
         })
         .then(response => response.json())
         .then(data => {
@@ -263,23 +332,44 @@ function togglePause() {
                 pauseBtn.innerHTML = '<i class="bi bi-play-fill"></i> 继续';
                 pauseBtn.classList.remove('btn-outline-warning');
                 pauseBtn.classList.add('btn-outline-success');
+
+                var statusEl = document.getElementById('overall-status');
+                if (statusEl) statusEl.textContent = '已暂停';
+
                 addLog('下载已暂停', 'warning');
             } else {
                 isPaused = false;
+                if (downloadTasks[taskId]) {
+                    downloadTasks[taskId].status = 'running';
+                }
+                // 恢复失败，重启计时器
+                startElapsedTimer(taskId);
                 showToast(data.message || '暂停失败', 'error');
             }
         })
         .catch(err => {
             isPaused = false;
+            if (downloadTasks[taskId]) {
+                downloadTasks[taskId].status = 'running';
+            }
+            // 恢复失败，重启计时器
+            startElapsedTimer(taskId);
             console.error('暂停失败:', err);
             showToast('暂停失败', 'error');
         });
     } else {
+        // 更新任务状态为运行
+        if (downloadTasks[taskId]) {
+            downloadTasks[taskId].status = 'running';
+        }
+        // 重新启动计时器
+        startElapsedTimer(taskId);
+
         // 调用恢复 API
         fetch('/api/resume_download', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ task_id: globalDownloadPanel.taskId })
+            body: JSON.stringify({ task_id: taskId })
         })
         .then(response => response.json())
         .then(data => {
@@ -287,14 +377,34 @@ function togglePause() {
                 pauseBtn.innerHTML = '<i class="bi bi-pause-fill"></i> 暂停';
                 pauseBtn.classList.remove('btn-outline-success');
                 pauseBtn.classList.add('btn-outline-warning');
+
+                var statusEl = document.getElementById('overall-status');
+                if (statusEl) statusEl.textContent = '下载中...';
+
                 addLog('下载已恢复', 'info');
             } else {
                 isPaused = true;
+                if (downloadTasks[taskId]) {
+                    downloadTasks[taskId].status = 'paused';
+                }
+                // 暂停失败，停止计时器
+                if (elapsedTimers[taskId]) {
+                    clearInterval(elapsedTimers[taskId]);
+                    delete elapsedTimers[taskId];
+                }
                 showToast(data.message || '恢复失败', 'error');
             }
         })
         .catch(err => {
             isPaused = true;
+            if (downloadTasks[taskId]) {
+                downloadTasks[taskId].status = 'paused';
+            }
+            // 暂停失败，停止计时器
+            if (elapsedTimers[taskId]) {
+                clearInterval(elapsedTimers[taskId]);
+                delete elapsedTimers[taskId];
+            }
             console.error('恢复失败:', err);
             showToast('恢复失败', 'error');
         });
@@ -302,9 +412,24 @@ function togglePause() {
 }
 
 function closeDownloadPanel() {
-    if (globalDownloadPanel.taskId) {
-        cancelDownloadTask(globalDownloadPanel.taskId);
+    var taskId = globalDownloadPanel.taskId;
+
+    if (taskId) {
+        cancelDownloadTask(taskId);
     }
+
+    // 清理计时器
+    if (taskId && elapsedTimers[taskId]) {
+        clearInterval(elapsedTimers[taskId]);
+        delete elapsedTimers[taskId];
+    }
+
+    // 清理任务状态
+    if (taskId && downloadTasks[taskId]) {
+        downloadTasks[taskId].status = 'cancelled';
+        delete downloadTasks[taskId];
+    }
+
     // 移除全局面板
     const panel = document.getElementById('global-download-panel');
     if (panel) {
@@ -316,6 +441,8 @@ function closeDownloadPanel() {
     // 重置全局状态
     globalDownloadPanel = { taskId: null, nickname: null };
     isPaused = false;
+
+    // 更新小红点
     updateActiveTasksCount();
 }
 
@@ -332,12 +459,14 @@ function removeProgressElement(taskId) {
                 globalDownloadPanel = { taskId: null, nickname: null };
                 // 从 downloadTasks 中删除任务
                 delete downloadTasks[taskId];
+                updateActiveTasksCount();
                 checkEmptyTasks();
             }, 300);
         } else {
             // 元素不存在也要清理
             delete downloadTasks[taskId];
             globalDownloadPanel = { taskId: null, nickname: null };
+            updateActiveTasksCount();
         }
         return;
     }
@@ -351,11 +480,13 @@ function removeProgressElement(taskId) {
             element.remove();
             // 从 downloadTasks 中删除任务
             delete downloadTasks[taskId];
+            updateActiveTasksCount();
             checkEmptyTasks();
         }, 300);
     } else {
         // 元素不存在也要清理
         delete downloadTasks[taskId];
+        updateActiveTasksCount();
     }
 }
 
@@ -565,7 +696,7 @@ function cancelTask(taskId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ task_id: taskId })
         }).then(res => res.json()).then(data => {
-            console.log('Cancellation result:', data);
+            _log('Cancellation result:', data);
         }).catch(err => console.error('Cancel error:', err));
 
         updateTaskStatus(taskId, 'cancelled', '已取消');
@@ -592,7 +723,7 @@ async function cancelDownloadTask(taskId) {
             body: JSON.stringify({ task_id: taskId })
         });
         const result = await response.json();
-        console.log('Download cancellation requested:', result);
+        _log('Download cancellation requested:', result);
 
         // 等待一小段时间让后端处理取消
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -643,9 +774,13 @@ function removeTask(taskId) {
 function updateActiveTasksCount() {
     const count = Object.keys(downloadTasks).length;
     const countElement = document.getElementById('active-tasks-count');
+    const bottomBar = document.getElementById('bottom-bar');
     if (countElement) {
         countElement.textContent = count;
         countElement.className = count > 0 ? 'badge bg-primary ms-1' : 'badge bg-secondary ms-1';
+    }
+    if (bottomBar) {
+        bottomBar.classList.toggle('has-active-tasks', count > 0);
     }
 }
 
