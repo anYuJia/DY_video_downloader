@@ -222,42 +222,31 @@ function showVerifyDialog(verifyUrl) {
         showToast('临时 Cookie 可能触发验证，建议登录账号以获得更稳定的使用体验', 'warning');
         addLog('提示：使用临时 Cookie 可能会遇到验证。建议登录账号以避免验证。', 'warning');
     } else {
-        showToast('正在打开验证浏览器...', 'info');
-        addLog('触发滑块验证，正在使用已存储的Cookie打开浏览器...', 'warning');
+        showToast('正在打开验证窗口...', 'info');
+        addLog('触发滑块验证，正在使用已保存 Cookie 打开验证窗口...', 'warning');
     }
 
     var url = verifyUrl || 'https://www.douyin.com/';
 
-    // 如果有具体的验证URL，直接打开（搜索验证需要在搜索页面完成）
-    if (verifyUrl) {
-        window.open(url, 'douyin_verify', 'width=1100,height=750,scrollbars=yes');
-        showToast('需要滑块验证，请在弹出窗口中完成验证后重试', 'warning');
-        addLog('触发滑块验证，请在弹出窗口中完成后重新搜索', 'warning');
-        return;
-    }
-
-    // 调用后端API，使用已存储的Cookie打开浏览器
+    // 调用后端API，优先使用应用内验证窗口
     fetch('/api/open_verify_browser', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_url: url })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            showToast('请在浏览器中完成验证，然后重新搜索', 'info');
-            addLog('浏览器已打开，请在浏览器中完成验证后重新搜索', 'info');
+            showToast('请在验证窗口中完成验证，然后重试', 'info');
+            addLog('验证窗口已打开，请完成验证后重试', 'info');
         } else {
-            // 如果后端打开失败，尝试直接打开
-            window.open(url, 'douyin_verify', 'width=1100,height=750,scrollbars=yes');
-            showToast('需要滑块验证，请在弹出窗口中完成验证后重试', 'warning');
-            addLog('触发滑块验证，请在弹出窗口中完成后重新搜索', 'warning');
+            showToast(data.message || '无法打开验证窗口', 'error');
+            addLog(data.message || '无法打开验证窗口，请在桌面模式下完成验证', 'error');
         }
     })
     .catch(err => {
         console.error('打开验证浏览器失败:', err);
-        // 回退到直接打开
-        window.open(url, 'douyin_verify', 'width=1100,height=750,scrollbars=yes');
-        showToast('需要滑块验证，请在弹出窗口中完成验证后重试', 'warning');
+        showToast('无法打开验证窗口，请重试', 'error');
     });
 }
 

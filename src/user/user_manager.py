@@ -81,6 +81,11 @@ class DouyinUserManager:
         }
         resp, succ = await self.api.common_request('/aweme/v1/web/user/profile/other/',
                                                  params, headers, skip_sign=True)
+        if isinstance(resp, dict) and resp.get('_need_verify'):
+            return {
+                '_need_verify': True,
+                '_verify_url': resp.get('_verify_url'),
+            }
         return resp.get('user', {}) if succ else {}
 
     async def search_user(self, keyword: str) -> Optional[dict]:
@@ -313,6 +318,12 @@ class DouyinUserManager:
             resp, succ = await self.api.common_request('/aweme/v1/web/aweme/detail/',
                                                      params,
                                                      {}, skip_sign=True)
+
+            if isinstance(resp, dict) and resp.get('_need_verify'):
+                return {
+                    '_need_verify': True,
+                    '_verify_url': resp.get('_verify_url'),
+                }
 
             if not succ or not resp.get('aweme_detail'):
                 logger.warning(f"获取视频详情失败: succ={succ}, aweme_id={aweme_id}")

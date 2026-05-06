@@ -23,10 +23,6 @@ python-socketio>=5.0.0  # SocketIO客户端
 gevent>=23.0.0  # 异步WebSocket支持
 gevent-websocket>=0.10.1  # WebSocket协议支持
 
-# Playwright 浏览器自动化（用于自动获取Cookie）
-playwright>=1.40.0
-playwright-stealth>=1.0.6
-
 # 浏览器 Cookie 读取
 browser-cookie3>=0.19.1
 

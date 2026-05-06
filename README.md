@@ -111,13 +111,13 @@ python -m src.web.web_app
 HOST=127.0.0.1 PORT=5001 python -m src.web.web_app
 ```
 
-#### Playwright 依赖
+#### Cookie 获取方式
 
-如需使用浏览器自动登录或 Cookie 辅助能力，首次运行可能需要安装 Playwright 浏览器依赖：
+当前支持 3 种方式：
 
-```bash
-python -m playwright install chromium
-```
+- 内置登录窗口
+- 从本机浏览器读取 Cookie
+- 手动粘贴 Cookie
 
 ## 使用流程
 
@@ -154,7 +154,7 @@ python -m playwright install chromium
 | 桌面容器 | pywebview |
 | Web 服务 | Flask, Flask-SocketIO |
 | 并发下载 | asyncio, aiohttp, requests |
-| 浏览器能力 | Playwright, browser-cookie3 |
+| 浏览器能力 | pywebview, browser-cookie3 |
 | 前端界面 | Bootstrap, 原生 JavaScript |
 | 打包分发 | PyInstaller |
 
@@ -168,7 +168,7 @@ python -m playwright install chromium
 │   ├── config/              # 配置加载、保存与资源路径
 │   ├── downloader/          # 媒体下载、进度回调与去重记录
 │   ├── user/                # 用户检索、作品列表与内容解析
-│   ├── utils/               # Playwright 环境检测
+│   ├── utils/               # 通用工具
 │   └── web/                 # Flask 路由、Socket.IO 与前端资源
 ├── lib/js/                  # Web 端签名脚本
 ├── scripts/                 # 安装器与辅助脚本

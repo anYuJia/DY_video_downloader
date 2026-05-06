@@ -111,13 +111,13 @@ Notes:
 HOST=127.0.0.1 PORT=5001 python -m src.web.web_app
 ```
 
-#### Playwright dependency
+#### Cookie acquisition
 
-If you want browser-login or Cookie-helper features, the Playwright browser dependency may need to be installed first:
+Current supported methods:
 
-```bash
-python -m playwright install chromium
-```
+- built-in login window
+- importing Cookie from a local browser
+- manually pasting a Cookie
 
 ## Usage Flow
 
@@ -154,7 +154,7 @@ Useful environment variables:
 | Desktop shell | pywebview |
 | Web service | Flask, Flask-SocketIO |
 | Download concurrency | asyncio, aiohttp, requests |
-| Browser capability | Playwright, browser-cookie3 |
+| Browser capability | pywebview, browser-cookie3 |
 | Frontend | Bootstrap, vanilla JavaScript |
 | Packaging | PyInstaller |
 
@@ -168,7 +168,7 @@ Useful environment variables:
 │   ├── config/              # Config loading, persistence, and resource paths
 │   ├── downloader/          # Media downloads, progress callbacks, and dedupe records
 │   ├── user/                # User search, works list, and content parsing
-│   ├── utils/               # Playwright environment checks
+│   ├── utils/               # Generic utilities
 │   └── web/                 # Flask routes, Socket.IO, and frontend assets
 ├── lib/js/                  # Web signing scripts
 ├── scripts/                 # Installer and helper scripts

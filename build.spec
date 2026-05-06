@@ -4,7 +4,7 @@ import sys
 
 # 获取项目根目录，以便于寻址
 project_root = os.path.abspath('.')
-raw_app_version = os.environ.get('APP_VERSION') or os.environ.get('GITHUB_REF_NAME') or '0.0.11'
+raw_app_version = os.environ.get('APP_VERSION') or os.environ.get('GITHUB_REF_NAME') or '0.0.12'
 app_version = raw_app_version[1:] if raw_app_version.startswith('v') else raw_app_version
 import webview as _pywebview
 pywebview_hooks = os.path.join(_pywebview.__path__[0], 'pkg')
@@ -35,7 +35,6 @@ hiddenimports = [
     'geventwebsocket',
     'greenlet',
     'simple_websocket',
-    'playwright',
     'flask',
     'flask_socketio',
     'requests',
@@ -56,8 +55,7 @@ hiddenimports = [
     'src.user',
     'src.web',
     'src.web.web_app',
-    'src.api.cookie_grabber',
-    'src.api.browser_worker',
+    'src.api.native_cookie_login',
     'webview',
     'webview.platforms',
     'webview.platforms.cocoa',

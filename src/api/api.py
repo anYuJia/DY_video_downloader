@@ -7,7 +7,6 @@ import urllib.request
 import os
 import re
 import json
-import subprocess
 import sys
 import random
 import string
@@ -206,6 +205,44 @@ class DouyinAPI:
         random_str = ''.join(random.choices(charset, k=16))
         return f"verify_0{random_str}"
 
+    def _build_verify_hint(self, uri: str, params: dict, response=None) -> tuple[dict, bool]:
+        """构造统一的验证提示结果。"""
+        verify_url = 'https://www.douyin.com/'
+
+        try:
+            if uri and 'discover/search' in uri:
+                keyword = params.get('keyword', '')
+                if keyword:
+                    verify_url = f"https://www.douyin.com/jingxuan/search/{urllib.parse.quote(str(keyword))}?type=user"
+            elif uri and 'user/profile' in uri:
+                sec_uid = params.get('sec_user_id', '')
+                if sec_uid:
+                    verify_url = f'https://www.douyin.com/user/{sec_uid}'
+            elif uri and 'aweme/post' in uri:
+                sec_uid = params.get('sec_user_id', '')
+                if sec_uid:
+                    verify_url = f'https://www.douyin.com/user/{sec_uid}'
+            elif uri and 'aweme/detail' in uri:
+                aweme_id = params.get('aweme_id', '')
+                if aweme_id:
+                    verify_url = f'https://www.douyin.com/video/{aweme_id}'
+        except Exception:
+            pass
+
+        message = '需要完成验证后重试'
+        if response is not None:
+            try:
+                if getattr(response, 'status_code', 0):
+                    message = f'请求被拒绝（HTTP {response.status_code}），请完成验证后重试'
+            except Exception:
+                pass
+
+        return {
+            '_need_verify': True,
+            '_verify_url': verify_url,
+            'message': message,
+        }, False
+
     async def common_request(self, uri: str, params: dict, headers: dict, host: str = None, skip_sign: bool = False, method: str = 'GET') -> tuple[dict, bool]:
         """
         请求 douyin
@@ -253,16 +290,30 @@ class DouyinAPI:
             print(f'\033[94m[API] 响应状态码: {response.status_code}\033[0m')
             print(f'\033[94m[API] 响应内容长度: {len(response.text)}, 前500字符: {response.text[:500]}\033[0m')
 
+        response_content_type = response.headers.get('Content-Type', '').lower()
+        response_url = getattr(response, 'url', '') or ''
+        looks_like_verify = (
+            response.status_code in (401, 403)
+            or 'passport' in response_url.lower()
+            or 'login' in response_url.lower()
+            or ('text/html' in response_content_type and len(response.content) > 0)
+        )
+
+        if looks_like_verify:
+            if self.debug_mode:
+                print(f'\033[93m[API] 检测到验证/登录页响应，提示用户手动完成验证\033[0m')
+            return self._build_verify_hint(uri, params, response)
+
         if response.status_code != 200 or len(response.content) == 0:
-            sys.stderr.write(f'*** [API] 请求失败，准备尝试浏览器 fallback ***\n')
-            sys.stderr.flush()
-            print(f'[API] 普通请求失败 (状态={response.status_code}, 空={len(response.content) == 0}), 尝试浏览器请求...')
-            # 回退到浏览器请求
-            browser_result = await self.browser_request(uri, params)
-            sys.stderr.write(f'*** [API] 浏览器请求返回：succ={browser_result[1]} ***\n')
-            sys.stderr.flush()
-            print(f'[API] 浏览器请求返回：succ={browser_result[1]}')
-            return browser_result
+            if self.debug_mode:
+                print(
+                    f"\033[91m[API] 普通请求失败: status={response.status_code}, empty={len(response.content) == 0}\033[0m"
+                )
+            return {
+                'status_code': response.status_code,
+                'status_msg': '请求失败',
+                'message': '请求失败，请检查 Cookie 或稍后重试',
+            }, False
             
         try:
             json_response = response.json()
@@ -299,91 +350,6 @@ class DouyinAPI:
             return json_response, False
 
         return json_response, True
-
-    async def browser_request(self, uri: str, params: dict) -> tuple[dict, bool]:
-        """使用Playwright子进程发起真实浏览器请求，通过页面导航拦截真实API响应"""
-        try:
-            # 检测 Playwright 是否安装
-            from src.utils.playwright_checker import check_playwright_installed
-            is_installed, message = check_playwright_installed()
-
-            if not is_installed:
-                error_msg = f"Playwright 未正确安装: {message}\n请运行: python -m src.utils.playwright_checker --install"
-                if self.debug_mode:
-                    print(f"\033[91m[API] {error_msg}\033[0m")
-                return {'error': 'playwright_not_installed', 'message': message}, False
-
-            if self.debug_mode:
-                print(f"\033[94m[API] 启动浏览器子进程(导航模式)...\033[0m")
-
-            from src.config.config import IS_FROZEN
-            
-            env = os.environ.copy()
-            env['RUN_WORKER'] = 'browser_worker'
-            env['PYTHONIOENCODING'] = 'utf-8'
-            
-            if IS_FROZEN:
-                cmd = [sys.executable]
-            else:
-                worker_path = os.path.join(os.path.dirname(__file__), 'browser_worker.py')
-                cmd = [sys.executable, worker_path]
-
-            req_data = json.dumps({
-                "cookie": self.cookie or "",
-                "api_path": uri,
-                "params": params,
-                "user_agent": self.common_headers["User-Agent"],
-            })
-
-            proc = await asyncio.to_thread(
-                subprocess.run,
-                cmd,
-                input=req_data,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                timeout=90,  # 增加超时时间到 90 秒，允许用户完成验证操作
-                env=env,
-                **({'creationflags': 0x08000000} if sys.platform == 'win32' else {}),  # CREATE_NO_WINDOW
-            )
-
-            if proc.returncode != 0:
-                if self.debug_mode:
-                    print(f"\033[91m[API] 浏览器子进程错误: {proc.stderr[:500]}\033[0m")
-                return {}, False
-
-            if self.debug_mode and proc.stderr:
-                print(f"\033[93m[API] 浏览器日志: {proc.stderr[:2000]}\033[0m")
-
-            result = json.loads(proc.stdout)
-
-            sys.stderr.write(f'*** [API] 浏览器响应：{json.dumps(result, ensure_ascii=False)[:500]} ***\n')
-            sys.stderr.flush()
-
-            if self.debug_mode:
-                result_str = json.dumps(result, ensure_ascii=False)
-                print(f"\033[94m[API] 浏览器响应: {result_str[:500]}...\033[0m")
-
-            if result and not result.get("error"):
-                if result.get('status_code', 0) != 0:
-                    sys.stderr.write(f'*** [API] 浏览器响应 status_code != 0，返回 False ***\n')
-                    sys.stderr.flush()
-                    return result, False
-                sys.stderr.write(f'*** [API] 浏览器响应成功，返回 True ***\n')
-                sys.stderr.flush()
-                return result, True
-
-            if self.debug_mode and result.get("error"):
-                print(f"\033[91m[API] 浏览器请求失败: {result['error']}\033[0m")
-            sys.stderr.write(f'*** [API] 浏览器响应有 error 或 result 为空，返回 False ***\n')
-            sys.stderr.flush()
-            return {}, False
-
-        except Exception as e:
-            if self.debug_mode:
-                print(f"\033[91m[API] 浏览器请求异常: {e}\033[0m")
-            return {}, False
 
     async def get_recommended_feed(self, count: int = 20, cursor: int = 0) -> tuple[dict, bool]:
         """获取推荐视频流
@@ -475,7 +441,7 @@ class DouyinAPI:
             if self.debug_mode:
                 print(f"\033[94m[API] 获取临时 Cookie...\033[0m")
 
-            # 方法1: 尝试使用纯 HTTP 请求获取 Cookie（不需要 Playwright）
+            # 仅使用纯 HTTP 请求获取临时 Cookie
             cookie_str = await self._get_temp_cookie_http()
 
             if cookie_str:
@@ -485,67 +451,10 @@ class DouyinAPI:
                     'message': '成功获取临时 Cookie（HTTP方式）'
                 }
 
-            # 方法2: 如果 HTTP 方式失败，回退到 Playwright
-            if self.debug_mode:
-                print(f"\033[93m[API] HTTP 方式获取失败，使用 Playwright 回退\033[0m")
-
-            # 检测 Playwright 是否安装
-            from src.utils.playwright_checker import check_playwright_installed
-            is_installed, check_message = check_playwright_installed()
-
-            if not is_installed:
-                error_msg = f"Playwright 未正确安装: {check_message}\n请运行: python -m src.utils.playwright_checker --install"
-                if self.debug_mode:
-                    print(f"\033[91m[API] {error_msg}\033[0m")
-                return {
-                    'success': False,
-                    'message': f'Playwright 未安装: {check_message}'
-                }
-
-            # 使用 Playwright 子进程获取临时 cookie
-            from src.config.config import IS_FROZEN
-
-            env = os.environ.copy()
-            env['RUN_WORKER'] = 'browser_worker'
-            env['PYTHONIOENCODING'] = 'utf-8'
-
-            if IS_FROZEN:
-                cmd = [sys.executable]
-            else:
-                worker_path = os.path.join(os.path.dirname(__file__), 'browser_worker.py')
-                cmd = [sys.executable, worker_path]
-
-            req_data = json.dumps({
-                "action": "get_temp_cookie"
-            })
-
-            proc = await asyncio.to_thread(
-                subprocess.run,
-                cmd,
-                input=req_data,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                timeout=30,
-                env=env,
-                **({'creationflags': 0x08000000} if sys.platform == 'win32' else {}),  # CREATE_NO_WINDOW
-            )
-
-            if proc.returncode != 0:
-                if self.debug_mode:
-                    print(f"\033[91m[API] 获取临时 Cookie 失败: {proc.stderr[:200]}\033[0m")
-                return {
-                    'success': False,
-                    'message': '获取临时 Cookie 失败: ' + proc.stderr[:200]
-                }
-
-            result = json.loads(proc.stdout)
-
-            if self.debug_mode:
-                print(f"\033[92m[API] 获取临时 Cookie 成功\033[0m")
-
-            return result
+            return {
+                'success': False,
+                'message': '获取临时 Cookie 失败，请稍后重试或改用登录账号 / 浏览器读取 Cookie'
+            }
 
         except Exception as e:
             if self.debug_mode:
@@ -556,7 +465,7 @@ class DouyinAPI:
             }
 
     async def _get_temp_cookie_http(self) -> str:
-        """使用纯 HTTP 请求获取临时 Cookie（不需要 Playwright）
+        """使用纯 HTTP 请求获取临时 Cookie
 
         Returns:
             str: Cookie 字符串，失败返回空字符串

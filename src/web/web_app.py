@@ -20,6 +20,7 @@ import logging
 import subprocess
 import shutil
 import re
+import time
 import requests as http_requests
 from datetime import datetime
 from pathlib import Path
@@ -45,12 +46,24 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config.config import Config, get_resource_path
 from src.api.api import DouyinAPI
+from src.api.native_cookie_login import (
+    NativeCookieLoginSession,
+    apply_cookie_to_window,
+    create_native_douyin_window,
+    create_login_window,
+    destroy_window_safely,
+    has_login_cookie,
+    is_native_cookie_login_available,
+    normalize_cookie_entries,
+    serialize_cookie_entries,
+)
 from src.downloader.downloader import DouyinDownloader
 from src.user.user_manager import DouyinUserManager
 
 # 移除增强下载器支持
 ENHANCED_DOWNLOADER_AVAILABLE = False
 EnhancedDouyinDownloader = None
+_native_verify_window = None
 
 app = Flask(__name__, template_folder=get_resource_path('src/web/templates'), static_folder=get_resource_path('src/web/static'))
 app.config['SECRET_KEY'] = 'douyin_downloader_secret_key'
@@ -450,66 +463,6 @@ def set_config():
         })
     except Exception as e:
         return jsonify({'success': False, 'message': f'配置保存失败: {str(e)}'}), 500
-
-
-@app.route('/api/playwright/status', methods=['GET'])
-def playwright_status():
-    """检测 Playwright 安装状态"""
-    try:
-        from src.utils.playwright_checker import check_playwright_installed, get_platform_info
-        is_installed, message = check_playwright_installed()
-        info = get_platform_info()
-
-        return jsonify({
-            'success': True,
-            'installed': is_installed,
-            'message': message,
-            'platform': info['system'],
-            'is_china': info['is_china']
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'installed': False,
-            'message': f'检测失败: {str(e)}'
-        })
-
-
-@app.route('/api/playwright/install', methods=['POST'])
-def playwright_install():
-    """安装 Playwright 依赖"""
-    try:
-        from src.utils.playwright_checker import install_playwright_dependencies
-        import threading
-
-        data = request.json or {}
-        use_mirror = data.get('use_mirror')  # None=自动, True=国内镜像, False=官方源
-
-        def install_in_background():
-            try:
-                success, message = install_playwright_dependencies(use_mirror=use_mirror)
-                socketio.emit('playwright_install_complete', {
-                    'success': success,
-                    'message': message
-                })
-            except Exception as e:
-                socketio.emit('playwright_install_complete', {
-                    'success': False,
-                    'message': str(e)
-                })
-
-        thread = threading.Thread(target=install_in_background, daemon=True)
-        thread.start()
-
-        return jsonify({
-            'success': True,
-            'message': '开始安装 Playwright，请稍候...'
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f'启动安装失败: {str(e)}'
-        })
 
 
 @app.route('/api/select_directory', methods=['POST'])
@@ -922,17 +875,38 @@ iframe{flex:1;border:none;width:100%}
 
 @app.route('/api/open_verify_browser', methods=['POST'])
 def open_verify_browser():
-    """使用系统默认浏览器直接打开抖音，让用户完成验证"""
-    import webbrowser
+    """只使用应用内 WebView 打开验证页面。"""
+    global _native_verify_window
 
     try:
-        # 直接打开抖音官网
-        webbrowser.open('https://www.douyin.com/')
-        return jsonify({'success': True, 'message': '已打开抖音官网，请完成验证'})
+        data = request.json or {}
+        target_url = (data.get('target_url') or '').strip() or 'https://www.douyin.com/'
+
+        if not is_native_cookie_login_available():
+            return jsonify({
+                'success': False,
+                'message': '当前模式不支持应用内验证窗口，请在桌面模式下完成验证',
+            }), 400
+
+        if _native_verify_window and not _native_verify_window.events.closed.is_set():
+            try:
+                _native_verify_window.load_url(target_url)
+                if Config.COOKIE:
+                    apply_cookie_to_window(_native_verify_window, Config.COOKIE, reload_after_apply=True)
+                _native_verify_window.show()
+                return jsonify({'success': True, 'message': '验证窗口已打开，请完成验证'})
+            except Exception:
+                _native_verify_window = None
+
+        verify_window = create_native_douyin_window('抖音验证', target_url, width=1100, height=750)
+        _native_verify_window = verify_window
+        if Config.COOKIE:
+            apply_cookie_to_window(verify_window, Config.COOKIE, reload_after_apply=True)
+        return jsonify({'success': True, 'message': '已打开验证窗口，请完成验证'})
 
     except Exception as e:
-        logger.error(f"打开验证浏览器失败：{str(e)}")
-        return jsonify({'success': False, 'message': f'无法打开浏览器：{str(e)}'}), 500
+        logger.error(f"打开验证窗口失败：{str(e)}")
+        return jsonify({'success': False, 'message': f'无法打开验证窗口：{str(e)}'}), 500
 
 @app.route('/api/search_user', methods=['POST'])
 def search_user():
@@ -1012,6 +986,14 @@ def get_user_detail():
         
         # 使用全局 run_async 运行异步任务
         user_detail = run_async(user_manager.get_user_detail(sec_uid))
+
+        if isinstance(user_detail, dict) and user_detail.get('_need_verify'):
+            return jsonify({
+                'success': False,
+                'need_verify': True,
+                'verify_url': user_detail.get('_verify_url'),
+                'message': '需要完成滑块验证',
+            })
         
         if not user_detail:
             return jsonify({'success': False, 'message': '获取用户详情失败'})
@@ -1112,7 +1094,12 @@ def get_user_videos():
 
         # 检测验证码
         if isinstance(resp, dict) and resp.get('_need_verify'):
-            return jsonify({'success': False, 'need_verify': True, 'message': '需要完成滑块验证'})
+            return jsonify({
+                'success': False,
+                'need_verify': True,
+                'verify_url': resp.get('_verify_url'),
+                'message': '需要完成滑块验证',
+            })
 
         if not succ or not resp.get('aweme_list'):
             return jsonify({
@@ -1798,6 +1785,14 @@ def get_video_detail():
 
         video_detail = run_async(user_manager.get_video_detail(aweme_id))
 
+        if isinstance(video_detail, dict) and video_detail.get('_need_verify'):
+            return jsonify({
+                'success': False,
+                'need_verify': True,
+                'verify_url': video_detail.get('_verify_url'),
+                'message': '需要完成滑块验证',
+            })
+
         if not video_detail:
             logger.warning(f"视频详情为空，可能是视频不存在或 API 限流：aweme_id={aweme_id}")
             return jsonify({
@@ -1853,6 +1848,14 @@ def parse_link():
             return video_info, user_detail
         
         video_info, user_detail = run_parse_link()
+
+        if isinstance(video_info, dict) and video_info.get('_need_verify'):
+            return jsonify({
+                'success': False,
+                'need_verify': True,
+                'verify_url': video_info.get('_verify_url'),
+                'message': '需要完成滑块验证',
+            })
         
         if video_info:
             # 格式化视频数据
@@ -1974,152 +1977,208 @@ def handle_test_connection(data):
 # ═══════════════════════════════════════════════
 # COOKIE 浏览器登录
 # ═══════════════════════════════════════════════
-_cookie_login_proc = None  # 当前正在运行的 cookie 登录子进程
+_native_cookie_login_session = None  # 当前正在运行的原生登录窗口会话
+
+
+def _emit_cookie_login_status(event: str, message: str, cookie_set: bool = False) -> None:
+    socketio.emit('cookie_login_status', {
+        'event': event,
+        'message': message,
+        'cookie_set': cookie_set,
+    })
+
+
+def _verify_native_cookie_login(cookie: str) -> dict:
+    try:
+        candidate_api = DouyinAPI(cookie)
+        params = {
+            'count': 1,
+            'max_cursor': 0,
+        }
+        params.update(candidate_api.common_params)
+        headers = dict(candidate_api.common_headers)
+        headers.update(DouyinUserManager._FAVORITE_HEADERS)
+        run_async(candidate_api._deal_params(params, headers))
+
+        response = http_requests.get(
+            f'{candidate_api.host}/aweme/v1/web/aweme/favorite/',
+            params=params,
+            headers=headers,
+            timeout=15,
+        )
+
+        if response.status_code != 200:
+            return {'success': False, 'message': f'登录态校验失败: HTTP {response.status_code}'}
+
+        resp = response.json()
+        if resp.get('status_code', 0) != 0:
+            return {
+                'success': False,
+                'message': resp.get('status_msg') or resp.get('message') or '登录态校验失败',
+            }
+
+        aweme_list = resp.get('aweme_list') or []
+        nickname = ''
+        if aweme_list:
+            nickname = ((aweme_list[0].get('author') or {}).get('nickname') or '').strip()
+
+        return {'success': True, 'nickname': nickname}
+    except Exception as error:
+        logger.warning('原生 Cookie 登录校验失败: %s', error)
+        return {'success': False, 'message': str(error)}
+
+
+def _save_cookie_login_success(cookie: str, nickname: str = '') -> None:
+    Config.COOKIE = cookie
+    Config.save_config(Config.COOKIE, Config.BASE_DIR, Config.HISTORY_DIRS)
+    init_app()
+
+    success_message = 'Cookie 获取成功！已自动保存。'
+    if nickname:
+        success_message = f'Cookie 获取成功！已登录为 {nickname}'
+
+    _emit_cookie_login_status('success', success_message, cookie_set=True)
+    logger.info('通过原生登录窗口成功获取 Cookie')
+
+
+def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
+    global _native_cookie_login_session
+
+    if not is_native_cookie_login_available():
+        return False, 'native_unavailable'
+
+    try:
+        login_window = create_login_window()
+    except Exception as error:
+        logger.warning('创建原生登录窗口失败，将回退其他方案: %s', error)
+        return False, str(error)
+
+    session = NativeCookieLoginSession(window=login_window)
+    _native_cookie_login_session = session
+
+    def emit_once(event: str, message: str, cookie_set: bool = False) -> None:
+        if session.last_event == event and session.last_message == message:
+            return
+        session.last_event = event
+        session.last_message = message
+        _emit_cookie_login_status(event, message, cookie_set=cookie_set)
+
+    def finish() -> None:
+        global _native_cookie_login_session
+        session.finished_event.set()
+        if _native_cookie_login_session is session:
+            _native_cookie_login_session = None
+
+    def poll_cookie_window() -> None:
+        try:
+            emit_once('pending', '登录窗口已打开，请在窗口中完成登录')
+
+            if not session.window.events.loaded.wait(45):
+                if not session.cancel_event.is_set():
+                    destroy_window_safely(session.window)
+                    emit_once('error', '登录窗口加载超时，请重试')
+                return
+
+            while True:
+                if session.cancel_event.is_set():
+                    destroy_window_safely(session.window)
+                    emit_once('cancelled', '登录已取消')
+                    return
+
+                if session.window.events.closed.is_set():
+                    emit_once('cancelled', '登录窗口已关闭')
+                    return
+
+                if time.monotonic() - session.created_at >= timeout:
+                    destroy_window_safely(session.window)
+                    emit_once('timeout', '登录超时，请重试')
+                    return
+
+                try:
+                    raw_cookies = session.window.get_cookies() or []
+                except Exception as error:
+                    logger.debug('读取原生登录窗口 Cookie 失败: %s', error)
+                    time.sleep(1)
+                    continue
+
+                entries = normalize_cookie_entries(raw_cookies)
+                if not has_login_cookie(entries):
+                    time.sleep(1)
+                    continue
+
+                cookie_string = serialize_cookie_entries(entries)
+                if not cookie_string:
+                    time.sleep(1)
+                    continue
+
+                now = time.monotonic()
+                should_verify = (
+                    cookie_string != session.last_cookie_value
+                    or now - session.last_verify_at >= 5
+                )
+
+                if not should_verify:
+                    time.sleep(1)
+                    continue
+
+                session.last_cookie_value = cookie_string
+                session.last_verify_at = now
+                emit_once('pending', '已检测到登录 Cookie，正在校验登录状态')
+
+                verify_result = _verify_native_cookie_login(cookie_string)
+                if not verify_result.get('success'):
+                    logger.info(
+                        '原生登录窗口候选 Cookie 校验未通过: %s',
+                        verify_result.get('message', 'unknown'),
+                    )
+                    time.sleep(1)
+                    continue
+
+                _save_cookie_login_success(cookie_string, verify_result.get('nickname', ''))
+                destroy_window_safely(session.window)
+                return
+        finally:
+            finish()
+
+    threading.Thread(target=poll_cookie_window, daemon=True).start()
+    return True, 'native_started'
 
 @app.route('/api/cookie/browser_login', methods=['POST'])
 def cookie_browser_login():
-    """启动 Playwright 浏览器让用户登录抖音，自动提取 Cookie"""
-    global _cookie_login_proc
-    
-    if _cookie_login_proc and _cookie_login_proc.poll() is None:
-        return jsonify({'success': False, 'message': '浏览器登录已在进行中'}), 409
+    """启动登录窗口让用户登录抖音，自动提取 Cookie"""
+    global _native_cookie_login_session
+
+    if _native_cookie_login_session and _native_cookie_login_session.is_active():
+        return jsonify({'success': False, 'message': '登录窗口已在进行中'}), 409
     
     data = request.json or {}
-    timeout = data.get('timeout', 300)
-    browser_type = data.get('browser', 'chrome')
-    
-    def run_cookie_grab():
-        global _cookie_login_proc, api, downloader, user_manager
-        import subprocess
-        
-        from src.config.config import IS_FROZEN
-        
-        env = os.environ.copy()
-        env['RUN_WORKER'] = 'cookie_grabber'
-        env['PYTHONIOENCODING'] = 'utf-8'
-        
-        if IS_FROZEN:
-            cmd = [sys.executable]  # 执行打包后的文件自身，通过环境变量进入分发器
-        else:
-            worker_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'api', 'cookie_grabber.py')
-            cmd = [sys.executable, worker_path]
-        
-        req_data = json.dumps({"timeout": timeout, "browser": browser_type})
-        cookie_saved = False
+    timeout = int(data.get('timeout', 300))
+    _ = data.get('browser', 'chrome')
 
-        def finalize_cookie_success(cookie: str):
-            nonlocal cookie_saved
-            if not cookie or cookie_saved:
-                return
+    started, reason = _start_native_cookie_login(timeout)
+    if started:
+        return jsonify({'success': True, 'message': '登录窗口已启动，请在弹出的窗口中登录抖音'})
 
-            cookie_saved = True
-            Config.COOKIE = cookie
-            Config.save_config(Config.COOKIE, Config.BASE_DIR)
-            init_app()
-
-            socketio.emit('cookie_login_status', {
-                'event': 'success',
-                'message': 'Cookie 获取成功！已自动保存。',
-                'cookie_set': True,
-            })
-            logger.info("通过浏览器登录成功获取 Cookie")
-        
-        try:
-            _cookie_login_proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                env=env,
-                **({'creationflags': 0x08000000} if sys.platform == 'win32' else {}),  # CREATE_NO_WINDOW
-            )
-            
-            # 写入参数并关闭 stdin
-            _cookie_login_proc.stdin.write(req_data)
-            _cookie_login_proc.stdin.close()
-            
-            # 实时读取 stderr 获取状态更新
-            for line in _cookie_login_proc.stderr:
-                line = line.strip()
-                logger.debug(f"[cookie_grabber stderr] {line}")
-
-                if '[cookie_grabber]' in line:
-                    try:
-                        json_str = line.split('[cookie_grabber] ', 1)[1]
-                        status_data = json.loads(json_str)
-                        logger.info(f"[cookie状态] {status_data}")
-
-                        if status_data.get('event') == 'cookie_extracted' and status_data.get('cookie'):
-                            finalize_cookie_success(status_data.get('cookie'))
-                            continue
-
-                        socketio.emit('cookie_login_status', {
-                            'event': status_data.get('event', ''),
-                            'message': status_data.get('message', ''),
-                            'cookie_set': bool(status_data.get('cookie')),
-                        })
-                    except (json.JSONDecodeError, IndexError) as e:
-                        logger.warning(f"解析状态行失败: {line}, 错误: {e}")
-            
-            # 等待进程结束获取结果
-            _cookie_login_proc.wait()
-            stdout = _cookie_login_proc.stdout.read()
-            
-            try:
-                result = json.loads(stdout)
-            except json.JSONDecodeError:
-                result = {"success": False, "error": "无法解析返回结果"}
-            
-            if result.get("success") and result.get("cookie"):
-                finalize_cookie_success(result["cookie"])
-            else:
-                error_msg = result.get("error", "未知错误")
-                socketio.emit('cookie_login_status', {
-                    'event': 'failed',
-                    'message': f'获取 Cookie 失败: {error_msg}',
-                })
-                logger.warning(f"浏览器登录获取 Cookie 失败: {error_msg}")
-                
-        except Exception as e:
-            logger.error(f"Cookie 浏览器登录异常: {str(e)}")
-            socketio.emit('cookie_login_status', {
-                'event': 'error',
-                'message': f'发生错误: {str(e)}',
-            })
-        finally:
-            _cookie_login_proc = None
-    
-    thread = threading.Thread(target=run_cookie_grab, daemon=True)
-    thread.start()
-    
-    return jsonify({'success': True, 'message': '浏览器登录已启动，请在弹出的浏览器中登录抖音'})
+    return jsonify({
+        'success': False,
+        'message': '当前运行模式不支持内置登录窗口，请使用“从浏览器读取 Cookie”或手动粘贴 Cookie',
+        'reason': reason,
+    }), 400
 
 @app.route('/api/cookie/browser_login/cancel', methods=['POST'])
 def cookie_browser_login_cancel():
-    """取消正在进行的浏览器登录"""
-    global _cookie_login_proc
-    
-    if _cookie_login_proc and _cookie_login_proc.poll() is None:
-        try:
-            _cookie_login_proc.terminate()
-            _cookie_login_proc.wait(timeout=5)
-        except Exception:
-            try:
-                _cookie_login_proc.kill()
-            except Exception:
-                pass
-        _cookie_login_proc = None
-        
-        socketio.emit('cookie_login_status', {
-            'event': 'cancelled',
-            'message': '浏览器登录已取消',
-        })
-        return jsonify({'success': True, 'message': '已取消浏览器登录'})
-    
-    return jsonify({'success': False, 'message': '没有正在进行的浏览器登录'})
+    """取消正在进行的原生登录窗口"""
+    global _native_cookie_login_session
+
+    if _native_cookie_login_session and _native_cookie_login_session.is_active():
+        _native_cookie_login_session.cancel_event.set()
+        _native_cookie_login_session.last_event = 'cancelled'
+        _native_cookie_login_session.last_message = '登录已取消'
+        destroy_window_safely(_native_cookie_login_session.window)
+        _emit_cookie_login_status('cancelled', '登录已取消')
+        return jsonify({'success': True, 'message': '已取消登录'})
+
+    return jsonify({'success': False, 'message': '没有正在进行的登录窗口'})
 
 
 @app.route('/api/cookie/generate_temp', methods=['POST'])

@@ -159,7 +159,7 @@ function updateFeatureAvailability(isLoggedIn) {
     });
 }
 
-// 直接在设置面板中启动浏览器登录
+// 直接在设置面板中启动登录窗口
 function startBrowserLoginDirect() {
     if (_browserLoginActive) return;
     _browserLoginActive = true;
@@ -171,7 +171,7 @@ function startBrowserLoginDirect() {
     statusContainer.style.display = 'block';
     statusIcon.className = 'bi bi-hourglass-split text-primary me-1';
     statusText.className = 'text-primary';
-    statusText.textContent = '正在启动浏览器...';
+    statusText.textContent = '正在打开登录窗口...';
 
     fetch('/api/cookie/browser_login', {
         method: 'POST',
@@ -337,14 +337,14 @@ function startBrowserLogin() {
     spinnerEl.className = 'spinner-border spinner-border-sm me-2';
     spinnerEl.setAttribute('role', 'status');
     startBtn.appendChild(spinnerEl);
-    startBtn.appendChild(document.createTextNode(' 正在启动浏览器...'));
+    startBtn.appendChild(document.createTextNode(' 正在打开登录窗口...'));
 
     cancelBtn.style.display = 'block';
     statusEl.style.display = 'flex';
     statusEl.className = 'cookie-browser-status';
     spinner.style.display = 'block';
     resultIcon.style.display = 'none';
-    statusText.textContent = '正在启动浏览器...';
+    statusText.textContent = '正在打开登录窗口...';
 
     // Start countdown timer (5 minutes)
     var remaining = 300;
@@ -410,7 +410,7 @@ function resetBrowserLoginUI() {
         var icon = document.createElement('i');
         icon.className = 'bi bi-box-arrow-up-right';
         startBtn.appendChild(icon);
-        startBtn.appendChild(document.createTextNode(' 打开浏览器登录'));
+        startBtn.appendChild(document.createTextNode(' 打开登录窗口'));
     }
     if (cancelBtn) cancelBtn.style.display = 'none';
 }
