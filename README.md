@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="img/logo.png" width="128" height="128" alt="DY Video Downloader Logo">
+<img src="animated_icon.svg" width="128" height="128" alt="DY Video Downloader Logo">
 
 <a href="README.md">简体中文</a> | <a href="README_EN.md">English</a>
 
