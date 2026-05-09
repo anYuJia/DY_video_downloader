@@ -230,6 +230,7 @@ jobs:
           Summary: Douyin video downloader desktop application
           License: Proprietary
           BuildArch: x86_64
+          Source0: %{name}-%{version}.tar.gz
           Requires: gtk3
           Requires: webkit2gtk4.1
 
