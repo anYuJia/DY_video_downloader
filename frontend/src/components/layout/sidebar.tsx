@@ -105,7 +105,7 @@ export function Sidebar() {
               className={cn(
                 "group relative flex items-center gap-3 h-[42px] px-3 rounded-[14px] text-left transition-[background-color,color,box-shadow,transform] duration-[var(--duration-fast)] ease-[var(--ease-spring)] cursor-pointer",
                 isActive
-                  ? "bg-accent-soft text-accent shadow-[inset_0_0_0_1px_var(--color-accent-ring)]"
+                  ? "bg-accent-soft text-accent shadow-[0_8px_24px_rgba(254,44,85,0.10)]"
                   : "text-text-muted hover:text-text hover:bg-surface-raised"
               )}
               whileHover={{ scale: 1.01 }}

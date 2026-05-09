@@ -56,6 +56,22 @@ class DouyinUserManager:
             return 'auto'
         return quality
 
+    def _bit_rate_metric(self, bit_rate: dict) -> int:
+        for key in ('data_size', 'bit_rate', 'quality_type'):
+            try:
+                value = int(bit_rate.get(key) or 0)
+            except (TypeError, ValueError):
+                value = 0
+            if value > 0:
+                return value
+
+        try:
+            width = int(bit_rate.get('width') or 0)
+            height = int(bit_rate.get('height') or 0)
+        except (TypeError, ValueError):
+            return 0
+        return width * height if width > 0 and height > 0 else 0
+
     def _collect_video_candidates(self, video_data: dict) -> list[dict]:
         candidates = []
         seen = set()
@@ -73,15 +89,16 @@ class DouyinUserManager:
                 'is_lowbr': bool(is_lowbr),
             })
 
-        push_candidate(self._first_url(video_data.get('download_addr')), 10**18, False, True, False)
-        push_candidate(self._first_url(video_data.get('play_addr_h264')), 10**18 - 1, True, False, False)
+        push_candidate(self._first_url(video_data.get('download_addr')), 0, False, True, False)
+        push_candidate(self._first_url(video_data.get('play_addr_h264')), 0, True, False, False)
         push_candidate(self._first_url(video_data.get('play_addr_lowbr')), 1, True, False, True)
 
         for bit_rate in video_data.get('bit_rate') or []:
             if not isinstance(bit_rate, dict):
                 continue
-            metric = int(bit_rate.get('data_size') or bit_rate.get('bit_rate') or 0)
-            push_candidate(self._first_url(bit_rate.get('play_addr_h264')), metric, True, False, False)
+            metric = self._bit_rate_metric(bit_rate)
+            h264_metric = metric + 1 if metric > 0 else 0
+            push_candidate(self._first_url(bit_rate.get('play_addr_h264')), h264_metric, True, False, False)
             push_candidate(
                 self._first_url(bit_rate.get('play_addr')),
                 metric,
@@ -100,9 +117,16 @@ class DouyinUserManager:
             return ''
 
         download_addr = next((candidate for candidate in candidates if candidate['is_download_addr']), None)
-        h264_candidates = [candidate for candidate in candidates if candidate['is_h264']]
+        h264_candidates = [
+            candidate for candidate in candidates
+            if candidate['is_h264'] and not candidate['is_lowbr']
+        ]
         h264_best = max(h264_candidates, key=lambda item: item['metric'], default=None)
-        highest_metric = max(candidates, key=lambda item: item['metric'], default=None)
+        quality_candidates = [
+            candidate for candidate in candidates
+            if candidate['metric'] > 0 and not candidate['is_download_addr'] and not candidate['is_lowbr']
+        ]
+        highest_metric = max(quality_candidates, key=lambda item: item['metric'], default=None)
         lowbr = next((candidate for candidate in candidates if candidate['is_lowbr']), None)
         metric_candidates = [candidate for candidate in candidates if candidate['metric'] > 0]
         smallest_metric = min(metric_candidates, key=lambda item: item['metric'], default=None)
@@ -110,7 +134,7 @@ class DouyinUserManager:
 
         quality = self._video_download_quality()
         if quality == 'highest':
-            selected = download_addr or highest_metric or first
+            selected = highest_metric or download_addr or h264_best or first
         elif quality == 'h264':
             selected = h264_best or download_addr or highest_metric or first
         elif quality == 'smallest':
@@ -492,6 +516,7 @@ class DouyinUserManager:
                     'width': video_data.get('width', 0),
                     'height': video_data.get('height', 0),
                     'duration': self._normalize_duration_seconds(video_data.get('duration', 0)),
+                    'bit_rate': video_data.get('bit_rate') or [],
                 }
             }
             

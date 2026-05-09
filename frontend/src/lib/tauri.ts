@@ -175,6 +175,19 @@ export interface VideoData {
   height: number;
   duration: number;
   ratio: string;
+  bit_rate?: BitRateInfo[] | null;
+}
+
+export interface BitRateInfo {
+  gear_name: string;
+  bit_rate: number;
+  quality_type: number;
+  is_h265: boolean;
+  data_size: number;
+  width: number;
+  height: number;
+  play_addr: string | null;
+  play_addr_h264: string | null;
 }
 
 export interface Statistics {
@@ -372,6 +385,7 @@ function buildEmptyVideoData(): VideoData {
     height: 0,
     duration: 0,
     ratio: "",
+    bit_rate: null,
   };
 }
 
@@ -398,9 +412,36 @@ function extractUrl(value: unknown): string {
   }
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;
-    return extractUrl(record.url || record.play_url || record.play_addr || record.url_list);
+    return extractUrl(record.url || record.play_url || record.play_addr || record.download_addr || record.url_list);
   }
   return "";
+}
+
+function normalizeBitRates(value: unknown): BitRateInfo[] | null {
+  if (!Array.isArray(value)) return null;
+
+  const bitRates = value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      const playAddr = extractUrl(record.play_addr);
+      const playAddrH264 = extractUrl(record.play_addr_h264);
+      if (!playAddr && !playAddrH264) return null;
+      return {
+        gear_name: String(record.gear_name || ""),
+        bit_rate: Number(record.bit_rate || 0),
+        quality_type: Number(record.quality_type || 0),
+        is_h265: Boolean(record.is_h265),
+        data_size: Number(record.data_size || 0),
+        width: Number(record.width || 0),
+        height: Number(record.height || 0),
+        play_addr: playAddr || null,
+        play_addr_h264: playAddrH264 || null,
+      };
+    })
+    .filter(Boolean) as BitRateInfo[];
+
+  return bitRates.length > 0 ? bitRates : null;
 }
 
 function normalizeMediaType(type: unknown, fallback = "video"): string {
@@ -644,10 +685,14 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
     source.video_url ||
     source.url
   ) || primaryMediaUrl;
+  const playAddrH264 = extractUrl(videoRecord.play_addr_h264 || source.play_addr_h264);
+  const playAddrLowbr = extractUrl(videoRecord.play_addr_lowbr || source.play_addr_lowbr);
+  const downloadAddr = extractUrl(videoRecord.download_addr || source.download_addr);
+  const bitRates = normalizeBitRates(videoRecord.bit_rate || source.bit_rate);
   const previewAddr = extractUrl(
     source.preview_addr ||
-    source.play_addr_lowbr ||
-    source.play_addr_h264 ||
+      source.play_addr_lowbr ||
+      source.play_addr_h264 ||
       videoRecord.preview_addr ||
       videoRecord.play_addr_lowbr ||
       videoRecord.play_addr_h264
@@ -683,9 +728,9 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
     video: {
       preview_addr: previewAddr || null,
       play_addr: playAddr || previewAddr || livePhotoUrls[0] || "",
-      play_addr_h264: null,
-      play_addr_lowbr: null,
-      download_addr: playAddr || previewAddr || livePhotoUrls[0] || null,
+      play_addr_h264: playAddrH264 || null,
+      play_addr_lowbr: playAddrLowbr || null,
+      download_addr: downloadAddr || playAddr || previewAddr || livePhotoUrls[0] || null,
       cover,
       dynamic_cover: String(source.dynamic_cover || cover),
       origin_cover: String(source.origin_cover || cover),
@@ -693,6 +738,7 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
       height: Number(videoRecord.height || source.height || 0),
       duration,
       ratio: String(videoRecord.ratio || source.ratio || ""),
+      bit_rate: bitRates,
     },
     statistics: {
       play_count: Number(stats.play_count || 0),

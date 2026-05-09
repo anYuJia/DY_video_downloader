@@ -50,7 +50,7 @@ export function BottomBar() {
 
   return (
     <motion.div
-      className="border-t border-border bg-background shrink-0"
+      className="bg-background shadow-[0_-18px_42px_rgba(0,0,0,0.18),0_-1px_0_rgba(255,255,255,0.04)] shrink-0"
       animate={{ height: expanded ? "var(--bottombar-expanded)" : "var(--bottombar-height)" }}
       transition={{ type: "spring", stiffness: 350, damping: 30 }}
     >
