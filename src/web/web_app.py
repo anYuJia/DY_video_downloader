@@ -9,7 +9,7 @@ if not IS_WINDOWS and not (IS_MACOS and os.environ.get('USE_PYWEBVIEW') == '1'):
     from gevent import monkey
     monkey.patch_all()
 
-from flask import Flask, render_template, request, jsonify, Response, send_file
+from flask import Flask, request, jsonify, Response, send_file, send_from_directory, abort
 from flask_socketio import SocketIO, emit
 import asyncio
 import threading
@@ -88,9 +88,8 @@ ENHANCED_DOWNLOADER_AVAILABLE = False
 EnhancedDouyinDownloader = None
 _native_verify_window = None
 
-app = Flask(__name__, template_folder=get_resource_path('src/web/templates'), static_folder=get_resource_path('src/web/static'))
+app = Flask(__name__, static_folder=None)
 app.config['SECRET_KEY'] = 'douyin_downloader_secret_key'
-app.config['TEMPLATES_AUTO_RELOAD'] = True  # 禁用模板缓存
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # 禁用静态文件缓存
 # macOS + pywebview 时 gevent 未 patch，必须用 threading 模式
 if IS_WINDOWS or (IS_MACOS and os.environ.get('USE_PYWEBVIEW') == '1'):
@@ -119,33 +118,72 @@ active_tasks = {} # 用于存储活跃的 asyncio.Future 和 asyncio.Event
 @app.route('/favicon.ico')
 def favicon():
     """Serve favicon to avoid noisy 404s in browsers."""
-    return send_file(
-        get_resource_path('src/web/static/favicon.svg'),
-        mimetype='image/svg+xml',
-        max_age=86400
-    )
+    return send_frontend_asset('favicon.svg', 'image/svg+xml')
+
+
+@app.route('/favicon.svg')
+def favicon_svg():
+    return send_frontend_asset('favicon.svg', 'image/svg+xml')
+
+
+@app.route('/animated_icon.svg')
+def animated_icon():
+    return send_frontend_asset('animated_icon.svg', 'image/svg+xml')
+
+
+@app.route('/socket.io.min.js')
+def socket_io_client():
+    return send_frontend_asset('socket.io.min.js', 'application/javascript')
 
 
 @app.route('/default-avatar.svg')
 def default_avatar():
-    return send_file(
-        get_resource_path('src/web/static/default-avatar.svg'),
-        mimetype='image/svg+xml',
-        max_age=86400,
-    )
+    return send_frontend_asset('default-avatar.svg', 'image/svg+xml')
+
+
+@app.route('/assets/<path:filename>')
+def react_assets(filename: str):
+    react_assets_dir = get_react_dist_dir() / 'assets'
+    if not react_assets_dir.exists():
+        abort(404)
+    return send_from_directory(react_assets_dir, filename, max_age=86400)
 
 
 @app.route('/default-cover.svg')
 def default_cover():
-    return send_file(
-        get_resource_path('src/web/static/default-cover.svg'),
-        mimetype='image/svg+xml',
-        max_age=86400,
-    )
+    return send_frontend_asset('default-cover.svg', 'image/svg+xml')
 
 # 全局 Loop 处理
 _global_loop = None
 _loop_thread = None
+
+
+def get_react_dist_dir() -> Path:
+    return Path(get_resource_path('src/web/react_dist')).resolve()
+
+
+def get_frontend_public_dir() -> Path:
+    return Path(get_resource_path('frontend/public')).resolve()
+
+
+def find_frontend_asset(filename: str) -> Path | None:
+    for directory in (get_react_dist_dir(), get_frontend_public_dir()):
+        candidate = directory / filename
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
+def send_frontend_asset(filename: str, mimetype: str):
+    asset = find_frontend_asset(filename)
+    if asset is None:
+        abort(404)
+    return send_file(asset, mimetype=mimetype, max_age=86400)
+
+
+def has_react_frontend() -> bool:
+    react_index = get_react_dist_dir() / 'index.html'
+    return react_index.exists() and react_index.is_file()
 
 
 def get_download_root() -> Path:
@@ -573,7 +611,39 @@ def init_app():
 @app.route('/')
 def index():
     """主页"""
-    return render_template('index.html', socketio_async_mode=socketio.async_mode)
+    react_index = get_react_dist_dir() / 'index.html'
+    if react_index.exists():
+        return send_file(react_index)
+    logger.error("React frontend build not found at %s", react_index)
+    return Response(
+        """
+        <!doctype html>
+        <html lang="zh-CN">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Douyin Downloader</title>
+            <style>
+              body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b0b11; color: #f5f5f7; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+              main { width: min(680px, calc(100vw - 40px)); border: 1px solid rgba(255,255,255,.12); border-radius: 18px; padding: 24px; background: rgba(255,255,255,.05); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+              h1 { margin: 0 0 12px; font-size: 20px; }
+              p { margin: 0 0 14px; color: #b8b8c5; line-height: 1.7; }
+              code { display: inline-block; padding: 3px 7px; border-radius: 8px; background: rgba(255,255,255,.08); color: #fff; }
+            </style>
+          </head>
+          <body>
+            <main>
+              <h1>React 前端尚未构建</h1>
+              <p>Python 版现在只使用 React 前端。请先在项目根目录执行：</p>
+              <p><code>cd frontend &amp;&amp; npm install &amp;&amp; npm run build</code></p>
+              <p>构建完成后重新启动应用。</p>
+            </main>
+          </body>
+        </html>
+        """,
+        status=503,
+        mimetype='text/html',
+    )
 
 
 @app.route('/api/config', methods=['GET'])
@@ -2403,12 +2473,53 @@ def download_liked_authors():
     except Exception as e:
         return jsonify({'success': False, 'message': f'下载失败: {str(e)}'}), 500
 
+@app.route('/api/verify_cookie', methods=['GET'])
+def verify_cookie():
+    """校验当前保存的 Cookie 是否可用。"""
+    cookie = (Config.COOKIE or '').strip()
+    if not cookie:
+        return jsonify({
+            'valid': False,
+            'user_name': None,
+            'user_id': None,
+            'expires_at': None,
+            'message': '未配置 Cookie',
+        })
+
+    result = _verify_native_cookie_login(cookie)
+    if result.get('success'):
+        return jsonify({
+            'valid': True,
+            'user_name': result.get('nickname') or None,
+            'user_id': None,
+            'expires_at': None,
+            'message': 'Cookie 可用',
+        })
+
+    return jsonify({
+        'valid': False,
+        'user_name': None,
+        'user_id': None,
+        'expires_at': None,
+        'message': result.get('message') or 'Cookie 不可用',
+    })
+
 @app.route('/api/tasks', methods=['GET'])
 def get_tasks():
     """获取下载任务列表"""
+    normalized_tasks = {}
+    for task_id, task in download_tasks.items():
+        normalized = dict(task)
+        if 'start_time' in normalized and isinstance(normalized['start_time'], datetime):
+            normalized['start_time'] = int(normalized['start_time'].timestamp() * 1000)
+        if 'end_time' in normalized and isinstance(normalized['end_time'], datetime):
+            normalized['end_time'] = int(normalized['end_time'].timestamp() * 1000)
+        normalized.setdefault('id', task_id)
+        normalized_tasks[task_id] = normalized
+
     return jsonify({
         'success': True,
-        'tasks': download_tasks
+        'tasks': normalized_tasks
     })
 
 @socketio.on('connect')

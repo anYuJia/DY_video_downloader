@@ -4,7 +4,7 @@ import sys
 
 # 获取项目根目录，以便于寻址
 project_root = os.path.abspath('.')
-raw_app_version = os.environ.get('APP_VERSION') or os.environ.get('GITHUB_REF_NAME') or '0.0.13'
+raw_app_version = os.environ.get('APP_VERSION') or os.environ.get('GITHUB_REF_NAME') or '1.0.1'
 app_version = raw_app_version[1:] if raw_app_version.startswith('v') else raw_app_version
 import webview as _pywebview
 pywebview_hooks = os.path.join(_pywebview.__path__[0], 'pkg')
@@ -21,8 +21,7 @@ block_cipher = None
 
 # 需要被一同打包进程序结构里的相关资源文件
 datas = [
-    (os.path.join(project_root, 'src/web/templates'), 'src/web/templates'),
-    (os.path.join(project_root, 'src/web/static'), 'src/web/static'),
+    (os.path.join(project_root, 'src/web/react_dist'), 'src/web/react_dist'),
     (os.path.join(project_root, 'lib/js/douyin.js'), 'lib/js'),
     # 如果有其他非 Python 资源，也应添加到这里
 ]

@@ -1,0 +1,243 @@
+import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
+import { CheckSquare, Download, Grid3x3, Loader2, RefreshCw, Square } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { VideoCard } from "./video-card";
+import { VideoDetailModal } from "@/components/modals/video-detail";
+import { FullscreenPlayer } from "@/components/player/fullscreen-player";
+import { useDownloads } from "@/hooks/use-downloads";
+import { useSearchStore } from "@/stores/search-store";
+import type { VideoInfo } from "@/lib/tauri";
+
+export function VideoGrid() {
+  const currentUser = useSearchStore((s) => s.currentUser);
+  const videos = useSearchStore((s) => s.videos);
+  const loadingVideos = useSearchStore((s) => s.loadingVideos);
+  const loadingMore = useSearchStore((s) => s.loadingMore);
+  const hasMore = useSearchStore((s) => s.hasMore);
+  const loadVideos = useSearchStore((s) => s.loadVideos);
+  const loadMore = useSearchStore((s) => s.loadMore);
+  const { downloadVideo, downloadBatch } = useDownloads();
+  const [detailVideo, setDetailVideo] = useState<VideoInfo | null>(null);
+  const [playerIndex, setPlayerIndex] = useState<number | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+
+  const showPlaceholder = currentUser && !loadingVideos && videos.length === 0;
+  const openPlayer = (video: VideoInfo) => {
+    if (selectMode) {
+      toggleSelected(video.aweme_id);
+      return;
+    }
+    const index = videos.findIndex((item) => item.aweme_id === video.aweme_id);
+    setPlayerIndex(index >= 0 ? index : 0);
+  };
+  const selectedVideos = videos.filter((video) => selectedIds.has(video.aweme_id));
+  const toggleSelected = (awemeId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(awemeId)) next.delete(awemeId);
+      else next.add(awemeId);
+      return next;
+    });
+  };
+  const toggleSelectMode = () => {
+    setSelectMode((value) => {
+      if (value) setSelectedIds(new Set());
+      return !value;
+    });
+  };
+
+  useEffect(() => {
+    const validIds = new Set(videos.map((video) => video.aweme_id));
+    setSelectedIds((current) => {
+      const next = new Set([...current].filter((id) => validIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [videos]);
+
+  useEffect(() => {
+    if (!hasMore || loadingVideos || loadingMore || videos.length === 0) return;
+    const node = loadMoreRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void loadMore();
+        }
+      },
+      { root: null, rootMargin: "520px 0px", threshold: 0.01 }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, loadMore, loadingMore, loadingVideos, videos.length]);
+
+  if (!currentUser) return null;
+
+  return (
+    <>
+      <div>
+        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Grid3x3 className="w-4 h-4 text-success" />
+            <h3 className="text-[0.9rem] font-semibold text-text">作品列表</h3>
+            <Badge variant="secondary">
+              {loadingVideos && videos.length === 0 ? "加载中..." : `${videos.length} 个作品`}
+            </Badge>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void loadVideos()}
+              disabled={loadingVideos}
+            >
+              {loadingVideos ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5" />
+              )}
+              重新加载
+            </Button>
+            <Button
+              variant={selectMode ? "default" : "outline"}
+              size="sm"
+              onClick={toggleSelectMode}
+              disabled={videos.length === 0}
+            >
+              {selectMode ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+              {selectMode ? "退出选择" : "选择作品"}
+            </Button>
+            {selectMode && (
+              <Button
+                variant="success-outline"
+                size="sm"
+                onClick={() => void downloadBatch(selectedVideos)}
+                disabled={selectedVideos.length === 0}
+              >
+                <Download className="w-3.5 h-3.5" />
+                下载已选 {selectedVideos.length > 0 ? `(${selectedVideos.length})` : ""}
+              </Button>
+            )}
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => void downloadBatch(videos)}
+              disabled={videos.length === 0}
+            >
+              <Download className="w-3.5 h-3.5" />
+              下载当前列表
+            </Button>
+          </div>
+        </div>
+
+        {loadingVideos && videos.length === 0 ? (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <div
+                key={index}
+                className="h-[380px] overflow-hidden rounded-[var(--radius-lg)] border border-border bg-surface-solid/70"
+              >
+                <div className="h-[260px] bg-white/[0.05] animate-pulse" />
+                <div className="h-[120px] p-3">
+                  <div className="h-4 rounded bg-white/[0.05] animate-pulse mb-2" />
+                  <div className="h-3 w-1/2 rounded bg-white/[0.05] animate-pulse mb-3" />
+                  <div className="mt-auto grid grid-cols-3 gap-1.5">
+                    <div className="h-7 rounded bg-white/[0.05] animate-pulse" />
+                    <div className="h-7 rounded bg-white/[0.05] animate-pulse" />
+                    <div className="h-7 rounded bg-white/[0.05] animate-pulse" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : showPlaceholder ? (
+          <motion.div
+            initial={false}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-[16px] border border-border bg-surface-solid/70 p-6 text-center"
+          >
+            <p className="text-[0.86rem] text-text-secondary mb-1">
+              还没有加载作品列表
+            </p>
+            <p className="text-[0.76rem] text-text-muted mb-4">
+              点击上方“重新加载”或用户卡片里的“查看作品列表”开始获取
+            </p>
+            <Button variant="info-outline" size="sm" onClick={() => void loadVideos()}>
+              <Grid3x3 className="w-3.5 h-3.5" />
+              加载作品
+            </Button>
+          </motion.div>
+        ) : (
+          <>
+          <motion.div
+            className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3"
+            initial={false}
+            animate="show"
+            variants={{ hidden: {}, show: { transition: { staggerChildren: 0.04 } } }}
+          >
+              {videos.map((video, index) => (
+                <VideoCard
+                  key={video.aweme_id}
+                  video={video}
+                  index={index}
+                  onSelect={openPlayer}
+                  onDetail={setDetailVideo}
+                  onDownload={(item) => void downloadVideo(item)}
+                  selected={selectedIds.has(video.aweme_id)}
+                />
+              ))}
+            </motion.div>
+
+            <div ref={loadMoreRef} className="h-px w-full" aria-hidden="true" />
+
+            {hasMore && (
+              <div className="flex justify-center mt-6">
+                <Button
+                  variant="outline"
+                  onClick={() => void loadMore()}
+                  disabled={loadingMore}
+                  className="gap-2"
+                >
+                  {loadingMore ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
+                  {loadingMore ? "加载中..." : "加载更多"}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <FullscreenPlayer
+        videos={videos}
+        initialIndex={playerIndex ?? 0}
+        open={playerIndex !== null}
+        onClose={() => setPlayerIndex(null)}
+        onDownload={(video) => void downloadVideo(video)}
+        onLoadMore={hasMore ? () => void loadMore() : undefined}
+        onShowDetail={(video) => {
+          setPlayerIndex(null);
+          setDetailVideo(video);
+        }}
+      />
+
+      <VideoDetailModal
+        video={detailVideo}
+        open={Boolean(detailVideo)}
+        onOpenChange={(open) => {
+          if (!open) setDetailVideo(null);
+        }}
+        onDownload={(video) => void downloadVideo(video)}
+      />
+    </>
+  );
+}

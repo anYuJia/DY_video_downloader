@@ -82,6 +82,11 @@ python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 pip install -r requirements.txt
+
+cd frontend
+npm install
+npm run build
+cd ..
 ```
 
 #### Desktop mode
@@ -155,7 +160,7 @@ Useful environment variables:
 | Web service | Flask, Flask-SocketIO |
 | Download concurrency | asyncio, aiohttp, requests |
 | Browser capability | pywebview, browser-cookie3 |
-| Frontend | Bootstrap, vanilla JavaScript |
+| Frontend | React, Vite, TypeScript, Tailwind CSS |
 | Packaging | PyInstaller |
 
 ## Project Structure
@@ -169,7 +174,8 @@ Useful environment variables:
 │   ├── downloader/          # Media downloads, progress callbacks, and dedupe records
 │   ├── user/                # User search, works list, and content parsing
 │   ├── utils/               # Generic utilities
-│   └── web/                 # Flask routes, Socket.IO, and frontend assets
+│   └── web/                 # Flask routes, Socket.IO, and React build output
+├── frontend/                # React/Vite frontend source
 ├── lib/js/                  # Web signing scripts
 ├── scripts/                 # Installer and helper scripts
 ├── icons/                   # Application icons

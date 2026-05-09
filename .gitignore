@@ -8,7 +8,7 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-downloads/
+/downloads/
 eggs/
 .eggs/
 lib64/
@@ -46,6 +46,8 @@ venv.bak/
 .vscode/
 *.swp
 *.swo
+node_modules/
+frontend/tsconfig.tsbuildinfo
 
 # 项目特定文件
 config.json
@@ -125,7 +127,7 @@ docs/_build/
 
 # 本地配置
 local_settings.py
-settings_local.pynode_modules/
+settings_local.py
 .venv/
 __pycache__/
 *.pyc
@@ -137,8 +139,8 @@ get_media_info.json
 node_modules/
 # Node
 node_modules/
-package.json
-package-lock.json
+scripts/package.json
+scripts/package-lock.json
 
 # 分析/临时文档
 API_UNIFICATION_REPORT.md

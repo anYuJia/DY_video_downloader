@@ -1,0 +1,108 @@
+import { useEffect, useRef } from "react";
+import { useAppStore } from "@/stores/app-store";
+import { Sidebar } from "./sidebar";
+import { BottomBar } from "./bottom-bar";
+import { CommandPopover } from "./command-popover";
+import { Hero } from "@/components/home/hero";
+import { VideoGrid } from "@/components/search/video-grid";
+import { UserDetail } from "@/components/search/user-detail";
+import { LinkView } from "@/components/link/link-view";
+import { RecommendedFeed } from "@/components/recommended/feed";
+import { DownloadsView } from "@/components/downloads/downloads-view";
+import { SettingsView } from "@/components/settings/settings-view";
+import { LikedView } from "@/components/liked/liked-view";
+import { AnimatePresence, motion } from "framer-motion";
+import { easeConfig } from "@/lib/utils";
+
+export function AppShell() {
+  const currentView = useAppStore((s) => s.currentView);
+  const commandOpen = useAppStore((s) => s.commandOpen);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [currentView]);
+
+  return (
+    <div className="flex h-screen w-screen overflow-hidden">
+      {/* Sidebar */}
+      <Sidebar />
+
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col min-w-0 relative">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+          <AnimatePresence initial={false}>
+            {renderView(currentView)}
+          </AnimatePresence>
+        </div>
+        <BottomBar />
+      </main>
+
+      {/* Command Popover (Raycast-style) */}
+      <AnimatePresence>
+        {commandOpen && <CommandPopover />}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function renderView(view: string) {
+  const variants = {
+    initial: { y: 6 },
+    animate: { y: 0 },
+  };
+
+  const transition = { duration: 0.16, ease: easeConfig };
+
+  switch (view) {
+    case "home":
+      return (
+        <motion.div key="home" {...variants} transition={transition} className="h-full">
+          <Hero />
+        </motion.div>
+      );
+    case "search":
+      return (
+        <motion.div key="search" {...variants} transition={transition} className="p-6">
+          <UserDetail />
+          <VideoGrid />
+        </motion.div>
+      );
+    case "link":
+      return (
+        <motion.div key="link" {...variants} transition={transition} className="p-6">
+          <LinkView />
+        </motion.div>
+      );
+    case "recommended":
+      return (
+        <motion.div key="recommended" {...variants} transition={transition} className="p-6">
+          <RecommendedFeed />
+        </motion.div>
+      );
+    case "downloads":
+      return (
+        <motion.div key="downloads" {...variants} transition={transition} className="p-6">
+          <DownloadsView />
+        </motion.div>
+      );
+    case "liked":
+      return (
+        <motion.div key="liked" {...variants} transition={transition} className="p-6">
+          <LikedView />
+        </motion.div>
+      );
+    case "settings":
+      return (
+        <motion.div key="settings" {...variants} transition={transition}>
+          <SettingsView />
+        </motion.div>
+      );
+    default:
+      return (
+        <motion.div key="home" {...variants} transition={transition} className="h-full">
+          <Hero />
+        </motion.div>
+      );
+  }
+}

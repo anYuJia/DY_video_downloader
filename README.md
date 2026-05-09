@@ -82,6 +82,11 @@ python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 pip install -r requirements.txt
+
+cd frontend
+npm install
+npm run build
+cd ..
 ```
 
 #### 桌面模式
@@ -155,7 +160,7 @@ HOST=127.0.0.1 PORT=5001 python -m src.web.web_app
 | Web 服务 | Flask, Flask-SocketIO |
 | 并发下载 | asyncio, aiohttp, requests |
 | 浏览器能力 | pywebview, browser-cookie3 |
-| 前端界面 | Bootstrap, 原生 JavaScript |
+| 前端界面 | React, Vite, TypeScript, Tailwind CSS |
 | 打包分发 | PyInstaller |
 
 ## 项目结构
@@ -169,7 +174,8 @@ HOST=127.0.0.1 PORT=5001 python -m src.web.web_app
 │   ├── downloader/          # 媒体下载、进度回调与去重记录
 │   ├── user/                # 用户检索、作品列表与内容解析
 │   ├── utils/               # 通用工具
-│   └── web/                 # Flask 路由、Socket.IO 与前端资源
+│   └── web/                 # Flask 路由、Socket.IO 与 React 构建产物
+├── frontend/                # React/Vite 前端源码
 ├── lib/js/                  # Web 端签名脚本
 ├── scripts/                 # 安装器与辅助脚本
 ├── icons/                   # 应用图标资源
