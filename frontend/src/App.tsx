@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toast";
 import { AppShell } from "@/components/layout/app-shell";
@@ -10,6 +10,24 @@ import { useRecommendedStore } from "@/stores/recommended-store";
 
 export default function App() {
   const setCookieLoggedIn = useAppStore((s) => s.setCookieLoggedIn);
+  const lastCookieInvalidLogAt = useRef(0);
+
+  useEffect(() => {
+    const handleCookieInvalid = (event: Event) => {
+      const detail = (event as CustomEvent<{ message?: string }>).detail || {};
+      const message = detail.message || "Cookie 已失效，请重新登录";
+      setCookieLoggedIn(false);
+
+      const now = Date.now();
+      if (now - lastCookieInvalidLogAt.current > 3000) {
+        lastCookieInvalidLogAt.current = now;
+        useLogStore.getState().addLog(message, "warning");
+      }
+    };
+
+    window.addEventListener("dy-cookie-invalid", handleCookieInvalid);
+    return () => window.removeEventListener("dy-cookie-invalid", handleCookieInvalid);
+  }, [setCookieLoggedIn]);
 
   useEffect(() => {
     let disposed = false;

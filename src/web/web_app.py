@@ -24,6 +24,7 @@ import time
 import webbrowser
 import concurrent.futures
 import tempfile
+import mimetypes
 import requests as http_requests
 from datetime import datetime
 from pathlib import Path
@@ -114,6 +115,20 @@ downloader = None
 user_manager = None
 download_tasks = {} # 用于存储任务状态和元数据（同步Dict）
 active_tasks = {} # 用于存储活跃的 asyncio.Future 和 asyncio.Event
+
+
+class ThreadPauseEvent:
+    """Thread-compatible pause guard backed by an asyncio.Event."""
+
+    def __init__(self, event):
+        self.event = event
+
+    def is_set(self):
+        return self.event.is_set()
+
+    def wait_while_set(self, cancel_event=None, interval=0.2):
+        while self.event.is_set() and not (cancel_event and cancel_event.is_set()):
+            time.sleep(interval)
 
 
 @app.route('/favicon.ico')
@@ -237,6 +252,40 @@ def _safe_history_path(raw_path: str) -> Path:
     return candidate
 
 
+LOCAL_MEDIA_EXTENSIONS = {
+    '.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.flv',
+    '.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.heic', '.heif',
+    '.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg',
+}
+
+
+def _guess_local_media_mimetype(path: Path) -> str:
+    guessed, _ = mimetypes.guess_type(str(path))
+    if guessed:
+        return guessed
+
+    suffix = path.suffix.lower()
+    if suffix in ('.mp4', '.m4v'):
+        return 'video/mp4'
+    if suffix == '.mov':
+        return 'video/quicktime'
+    if suffix == '.webm':
+        return 'video/webm'
+    if suffix in ('.jpg', '.jpeg'):
+        return 'image/jpeg'
+    if suffix == '.png':
+        return 'image/png'
+    if suffix == '.webp':
+        return 'image/webp'
+    if suffix == '.gif':
+        return 'image/gif'
+    if suffix in ('.mp3',):
+        return 'audio/mpeg'
+    if suffix in ('.m4a', '.aac'):
+        return 'audio/aac'
+    return 'application/octet-stream'
+
+
 def build_download_history() -> list[dict]:
     return get_download_history_items()
 
@@ -294,6 +343,39 @@ def safe_get_url(obj, default=''):
     if not url_list:
         return default
     return url_list[0] if url_list else default
+
+
+def _api_message(payload, fallback='请求失败'):
+    if isinstance(payload, dict):
+        for key in ('message', 'status_msg'):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return fallback
+
+
+def _verify_error_response(payload, fallback='需要完成抖音验证', verify_url=None):
+    payload_dict = payload if isinstance(payload, dict) else {}
+    if Config.COOKIE:
+        login_status = _verify_native_cookie_login(Config.COOKIE)
+        if not login_status.get('success'):
+            return _login_error_response(login_status)
+
+    message = _api_message(payload, fallback)
+    return {
+        'success': False,
+        'need_verify': True,
+        'verify_url': verify_url or payload_dict.get('_verify_url') or 'https://www.douyin.com/',
+        'message': message,
+    }
+
+
+def _login_error_response(payload, fallback='登录态已失效，请重新登录获取 Cookie'):
+    return {
+        'success': False,
+        'need_login': True,
+        'message': _api_message(payload, fallback),
+    }
 
 
 def infer_media_type_from_url(url, fallback_type='video'):
@@ -1175,6 +1257,35 @@ def get_download_history():
         return jsonify({'success': False, 'message': f'获取下载历史失败: {str(e)}'}), 500
 
 
+@app.route('/api/local-media')
+def local_media():
+    """安全读取下载目录内的本地媒体，用于 pywebview 中显示缩略图/视频首帧。"""
+    try:
+        file_path = _safe_history_path(request.args.get('path', ''))
+        if not file_path.exists() or not file_path.is_file():
+            return 'File not found', 404
+        if file_path.suffix.lower() not in LOCAL_MEDIA_EXTENSIONS:
+            return 'Unsupported media type', 415
+
+        mimetype = _guess_local_media_mimetype(file_path)
+        response = send_file(
+            file_path,
+            mimetype=mimetype,
+            conditional=True,
+            etag=True,
+            last_modified=file_path.stat().st_mtime,
+            max_age=3600,
+        )
+        response.headers['Accept-Ranges'] = 'bytes'
+        response.headers['Cache-Control'] = 'private, max-age=3600'
+        return response
+    except ValueError as error:
+        return str(error), 400
+    except Exception as e:
+        logger.error(f"读取本地媒体失败: {str(e)}")
+        return 'Local media error', 500
+
+
 @app.route('/api/download_history/open', methods=['POST'])
 def open_download_history_file():
     """打开下载文件。"""
@@ -1648,7 +1759,7 @@ iframe{flex:1;border:none;width:100%}
 
 @app.route('/api/open_verify_browser', methods=['POST'])
 def open_verify_browser():
-    """只使用应用内 WebView 打开验证页面。"""
+    """打开抖音验证页面，只使用应用内 pywebview 窗口并注入当前 Cookie。"""
     global _native_verify_window
 
     try:
@@ -1658,24 +1769,37 @@ def open_verify_browser():
         if not is_native_cookie_login_available():
             return jsonify({
                 'success': False,
-                'message': '当前模式不支持应用内验证窗口，请在桌面模式下完成验证',
+                'message': '当前不是桌面 pywebview 模式，无法打开带 Cookie 的应用内验证窗口。请通过发行版或 python main.py 启动后重试。',
+                'open_url': target_url,
             }), 400
 
         if _native_verify_window and not _native_verify_window.events.closed.is_set():
             try:
                 _native_verify_window.load_url(target_url)
                 if Config.COOKIE:
-                    apply_cookie_to_window(_native_verify_window, Config.COOKIE, reload_after_apply=True)
+                    apply_cookie_to_window(
+                        _native_verify_window,
+                        Config.COOKIE,
+                        reload_after_apply=True,
+                        force=True,
+                        post_load_delay=0.8,
+                    )
                 _native_verify_window.show()
-                return jsonify({'success': True, 'message': '验证窗口已打开，请完成验证'})
+                return jsonify({'success': True, 'message': '验证窗口已打开，请完成验证', 'open_url': target_url})
             except Exception:
                 _native_verify_window = None
 
         verify_window = create_native_douyin_window('抖音验证', target_url, width=1100, height=750)
         _native_verify_window = verify_window
         if Config.COOKIE:
-            apply_cookie_to_window(verify_window, Config.COOKIE, reload_after_apply=True)
-        return jsonify({'success': True, 'message': '已打开验证窗口，请完成验证'})
+            apply_cookie_to_window(
+                verify_window,
+                Config.COOKIE,
+                reload_after_apply=True,
+                force=True,
+                post_load_delay=0.2,
+            )
+        return jsonify({'success': True, 'message': '已打开验证窗口，请完成验证', 'open_url': target_url})
 
     except Exception as e:
         logger.error(f"打开验证窗口失败：{str(e)}")
@@ -1702,7 +1826,9 @@ def search_user():
 
         # 检测验证码
         if isinstance(users, dict) and users.get('_need_verify'):
-            return jsonify({'success': False, 'need_verify': True, 'verify_url': users.get('_verify_url'), 'message': '需要完成滑块验证'})
+            return jsonify(_verify_error_response(users, '需要完成滑块验证'))
+        if isinstance(users, dict) and users.get('_need_login'):
+            return jsonify(_login_error_response(users))
         
         if isinstance(users, dict):  # 单个用户
             return jsonify({
@@ -1712,6 +1838,10 @@ def search_user():
                     'nickname': users.get('nickname', ''),
                     'unique_id': users.get('unique_id', ''),
                     'follower_count': users.get('follower_count', 0),
+                    'following_count': users.get('following_count', 0),
+                    'total_favorited': users.get('total_favorited', 0),
+                    'aweme_count': users.get('aweme_count', 0) or users.get('aweme_count_str', 0) or users.get('work_count', 0),
+                    'favoriting_count': users.get('favoriting_count', 0),
                     'signature': users.get('signature', ''),
                     'sec_uid': users.get('sec_uid', ''),
                     'avatar_thumb': users.get('avatar_thumb', {}).get('url_list', [''])[0] if users.get('avatar_thumb') else '',
@@ -1728,7 +1858,7 @@ def search_user():
                     'follower_count': user_info.get('follower_count', 0),
                     'following_count': user_info.get('following_count', 0),
                     'total_favorited': user_info.get('total_favorited', 0),
-                    'aweme_count': user_info.get('aweme_count', 0),
+                    'aweme_count': user_info.get('aweme_count', 0) or user_info.get('aweme_count_str', 0) or user_info.get('work_count', 0),
                     'signature': user_info.get('signature', ''),
                     'sec_uid': user_info.get('sec_uid', ''),
                     'avatar_thumb': user_info.get('avatar_thumb', {}).get('url_list', [''])[0] if user_info.get('avatar_thumb') else '',
@@ -1761,11 +1891,11 @@ def get_user_detail():
         user_detail = run_async(user_manager.get_user_detail(sec_uid))
 
         if isinstance(user_detail, dict) and user_detail.get('_need_verify'):
-            return jsonify({
+            return jsonify(_verify_error_response(user_detail, '需要完成滑块验证'))
+        if isinstance(user_detail, dict) and (user_detail.get('_need_login') or user_detail.get('_error')):
+            return jsonify(_login_error_response(user_detail) if user_detail.get('_need_login') else {
                 'success': False,
-                'need_verify': True,
-                'verify_url': user_detail.get('_verify_url'),
-                'message': '需要完成滑块验证',
+                'message': _api_message(user_detail, '获取用户详情失败，请检查 Cookie 或稍后重试'),
             })
         
         if not user_detail:
@@ -1799,8 +1929,25 @@ def get_liked_videos_api():
         if not user_manager:
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
         videos = run_async(user_manager.get_liked_videos(count))
+        if isinstance(videos, dict):
+            if videos.get('_need_verify'):
+                return jsonify(_verify_error_response(videos, '获取点赞视频失败，请完成验证后重试'))
+            if videos.get('_need_login'):
+                return jsonify(_login_error_response(videos))
+            return jsonify({
+                'success': False,
+                'message': _api_message(videos, '获取点赞视频失败，请检查 Cookie 或稍后重试'),
+            })
         if not videos:
-            return jsonify({'success': False, 'message': '获取点赞视频失败。该接口需要登录态，请确认Cookie有效且包含完整的登录信息。如果Cookie已过期请重新获取。'})
+            login_status = _verify_native_cookie_login(Config.COOKIE or '')
+            if not login_status.get('success'):
+                return jsonify(_login_error_response(login_status))
+            return jsonify({
+                'success': False,
+                'need_verify': True,
+                'verify_url': 'https://www.douyin.com/',
+                'message': '获取点赞视频失败。该接口需要登录态，请确认Cookie有效且包含完整的登录信息。如果Cookie已过期请重新获取。',
+            })
         return jsonify({
             'success': True,
             'data': videos,
@@ -1821,8 +1968,26 @@ def get_liked_authors_api():
 
         authors = run_async(user_manager.get_liked_authors(count))
 
+        if isinstance(authors, dict):
+            if authors.get('_need_verify'):
+                return jsonify(_verify_error_response(authors, '获取点赞作者失败，请完成验证后重试'))
+            if authors.get('_need_login'):
+                return jsonify(_login_error_response(authors))
+            return jsonify({
+                'success': False,
+                'message': _api_message(authors, '获取点赞作者失败，请检查 Cookie 或稍后重试'),
+            })
+
         if not authors:
-            return jsonify({'success': False, 'message': '获取点赞作者失败。该接口需要登录态，请确认Cookie有效且包含完整的登录信息。'})
+            login_status = _verify_native_cookie_login(Config.COOKIE or '')
+            if not login_status.get('success'):
+                return jsonify(_login_error_response(login_status))
+            return jsonify({
+                'success': False,
+                'need_verify': True,
+                'verify_url': 'https://www.douyin.com/',
+                'message': '获取点赞作者失败。该接口需要登录态，请确认Cookie有效且包含完整的登录信息。',
+            })
         
         return jsonify({
             'success': True, 
@@ -1867,14 +2032,17 @@ def get_user_videos():
 
         # 检测验证码
         if isinstance(resp, dict) and resp.get('_need_verify'):
+            return jsonify(_verify_error_response(resp, '需要完成滑块验证'))
+        if isinstance(resp, dict) and resp.get('_need_login'):
+            return jsonify(_login_error_response(resp))
+
+        if not succ:
             return jsonify({
                 'success': False,
-                'need_verify': True,
-                'verify_url': resp.get('_verify_url'),
-                'message': '需要完成滑块验证',
+                'message': _api_message(resp, '获取作品列表失败，请检查 Cookie 或稍后重试'),
             })
 
-        if not succ or not resp.get('aweme_list'):
+        if not resp.get('aweme_list'):
             return jsonify({
                 'success': True,
                 'videos': [],
@@ -1974,12 +2142,9 @@ def download_single_video():
         if should_refresh_video_media and aweme_id:
             detail = run_async(user_manager.get_video_detail(aweme_id))
             if isinstance(detail, dict) and detail.get('_need_verify'):
-                return jsonify({
-                    'success': False,
-                    'need_verify': True,
-                    'verify_url': detail.get('_verify_url'),
-                    'message': '需要完成滑块验证',
-                })
+                return jsonify(_verify_error_response(detail, '需要完成滑块验证'))
+            if isinstance(detail, dict) and detail.get('_need_login'):
+                return jsonify(_login_error_response(detail))
 
             if detail:
                 detail_media_type = detail.get('raw_media_type') or detail.get('media_type') or raw_media_type
@@ -2178,6 +2343,8 @@ def download_user_video():
         task_id = str(uuid.uuid4())
         cancel_event = asyncio.Event()
         pause_event = asyncio.Event()  # 暂停事件，默认不暂停
+
+        display_name = f'{nickname or "用户"} 全部作品'
         
         # 在全局 Loop 中运行异步下载协程
         async def do_download_task():
@@ -2190,7 +2357,10 @@ def download_user_video():
                 socketio.emit('download_started', {
                     'task_id': task_id,
                     'user': _nickname,
-                    'sec_uid': sec_uid
+                    'nickname': _nickname,
+                    'sec_uid': sec_uid,
+                    'total_videos': aweme_count,
+                    'message': f'开始下载 {_nickname} 的 {aweme_count} 个作品'
                 })
                 
                 # 获取已下载记录
@@ -2201,8 +2371,40 @@ def download_user_video():
                 fetching_done = asyncio.Event()
                 total_discovered = [0]
                 total_processed = [0] # 包含已跳过的
+                total_succeeded = [0]
+                total_skipped = [0]
+                total_failed = [0]
                 total_videos = aweme_count # 初始总量
                 consumer_count = max(1, int(getattr(Config, 'MAX_CONCURRENT', 3) or 1))
+                pause_control = ThreadPauseEvent(pause_event)
+                batch_started_at = time.monotonic()
+
+                def update_task_snapshot(**fields):
+                    snapshot = download_tasks.get(task_id)
+                    if snapshot is not None:
+                        snapshot.update(fields)
+
+                def emit_batch_progress(**payload):
+                    socketio.emit('user_video_download_progress', payload)
+                    update_task_snapshot(
+                        status=payload.get('status') or download_tasks.get(task_id, {}).get('status', 'running'),
+                        progress=payload.get('overall_progress'),
+                        overall_progress=payload.get('overall_progress'),
+                        processed=payload.get('processed') if payload.get('processed') is not None else payload.get('current_downloaded'),
+                        current_downloaded=payload.get('current_downloaded'),
+                        total_videos=payload.get('total_videos'),
+                        skipped=payload.get('skipped'),
+                        failed=payload.get('failed'),
+                        succeeded=payload.get('succeeded'),
+                        eta_seconds=payload.get('eta_seconds'),
+                        current_name=payload.get('message'),
+                    )
+
+                def estimate_batch_eta(processed_count, total_count):
+                    if processed_count <= 0 or total_count <= 0 or processed_count >= total_count:
+                        return None
+                    elapsed = max(time.monotonic() - batch_started_at, 0.001)
+                    return int(max(1, ((total_count - processed_count) * elapsed) / processed_count))
                 
                 # 发送初始总量信息
                 if total_videos > 0:
@@ -2210,6 +2412,8 @@ def download_user_video():
                         'task_id': task_id,
                         'total_videos': total_videos,
                         'current_downloaded': 0,
+                        'processed': 0,
+                        'overall_progress': 0,
                         'remaining': total_videos,
                         'message': f'准备开始下载，共发现 {total_videos} 个作品'
                     })
@@ -2220,12 +2424,16 @@ def download_user_video():
                     for post in batch:
                         if post['aweme_id'] in downloaded:
                             total_processed[0] += 1
+                            total_skipped[0] += 1
                             # 发送跳过进度更新
                             overall_progress = int((total_processed[0] / max(total_videos, total_processed[0], 1)) * 100)
-                            socketio.emit('user_video_download_progress', {
+                            emit_batch_progress(**{
                                 'task_id': task_id,
                                 'total_videos': max(total_videos, total_processed[0]),
                                 'current_downloaded': total_processed[0],
+                                'processed': total_processed[0],
+                                'skipped': total_skipped[0],
+                                'failed': total_failed[0],
                                 'remaining': max(total_videos - total_processed[0], 0),
                                 'overall_progress': overall_progress,
                                 'message': f'跳过已下载: {post.get("desc", post["aweme_id"])[:10]}...',
@@ -2241,6 +2449,10 @@ def download_user_video():
                         'task_id': task_id,
                         'total_videos': current_total,
                         'current_downloaded': total_processed[0],
+                        'processed': total_processed[0],
+                        'skipped': total_skipped[0],
+                        'failed': total_failed[0],
+                        'overall_progress': int((total_processed[0] / max(total_videos, current_total, 1)) * 100),
                         'remaining': current_total - total_processed[0],
                         'message': f'正在抓取作品列表... 已发现 {total_discovered[0]} 个新作品'
                     })
@@ -2281,9 +2493,6 @@ def download_user_video():
                             logger.info(f"Task {task_id} cancelled before download")
                             break
 
-                        total_processed[0] += 1
-                        idx = total_processed[0]
-                        
                         media_type, urls = user_manager.get_media_info(post)
                         desc = post.get('desc', '').strip()
                         if not desc:
@@ -2295,23 +2504,28 @@ def download_user_video():
                         aweme_id = post['aweme_id']
 
                         def current_total_count():
-                            return max(total_videos, total_processed[0] + download_queue.qsize(), idx)
+                            return max(total_videos, total_discovered[0] + total_skipped[0], total_processed[0] + download_queue.qsize())
 
                         def emit_current_video_progress(current_progress=0, status='downloading', message=None, current_downloaded=None,
                                                         completed_files=0, total_files=1, speed_bps=None, eta_seconds=None,
                                                         file_index=1, file_total=1, bytes_downloaded=0, bytes_total=0):
-                            processed_count = idx - 1 if current_downloaded is None else current_downloaded
+                            processed_count = total_processed[0] if current_downloaded is None else current_downloaded
                             current_total = current_total_count()
                             progress_ratio = max(0, min(current_progress, 100)) / 100
-                            overall_progress = int(((processed_count + progress_ratio) / max(current_total, 1)) * 100)
+                            current_weight = progress_ratio if status not in ('completed', 'failed') else 0
+                            overall_progress = int(((processed_count + current_weight) / max(current_total, 1)) * 100)
 
-                            socketio.emit('user_video_download_progress', {
+                            emit_batch_progress(**{
                                 'task_id': task_id,
                                 'total_videos': current_total,
                                 'current_downloaded': processed_count,
+                                'processed': processed_count,
+                                'skipped': total_skipped[0],
+                                'failed': total_failed[0],
                                 'remaining': max(current_total - processed_count, 0),
                                 'overall_progress': min(100, max(0, overall_progress)),
                                 'current_progress': max(0, min(current_progress, 100)),
+                                'eta_seconds': estimate_batch_eta(processed_count, current_total),
                                 'message': message or f'正在下载: {desc}',
                                 'type': 'progress',
                                 'current_video': {
@@ -2335,7 +2549,7 @@ def download_user_video():
                             current_progress=0,
                             status='starting',
                             message=f'正在下载: {desc}',
-                            current_downloaded=idx - 1,
+                            current_downloaded=total_processed[0],
                             completed_files=0,
                             total_files=1,
                             file_index=1,
@@ -2345,15 +2559,36 @@ def download_user_video():
                         # 执行下载
                         try:
                             if not urls:
+                                total_failed[0] += 1
+                                total_processed[0] += 1
+                                current_total = current_total_count()
+                                overall_progress = int((total_processed[0] / max(total_videos, current_total, 1)) * 100)
+                                emit_batch_progress(**{
+                                    'task_id': task_id,
+                                    'total_videos': current_total,
+                                    'current_downloaded': total_processed[0],
+                                    'processed': total_processed[0],
+                                    'succeeded': total_succeeded[0],
+                                    'skipped': total_skipped[0],
+                                    'failed': total_failed[0],
+                                    'remaining': max(current_total - total_processed[0], 0),
+                                    'overall_progress': min(100, max(0, overall_progress)),
+                                    'eta_seconds': estimate_batch_eta(total_processed[0], current_total),
+                                    'message': f'无可下载媒体: {desc}',
+                                    'type': 'progress'
+                                })
                                 continue
 
                             success = False
                             def progress_callback(progress_data):
+                                pause_control.wait_while_set(cancel_event)
+                                if cancel_event.is_set():
+                                    raise RuntimeError('下载已取消')
                                 emit_current_video_progress(
                                     current_progress=progress_data.get('progress', 0),
                                     status=progress_data.get('status', 'downloading'),
                                     message=f'正在下载: {desc}',
-                                    current_downloaded=idx - 1,
+                                    current_downloaded=total_processed[0],
                                     completed_files=progress_data.get('completed', 0),
                                     total_files=progress_data.get('total', len(urls) if urls else 1),
                                     speed_bps=progress_data.get('speed_bps'),
@@ -2371,9 +2606,10 @@ def download_user_video():
                                     name,
                                     aweme_id,
                                     cancel_event,
-                                    socketio,
-                                    task_id,
+                                    None,
+                                    None,
                                     progress_callback,
+                                    pause_control,
                                 )
                             else:
                                 success = await asyncio.to_thread(
@@ -2381,41 +2617,55 @@ def download_user_video():
                                     urls,
                                     name,
                                     aweme_id,
-                                    socketio,
-                                    task_id,
+                                    None,
+                                    None,
                                     cancel_event,
                                     progress_callback,
+                                    pause_control,
                                 )
 
                             if success:
+                                total_succeeded[0] += 1
+                                total_processed[0] += 1
                                 socketio.emit('download_success', {'task_id': task_id, 'message': f'作品 {desc} 下载完成'})
                                 emit_current_video_progress(
                                     current_progress=100,
                                     status='completed',
                                     message=f'完成处理: {desc}',
-                                    current_downloaded=idx,
+                                    current_downloaded=total_processed[0],
                                     completed_files=len(urls),
                                     total_files=len(urls),
                                     file_index=len(urls),
                                     file_total=len(urls),
                                     eta_seconds=0
                                 )
+                            else:
+                                total_failed[0] += 1
+                                total_processed[0] += 1
 
                             # 检查取消状态
                             if cancel_event.is_set():
                                 logger.info(f"下载被用户取消: {task_id}")
                                 break
                         except Exception as e:
+                            total_failed[0] += 1
+                            total_processed[0] += 1
                             logger.error(f"Download error for {aweme_id}: {e}")
                             
                         # 更新总进度
-                        overall_progress = int((idx / max(total_videos, total_processed[0], 1)) * 100)
-                        socketio.emit('user_video_download_progress', {
+                        current_total = current_total_count()
+                        overall_progress = int((total_processed[0] / max(total_videos, current_total, 1)) * 100)
+                        emit_batch_progress(**{
                             'task_id': task_id,
-                            'total_videos': max(total_videos, total_processed[0] + download_queue.qsize()),
-                            'current_downloaded': idx,
-                            'remaining': max(total_videos, total_processed[0] + download_queue.qsize()) - idx,
+                            'total_videos': current_total,
+                            'current_downloaded': total_processed[0],
+                            'processed': total_processed[0],
+                            'succeeded': total_succeeded[0],
+                            'skipped': total_skipped[0],
+                            'failed': total_failed[0],
+                            'remaining': max(current_total - total_processed[0], 0),
                             'overall_progress': overall_progress,
+                            'eta_seconds': estimate_batch_eta(total_processed[0], current_total),
                             'message': f'完成处理: {desc}',
                             'type': 'progress'
                         })
@@ -2437,6 +2687,11 @@ def download_user_video():
                 
                 fetching_done.set()
                 await asyncio.gather(*consume_tasks, return_exceptions=True)
+                fetch_result = None
+                if fetch_task.done() and not fetch_task.cancelled():
+                    fetch_result = fetch_task.result()
+                if isinstance(fetch_result, dict):
+                    raise Exception(_api_message(fetch_result, '获取用户作品失败，请检查 Cookie 或稍后重试'))
                 
                 if cancel_event.is_set():
                     download_tasks[task_id]['status'] = 'cancelled'
@@ -2449,6 +2704,11 @@ def download_user_video():
                         'message': f'用户 {_nickname} 的作品全部处理完成',
                         'total_videos': max(total_videos, total_processed[0]),
                         'current_downloaded': total_processed[0],
+                        'processed': total_processed[0],
+                        'completed': total_processed[0],
+                        'succeeded': total_succeeded[0],
+                        'skipped': total_skipped[0],
+                        'failed': total_failed[0],
                         'remaining': 0
                     })
             except asyncio.CancelledError:
@@ -2470,6 +2730,16 @@ def download_user_video():
         download_tasks[task_id] = {
             'status': 'running',
             'sec_uid': sec_uid,
+            'nickname': nickname,
+            'title': display_name,
+            'filename': display_name,
+            'display_name': display_name,
+            'isBatch': True,
+            'total_videos': aweme_count,
+            'current_downloaded': 0,
+            'processed': 0,
+            'progress': 0,
+            'overall_progress': 0,
             'start_time': datetime.now()
         }
         active_tasks[task_id] = {
@@ -2481,7 +2751,9 @@ def download_user_video():
         return jsonify({
             'success': True,
             'task_id': task_id,
-            'message': '用户视频下载任务已开始'
+            'message': '用户视频下载任务已开始',
+            'nickname': nickname,
+            'total_videos': aweme_count
         })
     
     except Exception as e:
@@ -2498,8 +2770,8 @@ def cancel_download():
         info = active_tasks[task_id]
         # 设置取消事件
         info["event"].set()
-        # 取消 Future (这会尝试在循环中抛出 CancelledError)
-        info["future"].cancel()
+        if task_id in download_tasks:
+            download_tasks[task_id]['status'] = 'cancelled'
         return jsonify({'success': True, 'message': '正在取消任务...'})
     
     if task_id in download_tasks:
@@ -2519,6 +2791,14 @@ def pause_download():
         info = active_tasks[task_id]
         if 'pause_event' in info:
             info['pause_event'].set()  # 设置暂停事件
+            if task_id in download_tasks:
+                download_tasks[task_id]['status'] = 'paused'
+            socketio.emit('user_video_download_progress', {
+                'task_id': task_id,
+                'status': 'paused',
+                'message': '已暂停',
+                'type': 'info'
+            })
             return jsonify({'success': True, 'message': '任务已暂停'})
         else:
             return jsonify({'success': False, 'message': '该任务不支持暂停'})
@@ -2536,6 +2816,14 @@ def resume_download():
         info = active_tasks[task_id]
         if 'pause_event' in info:
             info['pause_event'].clear()  # 清除暂停事件
+            if task_id in download_tasks:
+                download_tasks[task_id]['status'] = 'running'
+            socketio.emit('user_video_download_progress', {
+                'task_id': task_id,
+                'status': 'downloading',
+                'message': '继续下载',
+                'type': 'info'
+            })
             return jsonify({'success': True, 'message': '任务已恢复'})
         else:
             return jsonify({'success': False, 'message': '该任务不支持恢复'})
@@ -2612,12 +2900,9 @@ def get_video_detail():
         video_detail = run_async(user_manager.get_video_detail(aweme_id))
 
         if isinstance(video_detail, dict) and video_detail.get('_need_verify'):
-            return jsonify({
-                'success': False,
-                'need_verify': True,
-                'verify_url': video_detail.get('_verify_url'),
-                'message': '需要完成滑块验证',
-            })
+            return jsonify(_verify_error_response(video_detail, '需要完成滑块验证'))
+        if isinstance(video_detail, dict) and video_detail.get('_need_login'):
+            return jsonify(_login_error_response(video_detail))
 
         if not video_detail:
             logger.warning(f"视频详情为空，可能是视频不存在或 API 限流：aweme_id={aweme_id}")
@@ -2658,6 +2943,8 @@ def parse_link():
             user_detail = None
             if author_sec_uid:
                 user_detail = run_async(user_manager.get_user_detail(author_sec_uid))
+                if isinstance(user_detail, dict) and (user_detail.get('_need_verify') or user_detail.get('_need_login')):
+                    return video_info, user_detail
                 if user_detail:
                     user_detail = {
                         'nickname': user_detail.get('nickname', ''),
@@ -2676,12 +2963,13 @@ def parse_link():
         video_info, user_detail = run_parse_link()
 
         if isinstance(video_info, dict) and video_info.get('_need_verify'):
-            return jsonify({
-                'success': False,
-                'need_verify': True,
-                'verify_url': video_info.get('_verify_url'),
-                'message': '需要完成滑块验证',
-            })
+            return jsonify(_verify_error_response(video_info, '需要完成滑块验证'))
+        if isinstance(video_info, dict) and video_info.get('_need_login'):
+            return jsonify(_login_error_response(video_info))
+        if isinstance(user_detail, dict) and user_detail.get('_need_verify'):
+            return jsonify(_verify_error_response(user_detail, '解析链接失败，请完成验证后重试'))
+        if isinstance(user_detail, dict) and user_detail.get('_need_login'):
+            return jsonify(_login_error_response(user_detail))
         
         if video_info:
             # 格式化视频数据
@@ -2774,6 +3062,77 @@ def download_liked_authors():
     except Exception as e:
         return jsonify({'success': False, 'message': f'下载失败: {str(e)}'}), 500
 
+
+@app.route('/api/get_comments', methods=['POST'])
+def get_comments():
+    """获取视频评论列表。"""
+    try:
+        data = request.json or {}
+        aweme_id = str(data.get('aweme_id') or '').strip()
+        count = int(data.get('count') or 20)
+        cursor = int(data.get('cursor') or 0)
+
+        if not aweme_id:
+            return jsonify({'success': False, 'message': '视频ID不能为空'}), 400
+
+        if not api:
+            return jsonify({'success': False, 'message': '服务未初始化'}), 400
+
+        resp, success = run_async(api.get_comments(aweme_id, count, cursor))
+
+        if isinstance(resp, dict) and resp.get('_need_verify'):
+            return jsonify(_verify_error_response(
+                resp,
+                '获取评论失败，请完成验证后重试',
+                verify_url=f'https://www.douyin.com/video/{aweme_id}',
+            ))
+        if isinstance(resp, dict) and resp.get('_need_login'):
+            return jsonify(_login_error_response(resp))
+
+        if not success:
+            return jsonify({
+                'success': False,
+                'message': _api_message(resp, '获取评论失败，请稍后重试'),
+            })
+
+        data_block = resp.get('data') if isinstance(resp.get('data'), dict) else resp
+        raw_comments = data_block.get('comments') or []
+        comments = []
+
+        for item in raw_comments:
+            if not isinstance(item, dict):
+                continue
+
+            user = item.get('user') or {}
+            comments.append({
+                'cid': item.get('cid', ''),
+                'text': item.get('text', ''),
+                'create_time': item.get('create_time', 0),
+                'user': {
+                    'uid': user.get('uid', ''),
+                    'nickname': user.get('nickname', ''),
+                    'avatar_thumb': safe_get_url(user.get('avatar_thumb') or {}),
+                    'sec_uid': user.get('sec_uid', ''),
+                },
+                'digg_count': item.get('digg_count', 0),
+                'reply_comment_total': item.get('reply_comment_total', 0),
+                'sub_comments': None,
+                'status': item.get('status', 0),
+            })
+
+        has_more = data_block.get('has_more', False)
+        return jsonify({
+            'success': True,
+            'comments': comments,
+            'cursor': data_block.get('cursor', 0),
+            'has_more': has_more == 1 or has_more is True,
+        })
+
+    except Exception as e:
+        logger.exception(f"获取评论失败: {e}")
+        return jsonify({'success': False, 'message': f'获取评论失败: {str(e)}'}), 500
+
+
 @app.route('/api/verify_cookie', methods=['GET'])
 def verify_cookie():
     """校验当前保存的 Cookie 是否可用。"""
@@ -2792,7 +3151,7 @@ def verify_cookie():
         return jsonify({
             'valid': True,
             'user_name': result.get('nickname') or None,
-            'user_id': None,
+            'user_id': result.get('user_id') or result.get('sec_uid') or None,
             'expires_at': None,
             'message': 'Cookie 可用',
         })
@@ -2816,6 +3175,12 @@ def get_tasks():
         if 'end_time' in normalized and isinstance(normalized['end_time'], datetime):
             normalized['end_time'] = int(normalized['end_time'].timestamp() * 1000)
         normalized.setdefault('id', task_id)
+        if normalized.get('isBatch') or normalized.get('total_videos') is not None:
+            normalized.setdefault('title', normalized.get('display_name') or normalized.get('filename') or '批量下载')
+            normalized.setdefault('filename', normalized.get('title'))
+            normalized.setdefault('progress', normalized.get('overall_progress', 0))
+            normalized.setdefault('total_files', normalized.get('total_videos'))
+            normalized.setdefault('completed_files', normalized.get('processed') or normalized.get('current_downloaded') or 0)
         normalized_tasks[task_id] = normalized
 
     return jsonify({
@@ -2859,39 +3224,37 @@ def _emit_cookie_login_status(event: str, message: str, cookie_set: bool = False
 
 def _verify_native_cookie_login(cookie: str) -> dict:
     try:
+        cookie_names = set()
+        passport_auth_status = ''
+        for item in cookie.split(';'):
+            if '=' not in item:
+                continue
+            name, value = item.strip().split('=', 1)
+            cookie_names.add(name)
+            if name == 'passport_auth_status':
+                passport_auth_status = value
+
+        if passport_auth_status != '1' and not any(
+            name in cookie_names
+            for name in ('sessionid', 'sessionid_ss', 'sid_guard', 'uid_tt')
+        ):
+            return {'success': False, 'message': 'Cookie 不包含登录字段，请重新登录获取 Cookie'}
+
         candidate_api = DouyinAPI(cookie)
-        params = {
-            'count': 1,
-            'max_cursor': 0,
-        }
-        params.update(candidate_api.common_params)
-        headers = dict(candidate_api.common_headers)
-        headers.update(DouyinUserManager._FAVORITE_HEADERS)
-        run_async(candidate_api._deal_params(params, headers))
+        user, success = run_async(candidate_api.get_current_user())
 
-        response = http_requests.get(
-            f'{candidate_api.host}/aweme/v1/web/aweme/favorite/',
-            params=params,
-            headers=headers,
-            timeout=15,
-        )
-
-        if response.status_code != 200:
-            return {'success': False, 'message': f'登录态校验失败: HTTP {response.status_code}'}
-
-        resp = response.json()
-        if resp.get('status_code', 0) != 0:
+        if not success:
             return {
                 'success': False,
-                'message': resp.get('status_msg') or resp.get('message') or '登录态校验失败',
+                'message': _api_message(user, '登录态校验失败，请重新登录获取 Cookie'),
             }
 
-        aweme_list = resp.get('aweme_list') or []
-        nickname = ''
-        if aweme_list:
-            nickname = ((aweme_list[0].get('author') or {}).get('nickname') or '').strip()
-
-        return {'success': True, 'nickname': nickname}
+        return {
+            'success': True,
+            'nickname': (user.get('nickname') or '').strip(),
+            'user_id': user.get('uid') or user.get('sec_uid') or '',
+            'sec_uid': user.get('sec_uid') or '',
+        }
     except Exception as error:
         logger.warning('原生 Cookie 登录校验失败: %s', error)
         return {'success': False, 'message': str(error)}
@@ -3256,11 +3619,16 @@ def get_recommended_feed():
 
         resp, success = run_async(fetch_recommended())
 
+        if isinstance(resp, dict) and resp.get('_need_verify'):
+            return jsonify(_verify_error_response(resp, '获取推荐视频失败，请完成验证后重试'))
+        if isinstance(resp, dict) and resp.get('_need_login'):
+            return jsonify(_login_error_response(resp))
+
         if not success or not resp.get('aweme_list'):
             logger.error(f"获取推荐视频失败: {resp}")
             return jsonify({
                 'success': False,
-                'message': '获取推荐视频失败，请稍后重试'
+                'message': _api_message(resp, '获取推荐视频失败，请稍后重试')
             })
 
         aweme_list = resp.get('aweme_list', [])
@@ -3346,11 +3714,20 @@ def get_recommended_feed():
 
         logger.info(f"[推荐视频] 返回 {len(videos)} 个有效视频, 跳过 {skipped_count} 个无效视频")
 
+        has_more = resp.get('has_more', False)
+        has_more_bool = has_more == 1 or has_more is True
+        next_cursor = (
+            resp.get('cursor')
+            or resp.get('max_cursor')
+            or resp.get('min_cursor')
+            or (cursor + 1 if has_more_bool else cursor)
+        )
+
         return jsonify({
             'success': True,
             'videos': videos,
-            'cursor': resp.get('cursor', 0),
-            'has_more': resp.get('has_more', False),
+            'cursor': next_cursor,
+            'has_more': has_more_bool,
             'count': len(videos)
         })
 

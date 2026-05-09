@@ -66,7 +66,13 @@ def create_login_window():
     return create_native_douyin_window('登录抖音账号', 'https://www.douyin.com/')
 
 
-def apply_cookie_to_window(window: Any, cookie: str, reload_after_apply: bool = True) -> None:
+def apply_cookie_to_window(
+    window: Any,
+    cookie: str,
+    reload_after_apply: bool = True,
+    force: bool = False,
+    post_load_delay: float = 0.0,
+) -> None:
     if not window or not cookie:
         return
 
@@ -74,15 +80,19 @@ def apply_cookie_to_window(window: Any, cookie: str, reload_after_apply: bool = 
         try:
             if not window.events.loaded.wait(45):
                 return
+            if post_load_delay > 0:
+                time.sleep(post_load_delay)
 
             cookie_literal = json.dumps(cookie)
+            force_literal = 'true' if force else 'false'
             reload_script = 'setTimeout(() => window.location.reload(), 120);' if reload_after_apply else ''
             script = f"""
                 (() => {{
                     const rawCookie = {cookie_literal};
+                    const forceApply = {force_literal};
                     if (!rawCookie) return;
                     try {{
-                        if (window.sessionStorage && sessionStorage.getItem('__dy_verify_cookie_applied') === '1') return;
+                        if (!forceApply && window.sessionStorage && sessionStorage.getItem('__dy_verify_cookie_applied') === '1') return;
                     }} catch (error) {{}}
                     rawCookie.split(';').map(item => item.trim()).filter(Boolean).forEach(item => {{
                         try {{
@@ -91,7 +101,7 @@ def apply_cookie_to_window(window: Any, cookie: str, reload_after_apply: bool = 
                     }});
                     try {{
                         if (window.sessionStorage) {{
-                            sessionStorage.setItem('__dy_verify_cookie_applied', '1');
+                            sessionStorage.setItem('__dy_verify_cookie_applied', String(Date.now()));
                             {reload_script}
                         }}
                     }} catch (error) {{}}

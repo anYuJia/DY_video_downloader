@@ -75,6 +75,13 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
     ? await response.json().catch(() => ({}))
     : {};
 
+  if (data && typeof data === "object" && (data as Record<string, unknown>).need_login) {
+    const message = String(
+      (data as Record<string, unknown>).message || "Cookie 已失效，请重新登录"
+    ).trim();
+    window.dispatchEvent(new CustomEvent("dy-cookie-invalid", { detail: { message } }));
+  }
+
   if (!response.ok) {
     const message =
       data && typeof data === "object" && "message" in data
@@ -109,8 +116,9 @@ export function mediaProxyUrl(url: string | null | undefined, mediaType = "image
 export function localFileAssetUrl(path: string | null | undefined): string {
   const trimmed = (path || "").trim();
   if (!trimmed) return "";
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
   if (!isTauriRuntime()) {
-    return trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : "";
+    return `/api/local-media?path=${encodeURIComponent(trimmed)}`;
   }
   try {
     return convertFileSrc(trimmed);
@@ -240,14 +248,15 @@ export interface SearchResult {
 export interface ApiResponse {
   success: boolean;
   message?: string;
+  need_verify?: boolean;
+  need_login?: boolean;
+  verify_url?: string;
 }
 
 export interface SearchUserResponse extends ApiResponse {
   type?: "single" | "multiple";
   user?: UserInfo;
   users?: UserInfo[];
-  need_verify?: boolean;
-  verify_url?: string;
 }
 
 export interface UserDetailResponse extends ApiResponse {
@@ -548,8 +557,23 @@ export function normalizeLikedVideo(item: unknown): VideoInfo | null {
   };
 }
 
+function normalizeCount(value: unknown): number {
+  if (typeof value === "string") {
+    const text = value.trim().replace(/,/g, "");
+    const match = text.match(/^(\d+(?:\.\d+)?)([wW万kK千])?$/);
+    if (match) {
+      const unit = match[2]?.toLowerCase();
+      const multiplier = unit === "w" || unit === "万" ? 10000 : unit === "k" || unit === "千" ? 1000 : 1;
+      return Math.round(Number(match[1]) * multiplier);
+    }
+  }
+
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
 function normalizeUser(user: unknown): UserInfo {
-  const source = user && typeof user === "object" ? (user as Partial<UserInfo>) : {};
+  const source = user && typeof user === "object" ? (user as Partial<UserInfo> & Record<string, unknown>) : {};
   return {
     uid: source.uid || "",
     sec_uid: source.sec_uid || "",
@@ -558,11 +582,11 @@ function normalizeUser(user: unknown): UserInfo {
     avatar_medium: source.avatar_medium || source.avatar_thumb || source.avatar_larger || "",
     avatar_larger: source.avatar_larger || source.avatar_medium || source.avatar_thumb || "",
     signature: source.signature || "",
-    follower_count: source.follower_count || 0,
-    following_count: source.following_count || 0,
-    total_favorited: source.total_favorited || 0,
-    aweme_count: source.aweme_count || 0,
-    favoriting_count: source.favoriting_count || 0,
+    follower_count: normalizeCount(source.follower_count),
+    following_count: normalizeCount(source.following_count),
+    total_favorited: normalizeCount(source.total_favorited),
+    aweme_count: normalizeCount(source.aweme_count ?? source.aweme_count_str ?? source.aweme_count_text ?? source.work_count),
+    favoriting_count: normalizeCount(source.favoriting_count),
     is_follow: source.is_follow || false,
     unique_id: source.unique_id || "",
     verify_status: source.verify_status || 0,
@@ -809,18 +833,24 @@ function normalizeBrowserDownloadProgress(payload: Record<string, unknown>) {
   return {
     task_id: String(payload.task_id || ""),
     progress: Number(payload.overall_progress ?? payload.progress ?? currentVideo.progress ?? 0) || 0,
+    overall_progress: Number(payload.overall_progress ?? payload.progress ?? 0) || undefined,
     completed: Number(payload.current_downloaded ?? payload.completed ?? 0) || 0,
+    current_downloaded: Number(payload.current_downloaded ?? payload.processed ?? payload.completed ?? 0) || undefined,
     total: Number(payload.total_videos ?? payload.total ?? 0) || 0,
-    status: String(currentVideo.status || payload.status || "downloading"),
-    desc: String(payload.message || payload.desc || ""),
-    display_name: String(payload.display_name || payload.message || payload.desc || ""),
+    total_videos: Number(payload.total_videos ?? payload.total ?? 0) || undefined,
+    processed: Number(payload.processed ?? payload.current_downloaded ?? payload.completed ?? 0) || undefined,
+    skipped: Number(payload.skipped ?? 0) || undefined,
+    failed: Number(payload.failed ?? 0) || undefined,
+    status: String(payload.status || "downloading"),
+    desc: String(payload.desc || ""),
+    display_name: String(payload.display_name || payload.desc || ""),
     file_index: Number(currentVideo.file_index ?? payload.file_index ?? 0) || undefined,
     file_total: Number(currentVideo.file_total ?? payload.file_total ?? 0) || undefined,
     file_progress: Number(currentVideo.progress ?? payload.file_progress ?? 0) || undefined,
     bytes_downloaded: Number(currentVideo.bytes_downloaded ?? payload.bytes_downloaded ?? 0) || undefined,
     bytes_total: Number(currentVideo.bytes_total ?? payload.bytes_total ?? 0) || undefined,
     speed_bps: Number(currentVideo.speed_bps ?? payload.speed_bps ?? 0) || undefined,
-    eta_seconds: Number(currentVideo.eta_seconds ?? payload.eta_seconds ?? 0) || undefined,
+    eta_seconds: Number(payload.eta_seconds ?? currentVideo.eta_seconds ?? 0) || undefined,
     message: String(payload.message || currentVideo.message || ""),
   };
 }
@@ -829,11 +859,17 @@ function normalizeDownloadInfoPayload(payload: Record<string, unknown>) {
   return {
     task_id: String(payload.task_id || ""),
     progress: Number(payload.overall_progress ?? 0) || 0,
+    overall_progress: Number(payload.overall_progress ?? 0) || undefined,
     completed: Number(payload.current_downloaded ?? 0) || 0,
+    current_downloaded: Number(payload.current_downloaded ?? payload.processed ?? 0) || undefined,
     total: Number(payload.total_videos ?? 0) || 0,
+    total_videos: Number(payload.total_videos ?? 0) || undefined,
+    processed: Number(payload.processed ?? payload.current_downloaded ?? 0) || undefined,
+    skipped: Number(payload.skipped ?? 0) || undefined,
+    failed: Number(payload.failed ?? 0) || undefined,
     status: "downloading",
-    desc: String(payload.message || ""),
-    display_name: String(payload.message || ""),
+    desc: String(payload.desc || ""),
+    display_name: String(payload.display_name || payload.desc || ""),
     message: String(payload.message || ""),
   };
 }
@@ -972,10 +1008,10 @@ export async function listenEvent<T>(event: string, handler: EventHandler<T>): P
           task_id: String(data.task_id || ""),
           total_videos: Number(data.total_videos || 0) || undefined,
           completed: Number(data.current_downloaded ?? data.completed ?? 0) || undefined,
-          succeeded: Number(data.succeeded || 0) || undefined,
-          skipped: Number(data.skipped || 0) || undefined,
-          failed: Number(data.failed || 0) || undefined,
-          processed: Number(data.processed || 0) || undefined,
+          succeeded: Number(data.succeeded ?? 0) || undefined,
+          skipped: Number(data.skipped ?? 0) || undefined,
+          failed: Number(data.failed ?? 0) || undefined,
+          processed: Number(data.processed ?? data.current_downloaded ?? data.completed ?? 0) || undefined,
           message: String(data.message || ""),
         } as T;
       });
@@ -1107,13 +1143,15 @@ export async function getConfig(): Promise<AppConfig> {
 export async function saveConfig(config: Partial<AppConfig>): Promise<{ success: boolean; message: string }> {
   if (shouldUseBrowserBridge()) {
     const current = await getConfig().catch(() => ({} as Partial<AppConfig>));
-    const payload = {
-      cookie: config.cookie ?? "",
+    const payload: Record<string, unknown> = {
       download_dir: config.download_path ?? config.download_dir ?? current.download_path ?? current.download_dir ?? "",
       download_quality: config.download_quality ?? current.download_quality ?? "auto",
       max_concurrent: config.max_concurrent ?? current.max_concurrent ?? 3,
       proxy: config.proxy ?? current.proxy ?? null,
     };
+    if (typeof config.cookie === "string") {
+      payload.cookie = config.cookie;
+    }
     return requestJson("/api/config", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -1485,14 +1523,28 @@ export async function cancelCookieBrowserLogin(): Promise<{ success: boolean; me
   return invoke("cancel_cookie_browser_login");
 }
 
-export async function openVerifyBrowser(targetUrl?: string): Promise<{ success: boolean; message: string }> {
+type VerifyBrowserResponse = {
+  success: boolean;
+  message: string;
+  open_url?: string;
+};
+
+export async function openVerifyBrowser(targetUrl?: string): Promise<VerifyBrowserResponse> {
   if (shouldUseBrowserBridge()) {
-    return requestJson("/api/open_verify_browser", {
-      method: "POST",
-      body: JSON.stringify({ target_url: targetUrl }),
-    });
+    try {
+      return await requestJson<VerifyBrowserResponse>("/api/open_verify_browser", {
+        method: "POST",
+        body: JSON.stringify({ target_url: targetUrl }),
+      });
+    } catch (error) {
+      return {
+        success: false,
+        message: getErrorMessage(error, "无法打开应用内验证窗口，请通过桌面版启动后重试"),
+        open_url: targetUrl,
+      };
+    }
   }
-  return invoke("open_verify_browser", { targetUrl, target_url: targetUrl });
+  return invoke<VerifyBrowserResponse>("open_verify_browser", { targetUrl, target_url: targetUrl });
 }
 
 function normalizeHistoryItem(value: unknown): HistoryItem | null {

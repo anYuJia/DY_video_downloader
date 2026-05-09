@@ -222,7 +222,15 @@ class DouyinAPI:
                 sec_uid = params.get('sec_user_id', '')
                 if sec_uid:
                     verify_url = f'https://www.douyin.com/user/{sec_uid}'
+            elif uri and 'aweme/favorite' in uri:
+                verify_url = 'https://www.douyin.com/'
+            elif uri and 'module/feed' in uri:
+                verify_url = 'https://www.douyin.com/?recommend=1'
             elif uri and 'aweme/detail' in uri:
+                aweme_id = params.get('aweme_id', '')
+                if aweme_id:
+                    verify_url = f'https://www.douyin.com/video/{aweme_id}'
+            elif uri and 'comment/list' in uri:
                 aweme_id = params.get('aweme_id', '')
                 if aweme_id:
                     verify_url = f'https://www.douyin.com/video/{aweme_id}'
@@ -242,6 +250,89 @@ class DouyinAPI:
             '_verify_url': verify_url,
             'message': message,
         }, False
+
+    def _extract_api_message(self, data: dict, fallback: str = '请求失败') -> str:
+        if not isinstance(data, dict):
+            return fallback
+
+        for key in ('message', 'status_msg', 'log_pb'):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        return fallback
+
+    def _looks_like_logged_out_error(self, data: dict) -> bool:
+        if not isinstance(data, dict):
+            return False
+
+        status_code = data.get('status_code')
+        if status_code in (8, '8'):
+            return True
+
+        text_parts = []
+        for key in ('message', 'status_msg', 'prompts', 'status_msg_extra'):
+            value = data.get(key)
+            if isinstance(value, str):
+                text_parts.append(value)
+            elif value is not None:
+                text_parts.append(str(value))
+
+        text = ' '.join(text_parts).lower()
+        return any(
+            token in text
+            for token in (
+                '用户未登录',
+                '未登录',
+                '登录态',
+                '重新登录',
+                'session expired',
+                'not login',
+                'not logged in',
+                'login required',
+            )
+        )
+
+    def _build_login_required_error(self, data: dict | None = None) -> dict:
+        data = data if isinstance(data, dict) else {}
+        api_message = self._extract_api_message(data, '用户未登录')
+        return {
+            '_need_login': True,
+            'status_code': data.get('status_code'),
+            'status_msg': data.get('status_msg', ''),
+            'message': f'{api_message}，请在设置中重新登录并刷新 Cookie',
+        }
+
+    def _looks_like_login_or_verify_error(self, uri: str, data: dict) -> bool:
+        if not isinstance(data, dict):
+            return False
+
+        text_parts = []
+        for key in ('message', 'status_msg', 'prompts', 'status_msg_extra'):
+            value = data.get(key)
+            if isinstance(value, str):
+                text_parts.append(value)
+            elif value is not None:
+                text_parts.append(str(value))
+
+        filter_detail = data.get('filter_detail')
+        if isinstance(filter_detail, dict):
+            text_parts.extend(str(value) for value in filter_detail.values() if value is not None)
+
+        text = ' '.join(text_parts).lower()
+        if not text:
+            return False
+
+        if any(token in text for token in ('verify', 'captcha', 'passport', 'login')):
+            return True
+        if any(token in text for token in ('验证', '登录', 'cookie', '风控', '访问频繁', '请稍后重试')):
+            return True
+
+        sensitive_uri = any(
+            fragment in (uri or '')
+            for fragment in ('aweme/post', 'aweme/favorite', 'module/feed', 'user/profile', 'comment/list')
+        )
+        return sensitive_uri and '请求失败' in text
 
     async def common_request(self, uri: str, params: dict, headers: dict, host: str = None, skip_sign: bool = False, method: str = 'GET') -> tuple[dict, bool]:
         """
@@ -314,6 +405,11 @@ class DouyinAPI:
         if looks_like_verify:
             if self.debug_mode:
                 print(f'\033[93m[API] 检测到验证/登录页响应，提示用户手动完成验证\033[0m')
+            if response.status_code == 401:
+                return self._build_login_required_error({
+                    'status_code': response.status_code,
+                    'status_msg': '用户未登录',
+                }), False
             return self._build_verify_hint(uri, params, response)
 
         if response.status_code != 200 or len(response.content) == 0:
@@ -321,11 +417,16 @@ class DouyinAPI:
                 print(
                     f"\033[91m[API] 普通请求失败: status={response.status_code}, empty={len(response.content) == 0}\033[0m"
                 )
-            return {
+            failure_payload = {
                 'status_code': response.status_code,
                 'status_msg': '请求失败',
                 'message': '请求失败，请检查 Cookie 或稍后重试',
-            }, False
+            }
+            if self._looks_like_login_or_verify_error(uri, failure_payload):
+                verify_hint, _ = self._build_verify_hint(uri, params, response)
+                verify_hint.update(failure_payload)
+                return verify_hint, False
+            return failure_payload, False
             
         try:
             json_response = response.json()
@@ -359,9 +460,41 @@ class DouyinAPI:
         if json_response.get('status_code', 0) != 0:
             if self.debug_mode:
                 print(f'\033[91m[API] API返回错误: status_code={json_response.get("status_code")}, msg={json_response.get("status_msg", "")}\033[0m')
+            if self._looks_like_logged_out_error(json_response):
+                return self._build_login_required_error(json_response), False
+            if self._looks_like_login_or_verify_error(uri, json_response):
+                verify_hint, _ = self._build_verify_hint(uri, params, response)
+                api_message = self._extract_api_message(json_response)
+                verify_hint.update({
+                    'status_code': json_response.get('status_code'),
+                    'status_msg': json_response.get('status_msg', ''),
+                    'message': f'{api_message}，请完成验证或重新获取 Cookie 后重试',
+                })
+                return verify_hint, False
             return json_response, False
 
         return json_response, True
+
+    async def get_current_user(self) -> tuple[dict, bool]:
+        """获取当前登录用户，用于强校验 Cookie 是否仍被抖音服务端认可。"""
+        resp, success = await self.common_request(
+            '/aweme/v1/web/user/profile/self/',
+            {},
+            {'Referer': 'https://www.douyin.com/'},
+            skip_sign=True,
+        )
+
+        if not success:
+            return resp, False
+
+        user = resp.get('user') if isinstance(resp, dict) else None
+        if not isinstance(user, dict) or not user:
+            return {
+                '_need_login': True,
+                'message': '登录态校验失败：抖音未返回当前用户，请重新登录获取 Cookie',
+            }, False
+
+        return user, True
 
     async def get_recommended_feed(self, count: int = 20, cursor: int = 0) -> tuple[dict, bool]:
         """获取推荐视频流
@@ -404,13 +537,24 @@ class DouyinAPI:
         
         # 使用 POST 请求 - 重要！
         # 推荐接口需要 POST 请求，不是 GET
-        resp, success = await self.common_request(
-            '/aweme/v2/web/module/feed/',
-            params,
-            headers,
-            skip_sign=True,  # 实验：跳过签名验证推荐接口是否可用
-            method='POST'  # 使用 POST 方法
-        )
+        resp = {}
+        success = False
+        for skip_sign in (False, True):
+            try:
+                resp, success = await self.common_request(
+                    '/aweme/v2/web/module/feed/',
+                    dict(params),
+                    dict(headers),
+                    skip_sign=skip_sign,
+                    method='POST'  # 使用 POST 方法
+                )
+            except Exception as error:
+                if self.debug_mode:
+                    print(f"\033[91m[API] 推荐接口请求异常(skip_sign={skip_sign}): {error}\033[0m")
+                resp, success = {'message': str(error)}, False
+
+            if success or (isinstance(resp, dict) and resp.get('_need_verify')):
+                break
 
         if success and resp.get('aweme_list'):
             aweme_count = len(resp.get('aweme_list', []))
@@ -438,6 +582,37 @@ class DouyinAPI:
                 print(f"\033[91m[API] 响应: {resp}\033[0m")
 
         return resp, False
+
+    async def get_comments(self, aweme_id: str, count: int = 20, cursor: int = 0) -> tuple[dict, bool]:
+        """获取视频评论列表。"""
+        params = {
+            'aweme_id': str(aweme_id or ''),
+            'cursor': str(cursor or 0),
+            'count': str(count or 20),
+        }
+        headers = {
+            'Referer': f'https://www.douyin.com/video/{aweme_id}',
+        }
+
+        resp = {}
+        success = False
+        for skip_sign in (False, True):
+            try:
+                resp, success = await self.common_request(
+                    '/aweme/v1/web/comment/list/',
+                    dict(params),
+                    dict(headers),
+                    skip_sign=skip_sign,
+                )
+            except Exception as error:
+                if self.debug_mode:
+                    print(f"\033[91m[API] 评论接口请求异常(skip_sign={skip_sign}): {error}\033[0m")
+                resp, success = {'message': str(error)}, False
+
+            if success or (isinstance(resp, dict) and resp.get('_need_verify')):
+                break
+
+        return resp, success
 
     async def get_temp_cookie(self) -> dict:
         """获取临时 Cookie（无需登录）

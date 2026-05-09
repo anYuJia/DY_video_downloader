@@ -205,7 +205,8 @@ export function useSocket() {
           const hasBatchProgress =
             d.overall_progress !== undefined ||
             d.current_downloaded !== undefined ||
-            d.total_videos !== undefined;
+            d.total_videos !== undefined ||
+            d.processed !== undefined;
           const isBatchTask = hasBatchProgress || existing?.isBatch || false;
           const nextStatus = normalizeDownloadStatus(d.status || "downloading");
 
@@ -233,6 +234,9 @@ export function useSocket() {
             patch.isBatch = true;
             patch.filename =
               d.display_name || d.desc || existing?.filename || "批量下载";
+            if (existing?.status === "paused" && nextStatus === "downloading") {
+              patch.status = "paused";
+            }
             if (hasBatchProgress && d.overall_progress !== undefined) {
               patch.progress = toPercent(d.overall_progress);
             }
@@ -261,6 +265,9 @@ export function useSocket() {
             }
             if (d.status) {
               patch.status = nextStatus;
+            }
+            if (existing?.status === "paused" && nextStatus === "downloading") {
+              patch.status = "paused";
             }
             if (d.bytes_downloaded !== undefined) {
               patch.downloadedBytes = d.bytes_downloaded;

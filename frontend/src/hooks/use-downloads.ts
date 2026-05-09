@@ -94,6 +94,8 @@ export function useDownloads() {
 
   const cancelDownload = useCallback(
     async (taskId: string) => {
+      const existing = useDownloadStore.getState().tasks[taskId];
+      if (existing?.status === "cancelled") return;
       updateTask({ id: taskId, status: "cancelled", speed: 0, etaSeconds: 0 });
       try {
         const result = await cancelDownloadTask(taskId);
@@ -111,6 +113,7 @@ export function useDownloads() {
   const pauseTask = useCallback(
     async (taskId: string) => {
       const previousStatus = useDownloadStore.getState().tasks[taskId]?.status || "downloading";
+      if (previousStatus === "paused") return;
       updateTask({ id: taskId, status: "paused", speed: 0 });
       try {
         const result = await pauseDownload(taskId);
@@ -129,6 +132,7 @@ export function useDownloads() {
   const resumeTask = useCallback(
     async (taskId: string) => {
       const previousStatus = useDownloadStore.getState().tasks[taskId]?.status || "paused";
+      if (previousStatus === "downloading") return;
       updateTask({ id: taskId, status: "downloading" });
       try {
         const result = await resumeDownload(taskId);
@@ -221,26 +225,36 @@ function normalizeBackendTask(value: unknown): (Partial<DownloadTask> & { id: st
   const id = String(task.id || "").trim();
   if (!id) return null;
 
-  const title = String(task.title || task.filename || id).trim();
+  const title = String(task.title || task.filename || task.display_name || "").trim();
   const downloadedBytes = Number(task.downloaded_size ?? task.downloadedBytes ?? 0) || 0;
   const totalBytes = Number(task.total_size ?? task.totalBytes ?? 0) || 0;
+  const startTime = normalizeTimestamp(task.start_time ?? task.create_time ?? task.startTime);
+  const finishedTime = normalizeTimestamp(task.end_time ?? task.complete_time ?? task.finishedTime);
 
   return {
     id,
     awemeId: String(task.aweme_id || task.awemeId || "").trim(),
-    filename: title,
-    progress: Number(task.progress ?? 0) || 0,
+    ...(title ? { filename: title } : {}),
+    progress: Number(task.progress ?? task.overall_progress ?? 0) || 0,
     speed: 0,
     status: normalizeStatus(task.status),
     savePath: String(task.save_path || task.savePath || "").trim(),
     mediaType: String(task.media_type || task.mediaType || "").trim(),
-    mediaCount: Number(task.total_files ?? task.mediaCount ?? 0) || undefined,
-    fileTotal: Number(task.total_files ?? 0) || undefined,
-    fileIndex: Number(task.completed_files ?? 0) || undefined,
+    mediaCount: Number(task.total_videos ?? task.total_files ?? task.mediaCount ?? 0) || undefined,
+    fileTotal: Number(task.total_videos ?? task.total_files ?? 0) || undefined,
+    fileIndex: Number(task.processed ?? task.current_downloaded ?? task.completed_files ?? 0) || undefined,
+    skippedCount: Number(task.skipped ?? task.skipped_count ?? 0) || undefined,
+    failedCount: Number(task.failed ?? task.failed_count ?? 0) || undefined,
     downloadedBytes: downloadedBytes || undefined,
     totalBytes: totalBytes || undefined,
-    startTime: Number(task.create_time ?? 0) ? Number(task.create_time) * 1000 : undefined,
-    finishedTime: Number(task.complete_time ?? 0) ? Number(task.complete_time) * 1000 : undefined,
+    startTime,
+    finishedTime,
     errorMessage: String(task.error_msg || "").trim() || undefined,
   };
+}
+
+function normalizeTimestamp(value: unknown) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return n > 10_000_000_000 ? n : n * 1000;
 }

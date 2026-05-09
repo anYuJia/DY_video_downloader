@@ -3,6 +3,7 @@ import {
   getErrorMessage,
   getLikedAuthors,
   getLikedVideos,
+  openVerifyBrowser,
   type UserInfo,
   type VideoInfo,
 } from "@/lib/tauri";
@@ -57,6 +58,11 @@ export const useLikedStore = create<LikedStoreState>((set, get) => ({
       const result = await getLikedVideos(count);
       if (!result.success) {
         const message = result.message || "获取点赞视频失败";
+        if (result.need_verify) {
+          void openVerifyBrowser(result.verify_url)
+            .then((verifyResult) => addLog(verifyResult.message, verifyResult.success ? "info" : "warning"))
+            .catch(() => addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
+        }
         if (cachedVideos.length > 0) {
           set({
             videos: cachedVideos,
@@ -72,7 +78,7 @@ export const useLikedStore = create<LikedStoreState>((set, get) => ({
           videosLoaded: true,
           videosError: message,
         });
-        addLog(message, "error");
+        addLog(message, result.need_verify ? "warning" : "error");
         return;
       }
 
@@ -125,6 +131,11 @@ export const useLikedStore = create<LikedStoreState>((set, get) => ({
       const result = await getLikedAuthors(count);
       if (!result.success) {
         const message = result.message || "获取点赞作者失败";
+        if (result.need_verify) {
+          void openVerifyBrowser(result.verify_url)
+            .then((verifyResult) => addLog(verifyResult.message, verifyResult.success ? "info" : "warning"))
+            .catch(() => addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
+        }
         if (cachedAuthors.length > 0) {
           set({
             authors: cachedAuthors,
@@ -140,7 +151,7 @@ export const useLikedStore = create<LikedStoreState>((set, get) => ({
           authorsLoaded: true,
           authorsError: message,
         });
-        addLog(message, "error");
+        addLog(message, result.need_verify ? "warning" : "error");
         return;
       }
 

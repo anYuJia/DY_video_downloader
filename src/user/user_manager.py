@@ -133,7 +133,7 @@ class DouyinUserManager:
             return int(round(duration / 1000))
         return int(round(duration))
         
-    async def get_user_videos(self, user_id: str, offset: int = 0, limit: int = 1000, on_batch=None) -> List[dict]:
+    async def get_user_videos(self, user_id: str, offset: int = 0, limit: int = 1000, on_batch=None) -> Union[List[dict], Dict]:
         """获取用户视频列表
         Args:
             user_id: 用户的sec_uid
@@ -162,8 +162,13 @@ class DouyinUserManager:
             resp, succ = await self.api.common_request('/aweme/v1/web/aweme/post/', 
                                                      params, 
                                                      {}, skip_sign=True)
+            if isinstance(resp, dict) and (resp.get('_need_verify') or resp.get('_need_login')):
+                return resp
             if not succ:
-                break
+                return {
+                    '_error': True,
+                    'message': (resp or {}).get('message') or (resp or {}).get('status_msg') or '获取用户作品失败，请检查 Cookie 或稍后重试',
+                }
             
             batch = resp.get('aweme_list', [])
             if on_batch and batch:
@@ -192,10 +197,12 @@ class DouyinUserManager:
         }
         resp, succ = await self.api.common_request('/aweme/v1/web/user/profile/other/',
                                                  params, headers, skip_sign=True)
-        if isinstance(resp, dict) and resp.get('_need_verify'):
+        if isinstance(resp, dict) and (resp.get('_need_verify') or resp.get('_need_login')):
+            return resp
+        if not succ:
             return {
-                '_need_verify': True,
-                '_verify_url': resp.get('_verify_url'),
+                '_error': True,
+                'message': (resp or {}).get('message') or (resp or {}).get('status_msg') or '获取用户详情失败，请检查 Cookie 或稍后重试',
             }
         result = resp.get('user', {}) if succ else {}
         if succ and isinstance(result, dict) and result:
@@ -272,8 +279,8 @@ class DouyinUserManager:
                         print(f"\033[91m搜索成功但未找到用户，响应: {resp}\033[0m")
             else:
                 # 传递验证码信号
-                if resp.get('_need_verify'):
-                    return {'_need_verify': True, '_verify_url': resp.get('_verify_url')}
+                if resp.get('_need_verify') or resp.get('_need_login'):
+                    return resp
                 if self.debug_mode:
                     print(f"\033[91m[UserManager] 搜索失败\033[0m")
                 else:
@@ -314,8 +321,8 @@ class DouyinUserManager:
                                                  skip_sign=True)
         if not succ or not resp.get('user_list'):
             # 传递验证码信号
-            if resp.get('_need_verify'):
-                return {'_need_verify': True, '_verify_url': resp.get('_verify_url')}
+            if resp.get('_need_verify') or resp.get('_need_login'):
+                return resp
             if self.debug_mode:
                 print(f"\033[91m[UserManager] 关键词搜索失败或未找到用户\033[0m")
             else:
@@ -433,11 +440,8 @@ class DouyinUserManager:
                                                      params,
                                                      {}, skip_sign=True)
 
-            if isinstance(resp, dict) and resp.get('_need_verify'):
-                return {
-                    '_need_verify': True,
-                    '_verify_url': resp.get('_verify_url'),
-                }
+            if isinstance(resp, dict) and (resp.get('_need_verify') or resp.get('_need_login')):
+                return resp
 
             if not succ or not resp.get('aweme_detail'):
                 logger.warning(f"获取视频详情失败: succ={succ}, aweme_id={aweme_id}")
@@ -613,6 +617,13 @@ class DouyinUserManager:
         
         # 获取视频列表
         posts = await self.get_user_videos(user_id, limit=200)
+        if isinstance(posts, dict):
+            error_msg = posts.get('message') or f"未找到用户 {nickname} 的作品"
+            if web_socket and self.socketio:
+                self.socketio.emit('download_error', {'message': error_msg})
+            else:
+                print(f"\033[91m{error_msg}\033[0m")
+            raise Exception(error_msg)
         if not posts:
             error_msg = f"未找到用户 {nickname} 的作品"
             if web_socket and self.socketio:
@@ -757,8 +768,13 @@ class DouyinUserManager:
             resp, succ = await self.api.common_request('/aweme/v1/web/aweme/favorite/', params,
                                                      dict(self._FAVORITE_HEADERS),
                                                      skip_sign=True)
+            if isinstance(resp, dict) and (resp.get('_need_verify') or resp.get('_need_login')):
+                return resp
             if not succ:
-                return []
+                return {
+                    '_error': True,
+                    'message': (resp or {}).get('message') or (resp or {}).get('status_msg') or '获取点赞视频失败，请检查 Cookie 或稍后重试',
+                }
 
             posts = resp.get('aweme_list', [])
             if not posts:
@@ -806,6 +822,8 @@ class DouyinUserManager:
         """下载点赞视频"""
         try:
             videos = await self.get_liked_videos(count)
+            if isinstance(videos, dict):
+                return 0
             if not videos:
                 return 0
 
@@ -859,8 +877,13 @@ class DouyinUserManager:
             resp, succ = await self.api.common_request('/aweme/v1/web/aweme/favorite/', params,
                                                      dict(self._FAVORITE_HEADERS),
                                                      skip_sign=True)
+            if isinstance(resp, dict) and (resp.get('_need_verify') or resp.get('_need_login')):
+                return resp
             if not succ:
-                return []
+                return {
+                    '_error': True,
+                    'message': (resp or {}).get('message') or (resp or {}).get('status_msg') or '获取点赞作者失败，请检查 Cookie 或稍后重试',
+                }
 
             posts = resp.get('aweme_list', [])
             if not posts:
@@ -930,6 +953,8 @@ class DouyinUserManager:
         """下载点赞作品的作者的所有作品"""
         try:
             authors = await self.get_liked_authors(count)
+            if isinstance(authors, dict):
+                return 0
             if not authors:
                 return 0
 

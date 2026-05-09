@@ -37,15 +37,21 @@ const commandPanelLayoutTransition = {
 
 const commandContentTransition = {
   type: "spring",
-  duration: 0.34,
+  duration: 0.3,
   bounce: 0,
 } as const;
 
 const contentVariants = {
-  initial: { opacity: 0, y: 8, filter: "blur(4px)" },
+  initial: { opacity: 0, y: 6, filter: "blur(4px)" },
   animate: { opacity: 1, y: 0, filter: "blur(0px)" },
-  exit: { opacity: 0, y: -6, filter: "blur(4px)" },
+  exit: { opacity: 0, y: -4, filter: "blur(4px)" },
 };
+
+const iconSwitchTransition = {
+  type: "spring",
+  duration: 0.3,
+  bounce: 0,
+} as const;
 
 export function CommandPopover() {
   const setCommandOpen = useAppStore((s) => s.setCommandOpen);
@@ -173,8 +179,10 @@ export function CommandPopover() {
                   { mode: "link" as const, icon: Link2, label: "解析链接" },
                 ] as const
               ).map(({ mode, icon: TabIcon, label }) => (
-                <button
+                <motion.button
                   key={mode}
+                  layout
+                  whileTap={{ scale: 0.96 }}
                   onClick={() => {
                     setCommandMode(mode);
                     setValue("");
@@ -193,14 +201,14 @@ export function CommandPopover() {
                       className="absolute inset-0 rounded-[10px] bg-accent/[0.12] shadow-[0_0_12px_rgba(254,44,85,0.08)]"
                       transition={{
                         type: "spring",
-                        stiffness: 400,
-                        damping: 30,
+                        duration: 0.3,
+                        bounce: 0,
                       }}
                     />
                   )}
                   <TabIcon className="relative w-3.5 h-3.5" />
                   <span className="relative">{label}</span>
-                </button>
+                </motion.button>
               ))}
             </div>
           </LayoutGroup>
@@ -233,12 +241,23 @@ export function CommandPopover() {
                   : "bg-white/[0.06]"
               )}
             >
-              <Icon
-                className={cn(
-                  "w-[18px] h-[18px] transition-colors duration-200",
-                  value ? "text-accent" : "text-text-muted"
-                )}
-              />
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={commandMode}
+                  initial={{ opacity: 0, scale: 0.25, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0, scale: 0.25, filter: "blur(4px)" }}
+                  transition={iconSwitchTransition}
+                  className="flex items-center justify-center"
+                >
+                  <Icon
+                    className={cn(
+                      "w-[18px] h-[18px] transition-colors duration-200",
+                      value ? "text-accent" : "text-text-muted"
+                    )}
+                  />
+                </motion.div>
+              </AnimatePresence>
             </div>
 
             <input

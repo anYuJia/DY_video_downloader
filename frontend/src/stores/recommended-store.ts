@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { getRecommended, type VideoInfo } from "@/lib/tauri";
+import { getRecommended, openVerifyBrowser, type VideoInfo } from "@/lib/tauri";
 import { useLogStore } from "@/stores/app-store";
 
 const PAGE_SIZE = 20;
@@ -63,13 +63,18 @@ export const useRecommendedStore = create<RecommendedStoreState>((set, get) => (
 
       if (!result.success) {
         const message = result.message || "加载推荐视频失败";
+        if (result.need_verify) {
+          void openVerifyBrowser(result.verify_url)
+            .then((verifyResult) => addLog(verifyResult.message, verifyResult.success ? "info" : "warning"))
+            .catch(() => addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
+        }
         set((current) => ({
           loading: false,
           error: message,
           initialized: true,
           ...(current.videos.length > 0 ? {} : { videos: [] }),
         }));
-        addLog(message, "error");
+        addLog(message, result.need_verify ? "warning" : "error");
         return;
       }
 
@@ -110,6 +115,11 @@ export const useRecommendedStore = create<RecommendedStoreState>((set, get) => (
       if (requestId !== latestLoadMoreRequestId) return;
 
       if (!result.success) {
+        if (result.need_verify) {
+          void openVerifyBrowser(result.verify_url)
+            .then((verifyResult) => useLogStore.getState().addLog(verifyResult.message, verifyResult.success ? "info" : "warning"))
+            .catch(() => useLogStore.getState().addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
+        }
         set({ loadingMore: false, error: result.message || "加载更多失败" });
         return;
       }

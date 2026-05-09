@@ -155,8 +155,14 @@ class DouyinDownloader:
             except Exception as e:
                 if self.debug_mode:
                     print(f"\033[91m[Downloader] 进度回调失败: {str(e)}\033[0m")
+
+    def _wait_if_paused(self, pause_event=None, cancel_event=None):
+        if not pause_event:
+            return
+        while pause_event.is_set() and not (cancel_event and cancel_event.is_set()):
+            time.sleep(0.2)
         
-    def download_media_group(self, urls: List[dict], name: str, aweme_id: str = None, socketio=None, task_id=None, cancel_event=None, progress_callback=None) -> bool:
+    def download_media_group(self, urls: List[dict], name: str, aweme_id: str = None, socketio=None, task_id=None, cancel_event=None, progress_callback=None, pause_event=None) -> bool:
         """下载一组媒体文件（图片、视频或Live Photo）
         Args:
             urls: [{'url': 'https://example.com/file.mp4', 'type': 'video'|'image'|'live_photo'}]
@@ -314,6 +320,7 @@ class DouyinDownloader:
                         last_emit_time = time.monotonic()
                         last_emit_progress = (i / len(urls)) * 100
                         for chunk in response.iter_content(chunk_size=Config.CHUNK_SIZE):
+                            self._wait_if_paused(pause_event, cancel_event)
                             # 检查取消信号
                             if cancel_event and cancel_event.is_set():
                                 print(f"\033[93m下载被取消，删除部分文件：{filepath}\033[0m")
@@ -454,7 +461,7 @@ class DouyinDownloader:
 
 
 
-    def download_video(self, url: str, name: str, aweme_id: str, cancel_event=None, socketio=None, task_id=None, progress_callback=None) -> bool:
+    def download_video(self, url: str, name: str, aweme_id: str, cancel_event=None, socketio=None, task_id=None, progress_callback=None, pause_event=None) -> bool:
         """下载视频
         Args:
             url: 视频URL
@@ -515,6 +522,7 @@ class DouyinDownloader:
                 last_emit_time = time.monotonic()
                 last_emit_progress = 0
                 for chunk in response.iter_content(chunk_size=Config.CHUNK_SIZE):
+                    self._wait_if_paused(pause_event, cancel_event)
                     # 检查取消信号
                     if cancel_event and cancel_event.is_set():
                         print(f"\033[93m下载被取消，删除部分文件：{filepath}\033[0m")

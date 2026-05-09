@@ -711,9 +711,9 @@ function HistoryFileThumbnail({
     setLoaded(false);
   }, [coverUrl, localUrl]);
 
-  const showCover = Boolean(coverUrl && !coverFailed);
-  const showLocalImage = Boolean(!showCover && mediaKind === "image" && localUrl && !localFailed);
-  const showLocalVideo = Boolean(allowVideoPreview && !showCover && mediaKind === "video" && videoUrl && !localFailed);
+  const showLocalImage = Boolean(mediaKind === "image" && localUrl && !localFailed);
+  const showLocalVideo = Boolean(allowVideoPreview && mediaKind === "video" && videoUrl && !localFailed);
+  const showCover = Boolean(!showLocalImage && !showLocalVideo && coverUrl && !coverFailed);
   const hasPreview = showCover || showLocalImage || showLocalVideo;
 
   return (
