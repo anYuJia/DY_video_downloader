@@ -61,7 +61,9 @@ type UpdateInfo = {
   portable?: boolean;
 };
 type SettingsField = "theme" | "download_path" | "download_quality" | "max_concurrent";
+type SavingFields = Partial<Record<SettingsField, boolean>>;
 type SettingsPatch = Parameters<typeof saveConfig>[0];
+type SettingStatus = "saving" | "saved" | "error";
 
 export function SettingsView() {
   const theme = useAppStore((s) => s.theme);
@@ -84,12 +86,17 @@ export function SettingsView() {
   const [cookieValue, setCookieValue] = useState("");
   const [cookieInputStatus, setCookieInputStatus] = useState<"idle" | "valid" | "invalid">("idle");
   const [savingCookie, setSavingCookie] = useState(false);
+  const lastCookieAttemptRef = useRef("");
+  const rejectedCookieRef = useRef("");
 
   // Config state
   const [downloadPath, setDownloadPath] = useState("");
   const [downloadQuality, setDownloadQuality] = useState("auto");
   const [maxConcurrent, setMaxConcurrent] = useState("3");
-  const [savingField, setSavingField] = useState<SettingsField | null>(null);
+  const [savingFields, setSavingFields] = useState<SavingFields>({});
+  const [savedFields, setSavedFields] = useState<SavingFields>({});
+  const [failedFields, setFailedFields] = useState<SavingFields>({});
+  const statusTimersRef = useRef<Partial<Record<SettingsField, ReturnType<typeof setTimeout>>>>({});
   const savedSettingsRef = useRef({
     downloadPath: "",
     downloadQuality: "auto",
@@ -114,6 +121,15 @@ export function SettingsView() {
       unlistenRef.current();
       unlistenRef.current = null;
     }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(statusTimersRef.current).forEach((timer) => {
+        if (timer) clearTimeout(timer);
+      });
+      statusTimersRef.current = {};
+    };
   }, []);
 
   // On mount: check if cookie is already saved
@@ -289,11 +305,10 @@ export function SettingsView() {
     setCountdown(0);
   };
 
-  const handleValidateCookie = () => {
-    const trimmed = cookieValue.trim();
+  const getCookieInputStatus = (value: string) => {
+    const trimmed = value.trim();
     if (!trimmed) {
-      setCookieInputStatus("idle");
-      return;
+      return "idle" as const;
     }
     const pairs = Object.fromEntries(
       trimmed.split(";").map((p) => {
@@ -301,7 +316,11 @@ export function SettingsView() {
         return [k.trim(), v.join("=")];
       })
     );
-    setCookieInputStatus(pairs["sessionid"] ? "valid" : "invalid");
+    return pairs["sessionid"]?.trim() ? "valid" : "invalid";
+  };
+
+  const handleValidateCookie = () => {
+    setCookieInputStatus(getCookieInputStatus(cookieValue));
   };
 
   const formatCountdown = (s: number) => {
@@ -322,13 +341,14 @@ export function SettingsView() {
     return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
   };
 
-  const handleSaveCookie = async () => {
-    const trimmed = cookieValue.trim();
+  const handleSaveCookie = async (value = cookieValue) => {
+    const trimmed = value.trim();
     if (!trimmed) {
       setCookieInputStatus("invalid");
       return;
     }
 
+    lastCookieAttemptRef.current = trimmed;
     setSavingCookie(true);
     try {
       const result = await saveConfig({ cookie: trimmed });
@@ -341,48 +361,92 @@ export function SettingsView() {
         message: error instanceof Error ? error.message : "Cookie 校验失败",
       }));
       setCookieLoggedIn(status.valid, status.user_name || undefined);
+      rejectedCookieRef.current = status.valid ? "" : trimmed;
       setCookieInputStatus(status.valid ? "valid" : "invalid");
       setLoginMessage(status.message || "Cookie 已保存");
       addLog(status.valid ? "Cookie 已保存并通过校验" : "Cookie 已保存但校验失败", status.valid ? "success" : "warning");
+      if (status.valid) {
+        toast.success("Cookie 已自动保存并校验", "已登录");
+      } else {
+        toast.warning(status.message || "Cookie 已保存但校验失败", "需要重新登录");
+      }
       await initClient().catch(() => {});
     } catch (error) {
-      addLog(error instanceof Error ? error.message : "保存 Cookie 失败", "error");
+      const message = error instanceof Error ? error.message : "保存 Cookie 失败";
+      rejectedCookieRef.current = trimmed;
+      addLog(message, "error");
+      toast.error(message, "保存失败");
       setCookieInputStatus("invalid");
     } finally {
       setSavingCookie(false);
     }
   };
 
+  const markFieldStatus = (field: SettingsField, status: "saved" | "error") => {
+    if (statusTimersRef.current[field]) {
+      clearTimeout(statusTimersRef.current[field]);
+    }
+
+    setSavedFields((current) => ({ ...current, [field]: status === "saved" }));
+    setFailedFields((current) => ({ ...current, [field]: status === "error" }));
+
+    statusTimersRef.current[field] = setTimeout(() => {
+      setSavedFields((current) => ({ ...current, [field]: false }));
+      setFailedFields((current) => ({ ...current, [field]: false }));
+      statusTimersRef.current[field] = undefined;
+    }, status === "saved" ? 1800 : 3200);
+  };
+
+  const fieldStatus = (field: SettingsField): SettingStatus | undefined => {
+    if (savingFields[field]) return "saving";
+    if (failedFields[field]) return "error";
+    if (savedFields[field]) return "saved";
+    return undefined;
+  };
+
+  const reportSettingSaved = (
+    field: SettingsField,
+    successMessage: string,
+    logMessage = successMessage
+  ) => {
+    markFieldStatus(field, "saved");
+    toast.success(successMessage, "已保存");
+    addLog(logMessage, "success");
+  };
+
   const saveSetting = async (
     field: SettingsField,
     patch: SettingsPatch,
     successMessage: string,
-    logMessage = successMessage
+    logMessage = successMessage,
+    refreshClient = true
   ) => {
-    setSavingField(field);
+    setSavingFields((current) => ({ ...current, [field]: true }));
     try {
       const result = await saveConfig(patch);
       if (!result.success) {
         throw new Error(result.message || "保存设置失败");
       }
-      await initClient().catch(() => {});
-      toast.success(successMessage, "已保存");
-      addLog(logMessage, "success");
+      if (refreshClient) {
+        await initClient().catch(() => {});
+      }
+      reportSettingSaved(field, successMessage, logMessage);
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "保存设置失败";
+      markFieldStatus(field, "error");
       toast.error(message, "保存失败");
       addLog(message, "error");
       return false;
     } finally {
-      setSavingField((current) => (current === field ? null : current));
+      setSavingFields((current) => ({ ...current, [field]: false }));
     }
   };
 
   const saveDownloadPath = async (path: string) => {
     const nextPath = path.trim();
     const previousPath = savedSettingsRef.current.downloadPath;
-    if (!nextPath || nextPath === previousPath || savingField === "download_path") {
+    if (!nextPath || nextPath === previousPath || savingFields.download_path) {
       return;
     }
     const saved = await saveSetting(
@@ -393,7 +457,6 @@ export function SettingsView() {
     );
     if (saved) {
       savedSettingsRef.current.downloadPath = nextPath;
-      setDownloadPath(nextPath);
     }
   };
 
@@ -412,20 +475,16 @@ export function SettingsView() {
   const handleThemeChange = async (value: ThemeMode) => {
     const previousTheme = savedSettingsRef.current.theme;
     setTheme(value);
-    if (value === previousTheme || savingField === "theme") return;
+    if (value === previousTheme || savingFields.theme) return;
 
-    const saved = await saveSetting("theme", { theme: value }, "外观主题已保存");
-    if (saved) {
-      savedSettingsRef.current.theme = value;
-    } else {
-      setTheme(previousTheme as ThemeMode);
-    }
+    savedSettingsRef.current.theme = value;
+    reportSettingSaved("theme", "外观主题已保存");
   };
 
   const handleQualityChange = async (value: string) => {
     const previousQuality = savedSettingsRef.current.downloadQuality;
     setDownloadQuality(value);
-    if (value === previousQuality || savingField === "download_quality") return;
+    if (value === previousQuality || savingFields.download_quality) return;
 
     const saved = await saveSetting(
       "download_quality",
@@ -442,7 +501,7 @@ export function SettingsView() {
   const handleMaxConcurrentChange = async (value: string) => {
     const previousMaxConcurrent = savedSettingsRef.current.maxConcurrent;
     setMaxConcurrent(value);
-    if (value === previousMaxConcurrent || savingField === "max_concurrent") return;
+    if (value === previousMaxConcurrent || savingFields.max_concurrent) return;
 
     const nextValue = Number(value) || 3;
     const saved = await saveSetting(
@@ -456,6 +515,48 @@ export function SettingsView() {
       setMaxConcurrent(previousMaxConcurrent);
     }
   };
+
+  useEffect(() => {
+    if (cookieLoggedIn || loginStatus !== "idle") return;
+
+    const trimmed = cookieValue.trim();
+    if (!trimmed) {
+      lastCookieAttemptRef.current = "";
+      rejectedCookieRef.current = "";
+      setCookieInputStatus("idle");
+      return;
+    }
+    if (trimmed === rejectedCookieRef.current) {
+      setCookieInputStatus("invalid");
+      return;
+    }
+
+    const status = getCookieInputStatus(trimmed);
+    setCookieInputStatus(status);
+
+    if (status !== "valid" || savingCookie || trimmed === lastCookieAttemptRef.current) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void handleSaveCookie(trimmed);
+    }, 900);
+
+    return () => window.clearTimeout(timer);
+  }, [cookieValue, cookieLoggedIn, loginStatus, savingCookie]);
+
+  useEffect(() => {
+    const nextPath = downloadPath.trim();
+    if (!nextPath || nextPath === savedSettingsRef.current.downloadPath || savingFields.download_path) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void saveDownloadPath(nextPath);
+    }, 800);
+
+    return () => window.clearTimeout(timer);
+  }, [downloadPath, savingFields.download_path]);
 
   const handleCheckUpdate = async () => {
     setUpdateStatus("checking");
@@ -531,7 +632,7 @@ export function SettingsView() {
     >
       <h1 className="text-[1.4rem] font-bold text-text mb-1">设置</h1>
       <p className="text-[0.82rem] text-text-muted mb-8">
-        配置应用偏好和下载选项
+        更改后自动保存，无需手动提交
       </p>
 
       <div className="flex flex-col gap-6">
@@ -700,38 +801,33 @@ export function SettingsView() {
           {!cookieLoggedIn && loginStatus === "idle" && (
             <div className="mt-4">
               <p className="text-[0.75rem] text-text-muted mb-2">
-                或手动粘贴 Cookie
+                或粘贴 Cookie，检测通过后自动保存
               </p>
               <Textarea
                 value={cookieValue}
                 onChange={(e) => {
                   setCookieValue(e.target.value);
-                  setCookieInputStatus("idle");
                 }}
                 onBlur={handleValidateCookie}
                 placeholder="从浏览器开发者工具复制抖音 Cookie..."
                 rows={4}
               />
-              {cookieInputStatus === "valid" && (
+              {savingCookie ? (
+                <p className="text-[0.72rem] text-info mt-1.5 flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" /> 正在自动保存并校验
+                </p>
+              ) : cookieInputStatus === "valid" ? (
                 <p className="text-[0.72rem] text-success mt-1.5 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> Cookie 格式包含登录字段
+                  <CheckCircle2 className="w-3 h-3" /> 已检测到登录字段，将自动保存
                 </p>
-              )}
-              {cookieInputStatus === "invalid" && (
+              ) : cookieInputStatus === "invalid" ? (
                 <p className="text-[0.72rem] text-danger mt-1.5 flex items-center gap-1">
-                  <XCircle className="w-3 h-3" /> 缺少必要参数，请确认包含 sessionid
+                  <XCircle className="w-3 h-3" />
+                  {cookieValue.trim() === rejectedCookieRef.current
+                    ? "Cookie 校验未通过，请重新获取"
+                    : "缺少必要参数，请确认包含 sessionid"}
                 </p>
-              )}
-              <Button
-                variant="default"
-                size="sm"
-                onClick={handleSaveCookie}
-                disabled={savingCookie || !cookieValue.trim()}
-                className="mt-3 h-9 w-full rounded-[10px]"
-              >
-                {savingCookie ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Key className="w-3.5 h-3.5" />}
-                保存并校验 Cookie
-              </Button>
+              ) : null}
               {loginMessage && (
                 <p className="mt-2 text-[0.72rem] text-text-muted">{loginMessage}</p>
               )}
@@ -740,7 +836,7 @@ export function SettingsView() {
         </SettingGroup>
 
         {/* Theme */}
-        <SettingGroup icon={Palette} label="外观主题">
+        <SettingGroup icon={Palette} label="外观主题" status={fieldStatus("theme")}>
           <div className="flex gap-1.5 p-1 rounded-[12px] bg-white/[0.04]">
             {(
               [
@@ -752,10 +848,10 @@ export function SettingsView() {
               <button
                 key={value}
                 onClick={() => void handleThemeChange(value as ThemeMode)}
-                disabled={savingField === "theme"}
+                disabled={savingFields.theme}
                 className={cn(
                   "relative flex-1 flex items-center justify-center gap-2 h-10 rounded-[10px] text-[0.82rem] font-semibold transition-[background-color,color,box-shadow,transform,opacity] duration-200 cursor-pointer",
-                  savingField === "theme" && "cursor-wait opacity-75",
+                  savingFields.theme && "cursor-wait opacity-75",
                   theme === value
                     ? "text-text"
                     : "text-text-muted hover:text-text-secondary"
@@ -776,7 +872,7 @@ export function SettingsView() {
         </SettingGroup>
 
         {/* Download Dir */}
-        <SettingGroup icon={FolderOpen} label="下载目录">
+        <SettingGroup icon={FolderOpen} label="下载目录" status={fieldStatus("download_path")}>
           <div className="flex gap-2">
             <Input
               value={downloadPath}
@@ -785,37 +881,35 @@ export function SettingsView() {
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.currentTarget.blur();
-                  void saveDownloadPath(event.currentTarget.value);
                 }
               }}
               placeholder="data/"
-              disabled={savingField === "download_path"}
               className="flex-1 h-10"
             />
             <Button
               variant="outline"
               size="sm"
               onClick={handleChooseDirectory}
-              disabled={savingField === "download_path"}
+              disabled={savingFields.download_path}
               className="h-10 shrink-0 px-4"
             >
-              {savingField === "download_path" ? (
+              {savingFields.download_path ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <FolderOpen className="w-4 h-4" />
               )}
-              {savingField === "download_path" ? "保存中" : "选择"}
+              {savingFields.download_path ? "保存中" : "选择"}
             </Button>
           </div>
           <p className="text-[0.75rem] text-text-muted mt-2">
-            默认下载到应用 data/ 目录，选择后立即保存；手动输入请按 Enter 或移开焦点。
+            输入后自动保存，选择目录后立即生效。
           </p>
         </SettingGroup>
 
         {/* Quality */}
-        <SettingGroup icon={Gauge} label="下载质量">
+        <SettingGroup icon={Gauge} label="下载质量" status={fieldStatus("download_quality")}>
           <Select value={downloadQuality} onValueChange={(value) => void handleQualityChange(value)}>
-            <SelectTrigger className="h-10" disabled={savingField === "download_quality"}>
+            <SelectTrigger className="h-10" disabled={savingFields.download_quality}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -828,9 +922,9 @@ export function SettingsView() {
         </SettingGroup>
 
         {/* Concurrency */}
-        <SettingGroup icon={Zap} label="并发下载数">
+        <SettingGroup icon={Zap} label="并发下载数" status={fieldStatus("max_concurrent")}>
           <Select value={maxConcurrent} onValueChange={(value) => void handleMaxConcurrentChange(value)}>
-            <SelectTrigger className="h-10" disabled={savingField === "max_concurrent"}>
+            <SelectTrigger className="h-10" disabled={savingFields.max_concurrent}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -932,19 +1026,60 @@ export function SettingsView() {
 function SettingGroup({
   icon: Icon,
   label,
+  status,
   children,
 }: {
   icon: React.ElementType;
   label: string;
+  status?: SettingStatus;
   children: React.ReactNode;
 }) {
   return (
     <div>
-      <label className="flex items-center gap-2 text-[0.85rem] font-semibold text-text mb-3">
-        <Icon className="w-4 h-4 text-text-muted" />
-        {label}
-      </label>
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <label className="flex items-center gap-2 text-[0.85rem] font-semibold text-text">
+          <Icon className="w-4 h-4 text-text-muted" />
+          {label}
+        </label>
+        {status && <SettingStatusPill status={status} />}
+      </div>
       {children}
     </div>
+  );
+}
+
+function SettingStatusPill({ status }: { status: SettingStatus }) {
+  const config = {
+    saving: {
+      label: "保存中",
+      className: "border-info/20 bg-info-soft text-info",
+      icon: <Loader2 className="w-3 h-3 animate-spin" />,
+    },
+    saved: {
+      label: "已保存",
+      className: "border-success/20 bg-success-soft text-success",
+      icon: <CheckCircle2 className="w-3 h-3" />,
+    },
+    error: {
+      label: "保存失败",
+      className: "border-danger/20 bg-danger-soft text-danger",
+      icon: <XCircle className="w-3 h-3" />,
+    },
+  }[status];
+
+  return (
+    <motion.span
+      initial={{ opacity: 0, y: -2 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -2 }}
+      transition={{ duration: 0.16, ease: [0.2, 0, 0, 1] }}
+      className={cn(
+        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[0.68rem] font-semibold tabular-nums",
+        config.className
+      )}
+    >
+      {config.icon}
+      {config.label}
+    </motion.span>
   );
 }
