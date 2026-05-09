@@ -23,6 +23,7 @@ import re
 import time
 import webbrowser
 import concurrent.futures
+import tempfile
 import requests as http_requests
 from datetime import datetime
 from pathlib import Path
@@ -459,7 +460,62 @@ def _fetch_latest_release() -> dict:
     return payload
 
 
-def _select_release_asset(release: dict) -> tuple[str, bool]:
+def _linux_package_family() -> str:
+    """Best-effort Linux package family detection for release asset selection."""
+    os_release = Path('/etc/os-release')
+    if not os_release.exists():
+        return 'generic'
+
+    try:
+        text = os_release.read_text(encoding='utf-8', errors='ignore').lower()
+    except Exception:
+        return 'generic'
+
+    if any(token in text for token in ('id_like=debian', 'id=debian', 'id=ubuntu', 'id=linuxmint')):
+        return 'deb'
+    if any(token in text for token in ('id_like="rhel fedora"', 'id_like=fedora', 'id=fedora', 'id=rhel', 'id=centos', 'id=opensuse', 'id=sles')):
+        return 'rpm'
+    return 'generic'
+
+
+def _infer_update_install_mode(asset_name: str, portable: bool) -> str:
+    name = asset_name.lower()
+    if portable:
+        return 'portable'
+    if name.endswith('.dmg'):
+        return 'dmg'
+    if name.endswith('.exe'):
+        return 'installer'
+    if name.endswith('.deb'):
+        return 'deb'
+    if name.endswith('.rpm'):
+        return 'rpm'
+    if name.endswith('.appimage'):
+        return 'appimage'
+    return 'download'
+
+
+def _release_asset_payload(asset: dict | None, portable: bool = False, fallback_url: str = '') -> dict:
+    if not asset:
+        return {
+            'name': '',
+            'url': fallback_url,
+            'size': 0,
+            'portable': portable,
+            'install_mode': 'browser',
+        }
+
+    name = str(asset.get('name') or '')
+    return {
+        'name': name,
+        'url': str(asset.get('browser_download_url') or fallback_url),
+        'size': int(asset.get('size') or 0),
+        'portable': portable,
+        'install_mode': _infer_update_install_mode(name, portable),
+    }
+
+
+def _select_release_asset_info(release: dict) -> dict:
     assets = release.get('assets') or []
     machine = platform.machine().lower()
 
@@ -468,6 +524,7 @@ def _select_release_asset(release: dict) -> tuple[str, bool]:
         preferred_suffixes = [
             ('windows-x64-installer.exe', False),
             ('windows-x64-portable.zip', True),
+            ('windows-x64-onefile.exe', True),
         ]
     elif IS_MACOS:
         if 'arm' in machine or 'aarch64' in machine:
@@ -478,18 +535,40 @@ def _select_release_asset(release: dict) -> tuple[str, bool]:
         else:
             preferred_suffixes = [
                 ('macos-x64.dmg', False),
+                ('macos-intel.dmg', False),
                 ('macos-x64-portable.zip', True),
+                ('macos-intel-portable.zip', True),
             ]
     else:
-        preferred_suffixes = [
-            ('linux-x64.tar.gz', True),
-        ]
+        package_family = _linux_package_family()
+        if package_family == 'deb':
+            preferred_suffixes = [
+                ('linux-x64.deb', False),
+                ('linux-x64.appimage', True),
+                ('linux-x64.tar.gz', True),
+                ('linux-x64.rpm', False),
+            ]
+        elif package_family == 'rpm':
+            preferred_suffixes = [
+                ('linux-x64.rpm', False),
+                ('linux-x64.appimage', True),
+                ('linux-x64.tar.gz', True),
+                ('linux-x64.deb', False),
+            ]
+        else:
+            preferred_suffixes = [
+                ('linux-x64.appimage', True),
+                ('linux-x64.tar.gz', True),
+                ('linux-x64.deb', False),
+                ('linux-x64.rpm', False),
+            ]
 
     normalized_assets = [
         {
             'name': str(asset.get('name') or ''),
             'name_lower': str(asset.get('name') or '').lower(),
             'url': str(asset.get('browser_download_url') or ''),
+            'raw': asset,
         }
         for asset in assets
         if asset.get('browser_download_url')
@@ -498,18 +577,153 @@ def _select_release_asset(release: dict) -> tuple[str, bool]:
     for suffix, portable in preferred_suffixes:
         for asset in normalized_assets:
             if asset['name_lower'].endswith(suffix):
-                return asset['url'], portable
+                return _release_asset_payload(asset['raw'], portable)
 
     for asset in normalized_assets:
         name = asset['name_lower']
         if IS_WINDOWS and name.endswith('.exe'):
-            return asset['url'], 'portable' in name
+            return _release_asset_payload(asset['raw'], 'portable' in name or 'onefile' in name)
         if IS_MACOS and (name.endswith('.dmg') or name.endswith('.zip')):
-            return asset['url'], 'portable' in name
+            return _release_asset_payload(asset['raw'], 'portable' in name)
         if not IS_WINDOWS and not IS_MACOS and (name.endswith('.tar.gz') or name.endswith('.appimage') or name.endswith('.deb') or name.endswith('.rpm')):
-            return asset['url'], True
+            return _release_asset_payload(asset['raw'], name.endswith('.tar.gz') or name.endswith('.appimage'))
 
-    return str(release.get('html_url') or LATEST_RELEASE_PAGE_URL), False
+    return _release_asset_payload(None, False, str(release.get('html_url') or LATEST_RELEASE_PAGE_URL))
+
+
+def _select_release_asset(release: dict) -> tuple[str, bool]:
+    asset = _select_release_asset_info(release)
+    return str(asset.get('url') or ''), bool(asset.get('portable'))
+
+
+def _safe_update_filename(asset_name: str, release_version: str, download_url: str) -> str:
+    filename = asset_name.strip()
+    if not filename:
+        filename = Path(urlparse(download_url).path).name
+    if not filename:
+        filename = f'DY-Video-Downloader-v{release_version}'
+
+    filename = re.sub(r'[^A-Za-z0-9._() -]+', '_', filename).strip(' ._')
+    return filename or f'DY-Video-Downloader-v{release_version}'
+
+
+def _get_update_download_dir() -> Path:
+    candidates = [
+        Path.home() / 'Downloads' / 'DY Video Downloader Updates',
+        Path(tempfile.gettempdir()) / 'dy-video-downloader-updates',
+    ]
+
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe = candidate / '.write-test'
+            probe.write_text('', encoding='utf-8')
+            probe.unlink(missing_ok=True)
+            return candidate
+        except Exception:
+            continue
+
+    fallback = Path(tempfile.gettempdir())
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+def _emit_update_event(event: str, payload: dict) -> None:
+    try:
+        socketio.emit(event, payload)
+    except Exception as exc:
+        logger.debug(f"发送更新事件失败 {event}: {exc}")
+
+
+def _download_update_asset(download_url: str, asset_name: str, release_version: str) -> Path:
+    if not download_url:
+        raise ValueError('没有可下载的更新资源')
+
+    filename = _safe_update_filename(asset_name, release_version, download_url)
+    destination = _get_update_download_dir() / filename
+    partial = destination.with_suffix(destination.suffix + '.part')
+
+    headers = {
+        'Accept': 'application/octet-stream',
+        'User-Agent': f'DY-Video-Downloader/{_get_current_app_version()}',
+    }
+    downloaded = 0
+    last_emit = 0.0
+
+    _emit_update_event('update_download_progress', {
+        'progress': 0,
+        'downloaded': 0,
+        'total': 0,
+        'asset_name': filename,
+    })
+
+    with http_requests.get(download_url, headers=headers, stream=True, timeout=(10, 60)) as response:
+        response.raise_for_status()
+        total = int(response.headers.get('Content-Length') or 0)
+
+        with partial.open('wb') as fh:
+            for chunk in response.iter_content(chunk_size=1024 * 256):
+                if not chunk:
+                    continue
+                fh.write(chunk)
+                downloaded += len(chunk)
+
+                now = time.monotonic()
+                if total > 0:
+                    progress = min(99.0, downloaded * 100 / total)
+                else:
+                    progress = 0
+
+                if now - last_emit >= 0.25 or (total > 0 and progress >= 99):
+                    _emit_update_event('update_download_progress', {
+                        'progress': progress,
+                        'downloaded': downloaded,
+                        'total': total,
+                        'asset_name': filename,
+                    })
+                    last_emit = now
+
+    os.replace(partial, destination)
+
+    if destination.suffix.lower() == '.appimage':
+        try:
+            destination.chmod(destination.stat().st_mode | 0o755)
+        except Exception:
+            pass
+
+    _emit_update_event('update_download_progress', {
+        'progress': 100,
+        'downloaded': downloaded,
+        'total': downloaded,
+        'asset_name': filename,
+    })
+    return destination
+
+
+def _open_update_file(file_path: Path, install_mode: str) -> bool:
+    if not file_path.exists():
+        return False
+
+    target = file_path
+    if install_mode == 'portable' and file_path.suffix.lower() not in ('.exe', '.appimage'):
+        target = file_path.parent
+
+    return _open_external_target(str(target))
+
+
+def _update_download_message(file_path: Path, install_mode: str, opened: bool) -> str:
+    location = str(file_path)
+    if install_mode in ('installer', 'dmg', 'deb', 'rpm'):
+        if opened:
+            return '更新包已下载并打开，请按系统提示完成安装'
+        return f'更新包已下载到 {location}，请手动打开安装'
+    if install_mode == 'appimage':
+        if opened:
+            return '新版 AppImage 已下载并打开'
+        return f'新版 AppImage 已下载到 {location}'
+    if opened:
+        return '便携版更新包已下载，已打开所在文件夹'
+    return f'便携版更新包已下载到 {location}'
 
 
 def _open_external_target(target: str) -> bool:
@@ -751,7 +965,7 @@ def check_update():
         release = _fetch_latest_release()
         latest_version = _normalize_version_text(release.get('tag_name') or release.get('name') or '')
         has_update = bool(latest_version) and _is_newer_version(latest_version, current_version)
-        asset_url, portable = _select_release_asset(release)
+        asset = _select_release_asset_info(release)
 
         return jsonify({
             'success': True,
@@ -760,9 +974,11 @@ def check_update():
             'version': latest_version or current_version,
             'notes': release.get('body') or '暂无更新说明',
             'html_url': release.get('html_url') or LATEST_RELEASE_PAGE_URL,
-            'download_url': asset_url,
-            'portable': portable,
-            'install_mode': 'browser',
+            'download_url': asset.get('url'),
+            'asset_name': asset.get('name'),
+            'asset_size': asset.get('size'),
+            'portable': asset.get('portable'),
+            'install_mode': asset.get('install_mode'),
         })
     except Exception as e:
         logger.error(f"检查更新失败: {e}")
@@ -776,36 +992,89 @@ def check_update():
 
 @app.route('/api/download_update', methods=['GET'])
 def download_update():
-    """打开对应平台的发布资源或 Releases 页面。"""
+    """在应用内下载对应平台的发布资源，并打开安装包或所在目录。"""
     try:
         release = _fetch_latest_release()
-        download_url, portable = _select_release_asset(release)
-        target_url = download_url or str(release.get('html_url') or LATEST_RELEASE_PAGE_URL)
-
-        if not _open_external_target(target_url):
+        current_version = _get_current_app_version()
+        latest_version = _normalize_version_text(release.get('tag_name') or release.get('name') or _get_current_app_version())
+        if latest_version and not _is_newer_version(latest_version, current_version):
             return jsonify({
                 'success': False,
-                'message': '无法打开下载页面，请手动前往 Releases 页面'
-            }), 500
+                'message': '当前已是最新版本'
+            }), 409
+
+        asset = _select_release_asset_info(release)
+        download_url = str(asset.get('url') or '')
+
+        if not download_url or asset.get('install_mode') == 'browser':
+            target_url = download_url or str(release.get('html_url') or LATEST_RELEASE_PAGE_URL)
+            if not _open_external_target(target_url):
+                return jsonify({
+                    'success': False,
+                    'message': '无法打开下载页面，请手动前往 Releases 页面'
+                }), 500
+            return jsonify({
+                'success': True,
+                'mode': 'browser',
+                'restart_required': False,
+                'download_url': target_url,
+                'message': '未找到匹配安装包，已打开 Releases 页面'
+            })
+
+        file_path = _download_update_asset(download_url, str(asset.get('name') or ''), latest_version)
+        install_mode = str(asset.get('install_mode') or 'download')
+        opened = _open_update_file(file_path, install_mode)
+
+        _emit_update_event('update_download_finished', {
+            'file_path': str(file_path),
+            'install_mode': install_mode,
+            'opened': opened,
+        })
 
         return jsonify({
             'success': True,
-            'mode': 'browser',
-            'portable': portable,
-            'download_url': target_url,
-            'message': '已打开下载页面，请完成安装后手动重启应用'
+            'mode': 'download',
+            'portable': bool(asset.get('portable')),
+            'install_mode': install_mode,
+            'restart_required': False,
+            'download_url': download_url,
+            'file_path': str(file_path),
+            'message': _update_download_message(file_path, install_mode, opened),
         })
     except Exception as e:
+        _emit_update_event('update_download_error', {'message': str(e)})
         logger.error(f"打开更新下载失败: {e}")
-        return jsonify({'success': False, 'message': f'打开下载页面失败: {str(e)}'}), 500
+        return jsonify({'success': False, 'message': f'更新下载失败: {str(e)}'}), 500
 
 
 @app.route('/api/restart_app', methods=['GET'])
 def restart_app():
-    """Python 打包版不支持原地热更新重启，保留兼容接口。"""
+    """重启当前打包应用。源码模式下保留兼容返回。"""
+    if getattr(sys, 'frozen', False):
+        executable = Path(sys.executable)
+
+        def relaunch() -> None:
+            try:
+                if IS_MACOS:
+                    app_bundle = next((parent for parent in executable.parents if parent.suffix == '.app'), None)
+                    if app_bundle:
+                        subprocess.Popen(['open', '-n', str(app_bundle)])
+                    else:
+                        subprocess.Popen([str(executable)], cwd=str(executable.parent))
+                else:
+                    subprocess.Popen([str(executable)], cwd=str(executable.parent), close_fds=True)
+            finally:
+                os._exit(0)
+
+        threading.Timer(0.5, relaunch).start()
+        return jsonify({
+            'success': True,
+            'message': '应用正在重启'
+        })
+
     return jsonify({
         'success': False,
-        'message': '当前版本更新后需要手动重启应用'
+        'message': '源码运行模式不支持自动重启'
     }), 501
 
 
@@ -816,22 +1085,54 @@ def select_directory():
         initial_dir = Config.BASE_DIR or os.path.expanduser('~')
 
         if IS_WINDOWS:
-            from tkinter import Tk, filedialog
-
-            root = Tk()
-            root.withdraw()
-            root.attributes('-topmost', True)
-            directory = filedialog.askdirectory(
-                initialdir=initial_dir,
-                title='选择下载目录'
+            initial_dir_ps = str(initial_dir).replace("'", "''")
+            script = f'''
+            Add-Type -AssemblyName System.Windows.Forms
+            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+            $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+            $dialog.Description = "选择下载目录"
+            $dialog.SelectedPath = '{initial_dir_ps}'
+            $dialog.ShowNewFolderButton = $true
+            if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{
+                Write-Output $dialog.SelectedPath
+            }}
+            '''
+            result = subprocess.run(
+                ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
-            root.destroy()
+            directory = result.stdout.strip()
 
             if directory:
                 return jsonify({'success': True, 'path': directory})
             return jsonify({'success': False, 'message': '用户取消选择'})
 
-        import subprocess
+        if not IS_MACOS:
+            if shutil.which('zenity'):
+                result = subprocess.run(
+                    ['zenity', '--file-selection', '--directory', '--filename', str(initial_dir)],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return jsonify({'success': True, 'path': result.stdout.strip()})
+                return jsonify({'success': False, 'message': '用户取消选择'})
+
+            if shutil.which('kdialog'):
+                result = subprocess.run(
+                    ['kdialog', '--getexistingdirectory', str(initial_dir)],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return jsonify({'success': True, 'path': result.stdout.strip()})
+                return jsonify({'success': False, 'message': '用户取消选择'})
+
+            return jsonify({'success': False, 'message': '当前系统缺少目录选择器，请安装 zenity 或 kdialog'})
 
         script = f'''
         tell application "System Events"

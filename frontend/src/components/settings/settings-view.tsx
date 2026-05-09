@@ -50,6 +50,15 @@ import type { ThemeMode } from "@/types";
 
 type LoginStatus = "idle" | "starting" | "waiting" | "success" | "error" | "cancelled";
 type UpdateStatus = "idle" | "checking" | "available" | "none" | "downloading" | "ready" | "error";
+type UpdateInfo = {
+  version?: string;
+  current_version?: string;
+  notes?: string;
+  asset_name?: string;
+  asset_size?: number;
+  install_mode?: string;
+  portable?: boolean;
+};
 
 export function SettingsView() {
   const theme = useAppStore((s) => s.theme);
@@ -82,8 +91,9 @@ export function SettingsView() {
   const [appVersion, setAppVersion] = useState("");
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
   const [updateMessage, setUpdateMessage] = useState("");
-  const [updateInfo, setUpdateInfo] = useState<{ version?: string; current_version?: string; notes?: string } | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [updateProgress, setUpdateProgress] = useState(0);
+  const [updateCanRestart, setUpdateCanRestart] = useState(false);
 
   const cleanup = useCallback(() => {
     if (countdownRef.current) {
@@ -139,7 +149,7 @@ export function SettingsView() {
         if (disposed) return;
         setUpdateStatus("ready");
         setUpdateProgress(100);
-        setUpdateMessage("更新已下载，重启后生效");
+        setUpdateMessage((current) => current || "更新已下载");
       });
       removeError = await listenEvent<{ message?: string }>("update-download-error", (payload) => {
         if (disposed) return;
@@ -257,6 +267,18 @@ export function SettingsView() {
     return `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
+  const formatBytes = (bytes?: number) => {
+    if (!bytes || bytes <= 0) return "";
+    const units = ["B", "KB", "MB", "GB"];
+    let value = bytes;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex++;
+    }
+    return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+  };
+
   const handleSaveCookie = async () => {
     const trimmed = cookieValue.trim();
     if (!trimmed) {
@@ -336,11 +358,17 @@ export function SettingsView() {
           version: result.version,
           current_version: result.current_version,
           notes: result.notes,
+          asset_name: result.asset_name,
+          asset_size: result.asset_size,
+          install_mode: result.install_mode,
+          portable: result.portable,
         });
+        setUpdateCanRestart(false);
         setUpdateMessage(`发现新版本 ${result.version || ""}`.trim());
       } else {
         setUpdateStatus("none");
         setUpdateInfo(null);
+        setUpdateCanRestart(false);
         setUpdateMessage("当前已是最新版本");
       }
     } catch (error) {
@@ -357,13 +385,16 @@ export function SettingsView() {
       if (!result.success) {
         throw new Error(result.message || "更新下载失败");
       }
-      if (!result.message.includes("自动关闭")) {
+      const autoClosing = result.message.includes("自动关闭");
+      if (!autoClosing) {
         setUpdateStatus("ready");
       }
+      setUpdateCanRestart(!autoClosing && Boolean(result.restart_required ?? true));
       setUpdateMessage(result.message || "更新下载完成");
       setUpdateProgress(100);
     } catch (error) {
       setUpdateStatus("error");
+      setUpdateCanRestart(false);
       setUpdateMessage(error instanceof Error ? error.message : "更新下载失败");
     }
   };
@@ -720,6 +751,14 @@ export function SettingsView() {
               {updateInfo.notes}
             </div>
           )}
+          {updateInfo?.asset_name && updateStatus === "available" && (
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-[12px] border border-border bg-white/[0.03] px-3 py-2 text-[0.74rem] text-text-muted">
+              <span className="min-w-0 truncate">{updateInfo.asset_name}</span>
+              {formatBytes(updateInfo.asset_size) && (
+                <span className="shrink-0 font-mono tabular-nums">{formatBytes(updateInfo.asset_size)}</span>
+              )}
+            </div>
+          )}
           {updateStatus === "downloading" && (
             <div className="mt-3">
               <div className="mb-1 flex items-center justify-between text-[0.72rem] text-text-muted">
@@ -747,10 +786,10 @@ export function SettingsView() {
               className="mt-2 w-full h-10 rounded-[12px]"
             >
               <RefreshCw className="w-4 h-4" />
-              下载并安装
+              下载更新
             </Button>
           )}
-          {updateStatus === "ready" && (
+          {updateStatus === "ready" && updateCanRestart && (
             <Button
               variant="default"
               onClick={handleRestart}

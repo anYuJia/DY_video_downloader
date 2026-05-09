@@ -4,7 +4,7 @@ import sys
 
 # 获取项目根目录，以便于寻址
 project_root = os.path.abspath('.')
-raw_app_version = os.environ.get('APP_VERSION') or os.environ.get('GITHUB_REF_NAME') or '1.0.1'
+raw_app_version = os.environ.get('APP_VERSION') or os.environ.get('GITHUB_REF_NAME') or '1.0.2'
 app_version = raw_app_version[1:] if raw_app_version.startswith('v') else raw_app_version
 import webview as _pywebview
 pywebview_hooks = os.path.join(_pywebview.__path__[0], 'pkg')
@@ -60,10 +60,6 @@ hiddenimports = [
     'webview.platforms.cocoa',
 ]
 
-# macOS WebKit bridge (only available on macOS)
-if sys.platform == 'darwin':
-    hiddenimports.append('pyobjc-framework-WebKit')
-
 # Windows .NET bridge
 if sys.platform == 'win32':
     hiddenimports.extend([
@@ -101,7 +97,17 @@ a = Analysis(
     hookspath=[pywebview_hooks] if os.path.isdir(pywebview_hooks) else [],
     hooksconfig={},
     runtime_hooks=[os.path.join(project_root, 'hooks/rthook_pythonnet.py')] if sys.platform == 'win32' else [],
-    excludes=[],
+    excludes=[
+        # Directory selection no longer uses Tk, so keep Tcl/Tk out of desktop bundles.
+        'tkinter',
+        '_tkinter',
+        'tcl',
+        'tk',
+        'FixTk',
+        # These can be present in local dev environments but are not runtime dependencies.
+        'playwright',
+        'selenium',
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

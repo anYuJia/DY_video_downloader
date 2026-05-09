@@ -52,6 +52,7 @@ frontend/tsconfig.tsbuildinfo
 # 项目特定文件
 config.json
 data/
+/src/data/
 *.log
 download_history_index.json
 

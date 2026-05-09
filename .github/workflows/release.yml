@@ -52,6 +52,10 @@ jobs:
             label: macos-arm64
             asset_suffix: macos-arm64
             archive_ext: tar.gz
+          - runner: macos-13
+            label: macos-x64
+            asset_suffix: macos-x64
+            archive_ext: tar.gz
 
     steps:
       - name: Checkout
@@ -74,7 +78,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev rpm
 
       - name: Prepare CI requirements
         shell: bash
@@ -108,6 +112,11 @@ jobs:
           npm ci
           npm run build
 
+      - name: Clean runtime-only data
+        shell: bash
+        run: |
+          rm -rf src/data .playwright-mcp
+
       - name: Install NSIS (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -131,7 +140,7 @@ jobs:
           TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
         run: |
           set -euo pipefail
-          arch="${{ matrix.asset_suffix == 'macos-arm64' && 'arm64' || 'intel' }}"
+          arch="${{ matrix.asset_suffix == 'macos-arm64' && 'arm64' || 'x64' }}"
           APP_NAME="DY Video Downloader.app"
 
           # 检查 .app 是否创建成功
@@ -171,6 +180,79 @@ jobs:
           set -euo pipefail
           asset_name="DY-Video-Downloader-${TAG_NAME}-linux-x64"
           tar -C dist -czf "${asset_name}.tar.gz" "douyin_downloader"
+          version="${TAG_NAME#v}"
+          package_name="dy-video-downloader"
+
+          package_root="$(mktemp -d)"
+          mkdir -p "$package_root/DEBIAN" \
+            "$package_root/opt/dy-video-downloader" \
+            "$package_root/usr/bin" \
+            "$package_root/usr/share/applications"
+          cp -a dist/douyin_downloader/. "$package_root/opt/dy-video-downloader/"
+          cat > "$package_root/usr/bin/douyin-downloader" <<'SH'
+          #!/usr/bin/env sh
+          exec /opt/dy-video-downloader/douyin_downloader "$@"
+          SH
+          chmod 755 "$package_root/usr/bin/douyin-downloader"
+          cat > "$package_root/usr/share/applications/dy-video-downloader.desktop" <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=DY Video Downloader
+          Comment=Douyin video downloader
+          Exec=/opt/dy-video-downloader/douyin_downloader
+          Terminal=false
+          Categories=Network;AudioVideo;
+          DESKTOP
+          installed_size="$(du -sk "$package_root" | cut -f1)"
+          cat > "$package_root/DEBIAN/control" <<DEB
+          Package: $package_name
+          Version: $version
+          Section: net
+          Priority: optional
+          Architecture: amd64
+          Maintainer: anYuJia
+          Installed-Size: $installed_size
+          Depends: libgtk-3-0, libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37
+          Description: Douyin video downloader desktop application
+          DEB
+          dpkg-deb --root-owner-group --build "$package_root" "${asset_name}.deb"
+
+          rpm_topdir="$PWD/rpmbuild"
+          rpm_src="$(mktemp -d)"
+          mkdir -p "$rpm_topdir"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          mkdir -p "$rpm_src/${package_name}-${version}"
+          cp -a "$package_root/opt" "$package_root/usr" "$rpm_src/${package_name}-${version}/"
+          tar -C "$rpm_src" -czf "$rpm_topdir/SOURCES/${package_name}-${version}.tar.gz" "${package_name}-${version}"
+          cat > "$rpm_topdir/SPECS/${package_name}.spec" <<RPM
+          Name: $package_name
+          Version: $version
+          Release: 1%{?dist}
+          Summary: Douyin video downloader desktop application
+          License: Proprietary
+          BuildArch: x86_64
+          Requires: gtk3
+          Requires: webkit2gtk4.1
+
+          %description
+          Douyin video downloader desktop application.
+
+          %prep
+          %setup -q
+
+          %build
+
+          %install
+          mkdir -p %{buildroot}
+          cp -a * %{buildroot}/
+
+          %files
+          /opt/dy-video-downloader
+          /usr/bin/douyin-downloader
+          /usr/share/applications/dy-video-downloader.desktop
+          RPM
+          rpmbuild --define "_topdir $rpm_topdir" -bb "$rpm_topdir/SPECS/${package_name}.spec"
+          cp "$rpm_topdir/RPMS/x86_64/"*.rpm "${asset_name}.rpm"
+
           echo "ASSET_FILE=${asset_name}.tar.gz" >> "$GITHUB_ENV"
 
       - name: Package build (Windows)
@@ -250,6 +332,8 @@ jobs:
             *.zip
             *.exe
             *.dmg
+            *.deb
+            *.rpm
           if-no-files-found: error
 
   release:

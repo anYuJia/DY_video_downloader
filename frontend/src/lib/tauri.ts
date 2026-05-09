@@ -1035,14 +1035,36 @@ export async function getAppVersion(): Promise<string> {
   return invoke("get_app_version");
 }
 
-export async function checkUpdate(): Promise<{ success: boolean; has_update: boolean; version?: string; current_version?: string; notes?: string; message?: string }> {
+export async function checkUpdate(): Promise<{
+  success: boolean;
+  has_update: boolean;
+  version?: string;
+  current_version?: string;
+  notes?: string;
+  message?: string;
+  html_url?: string;
+  download_url?: string;
+  asset_name?: string;
+  asset_size?: number;
+  portable?: boolean;
+  install_mode?: string;
+}> {
   if (shouldUseBrowserBridge()) {
     return requestJson("/api/check_update");
   }
   return invoke("check_update");
 }
 
-export async function downloadUpdate(): Promise<{ success: boolean; message: string }> {
+export async function downloadUpdate(): Promise<{
+  success: boolean;
+  message: string;
+  mode?: string;
+  portable?: boolean;
+  install_mode?: string;
+  restart_required?: boolean;
+  download_url?: string;
+  file_path?: string;
+}> {
   if (shouldUseBrowserBridge()) {
     return requestJson("/api/download_update");
   }
@@ -1050,7 +1072,13 @@ export async function downloadUpdate(): Promise<{ success: boolean; message: str
 }
 
 export async function restartApp(): Promise<void> {
-  if (shouldUseBrowserBridge()) return;
+  if (shouldUseBrowserBridge()) {
+    const result = await requestJson<{ success?: boolean; message?: string }>("/api/restart_app");
+    if (result && result.success === false) {
+      throw new Error(result.message || "重启失败");
+    }
+    return;
+  }
   return invoke("restart_app");
 }
 
