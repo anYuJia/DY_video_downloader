@@ -52,7 +52,7 @@ jobs:
             label: macos-arm64
             asset_suffix: macos-arm64
             archive_ext: tar.gz
-          - runner: macos-13
+          - runner: macos-15-intel
             label: macos-x64
             asset_suffix: macos-x64
             archive_ext: tar.gz
