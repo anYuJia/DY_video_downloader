@@ -32,10 +32,12 @@ export const useLinkStore = create<LinkStoreState>((set) => ({
     useAppStore.getState().setView("link");
     set({ link, parsing: true, videos: [], user: null, error: null });
     addLog("解析链接...", "info");
-    toast("正在解析链接...", "info");
+    const loadingToastId = toast("正在解析链接...", "loading");
 
     try {
       const result = await parseLink(link);
+      useToastStore.getState().dismiss(loadingToastId);
+      
       if (!result.success) {
         const message = result.message || "链接解析失败";
         set({ parsing: false, error: message });
@@ -67,6 +69,7 @@ export const useLinkStore = create<LinkStoreState>((set) => ({
       addLog(msg, type);
       toast(msg, type, "解析完成");
     } catch (error) {
+      useToastStore.getState().dismiss(loadingToastId);
       const message = getErrorMessage(error, "链接解析失败");
       set({ parsing: false, error: message });
       addLog(message, "error");

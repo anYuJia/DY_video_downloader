@@ -295,9 +295,11 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       error: null,
     });
     addLog(`加载用户详情: ${user.nickname}`, "info");
+    const loadingToastId = toast(`正在加载 ${user.nickname} 的详情`, "loading");
 
     try {
       const detail = await getUserDetail(user.sec_uid, user.nickname);
+      useToastStore.getState().dismiss(loadingToastId);
       if (requestId !== latestUserRequestId) return;
 
       if (detail.need_verify) {
@@ -330,6 +332,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       });
       addLog(`已载入 ${mergedUser.nickname} 的详情`, "success");
     } catch (error) {
+      useToastStore.getState().dismiss(loadingToastId);
       if (requestId !== latestUserRequestId) return;
       const message = error instanceof Error ? error.message : "获取用户详情失败";
       set({ loadingUser: false, error: message, currentUser: user });
@@ -360,9 +363,11 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       error: null,
     });
     addLog(`加载作品列表: ${state.currentUser.nickname}`, "info");
+    const loadingToastId = toast(`正在获取 ${state.currentUser.nickname} 的作品列表`, "loading");
 
     try {
       const result = await getUserVideos(secUid, PAGE_SIZE, 0);
+      useToastStore.getState().dismiss(loadingToastId);
       if (requestId !== latestVideoRequestId || get().currentUser?.sec_uid !== secUid) return;
 
       if (result.need_verify) {
@@ -396,7 +401,9 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
         error: null,
       });
       addLog(`已加载 ${videos.length} 个作品`, "success");
+      toast(`成功加载 ${videos.length} 个作品`, "success");
     } catch (error) {
+      useToastStore.getState().dismiss(loadingToastId);
       if (requestId !== latestVideoRequestId) return;
       const message = error instanceof Error ? error.message : "获取作品列表失败";
       set({ loadingVideos: false, error: message });

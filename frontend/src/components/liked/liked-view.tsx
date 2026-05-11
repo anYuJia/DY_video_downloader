@@ -7,9 +7,12 @@ import {
   RefreshCw,
   Sparkles,
   Users,
+  Key,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useToastStore } from "@/components/ui/toast";
 import { useLikedStore } from "@/stores/liked-store";
 import { VideoCard } from "@/components/search/video-card";
 import { VideoDetailModal } from "@/components/modals/video-detail";
@@ -36,10 +39,38 @@ export function LikedView() {
   const { downloadVideo, downloadBatch } = useDownloads();
   const [detailVideo, setDetailVideo] = useState<VideoInfo | null>(null);
   const [playerIndex, setPlayerIndex] = useState<number | null>(null);
+  const setView = useAppStore((s) => s.setView);
+  const selectUser = useSearchStore((s) => s.selectUser);
+  const searchLoadVideos = useSearchStore((s) => s.loadVideos);
 
   const openPlayer = (video: VideoInfo) => {
     const index = videos.findIndex((item) => item.aweme_id === video.aweme_id);
     setPlayerIndex(index >= 0 ? index : 0);
+  };
+
+  const handleGoToAuthor = async (video: VideoInfo) => {
+    const author = video.author;
+    if (!author?.sec_uid) return;
+    const userInfo: UserInfo = {
+      uid: author.uid,
+      sec_uid: author.sec_uid,
+      nickname: author.nickname,
+      avatar_thumb: author.avatar_thumb,
+      avatar_medium: author.avatar_medium,
+      avatar_larger: author.avatar_medium || author.avatar_thumb,
+      signature: author.signature || "",
+      follower_count: author.follower_count || 0,
+      following_count: author.following_count || 0,
+      aweme_count: author.aweme_count || 0,
+      favoriting_count: author.favoriting_count || 0,
+      total_favorited: 0,
+      is_follow: author.is_follow || false,
+      unique_id: author.unique_id,
+      verify_status: author.verify_status || 0,
+    };
+    await selectUser(userInfo);
+    setView("search");
+    await searchLoadVideos();
   };
 
   useEffect(() => {
@@ -100,6 +131,7 @@ export function LikedView() {
             onSelect={openPlayer}
             onDetail={setDetailVideo}
             onDownload={(video) => void downloadVideo(video)}
+            onAuthor={handleGoToAuthor}
             onDownloadAll={() => void downloadBatch(videos)}
           />
         ) : (
@@ -144,6 +176,7 @@ function LikedVideosPanel({
   onSelect,
   onDetail,
   onDownload,
+  onAuthor,
   onDownloadAll,
 }: {
   videos: VideoInfo[];
@@ -153,30 +186,9 @@ function LikedVideosPanel({
   onSelect: (video: VideoInfo) => void;
   onDetail: (video: VideoInfo) => void;
   onDownload: (video: VideoInfo) => void;
+  onAuthor: (video: VideoInfo) => void;
   onDownloadAll: () => void;
 }) {
-  const setView = useAppStore((s) => s.setView);
-  const addLog = useLogStore((s) => s.addLog);
-  const selectUser = useSearchStore((s) => s.selectUser);
-  const loadVideos = useSearchStore((s) => s.loadVideos);
-  const [busyAuthorAwemeId, setBusyAuthorAwemeId] = useState<string | null>(null);
-
-  const handleOpenAuthor = async (video: VideoInfo) => {
-    const author = videoAuthorToUser(video);
-    if (!author) {
-      addLog("无法获取作者主页信息", "warning");
-      return;
-    }
-    setBusyAuthorAwemeId(video.aweme_id);
-    try {
-      await selectUser(author);
-      setView("search");
-      await loadVideos();
-    } finally {
-      setBusyAuthorAwemeId(null);
-    }
-  };
-
   return (
     <div>
       <div className="flex items-center justify-end gap-2 mb-4">
@@ -216,36 +228,13 @@ function LikedVideosPanel({
               onSelect={onSelect}
               onDetail={onDetail}
               onDownload={onDownload}
-              onAuthor={(item) => void handleOpenAuthor(item)}
-              authorLoading={busyAuthorAwemeId === video.aweme_id}
+              onAuthor={onAuthor}
             />
           ))}
         </motion.div>
       )}
     </div>
   );
-}
-
-function videoAuthorToUser(video: VideoInfo): UserInfo | null {
-  const author = video.author;
-  if (!author?.sec_uid) return null;
-  return {
-    uid: author.uid || "",
-    nickname: author.nickname || "未知作者",
-    avatar_thumb: author.avatar_thumb || author.avatar_medium || "",
-    avatar_medium: author.avatar_medium || author.avatar_thumb || "",
-    avatar_larger: author.avatar_medium || author.avatar_thumb || "",
-    signature: author.signature || "",
-    follower_count: author.follower_count || 0,
-    following_count: author.following_count || 0,
-    total_favorited: 0,
-    aweme_count: author.aweme_count || 0,
-    favoriting_count: author.favoriting_count || 0,
-    is_follow: author.is_follow || false,
-    sec_uid: author.sec_uid,
-    unique_id: author.unique_id || "",
-    verify_status: author.verify_status || 0,
-  };
 }
 
 function LikedAuthorsPanel({
@@ -516,31 +505,60 @@ function LoadingGrid() {
   );
 }
 
-function EmptyState({ title, description }: { title: string; description: string }) {
+function EmptyState({ title, description, icon: Icon = Heart }: { title: string; description: string; icon?: React.ElementType }) {
+  const setView = useAppStore((s) => s.setView);
   return (
     <motion.div
-      initial={false}
+      initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-[16px] border border-border bg-surface-solid/70 p-8 text-center"
+      className="flex flex-col items-center justify-center min-h-[400px] rounded-[var(--radius-xl)] bg-surface-solid/40 border border-border/50 p-12 text-center"
     >
-      <div className="w-14 h-14 rounded-[18px] bg-accent/10 border border-accent/15 flex items-center justify-center mx-auto mb-4">
-        <Heart className="w-6 h-6 text-accent" />
+      <div className="w-16 h-16 rounded-[20px] bg-accent-soft flex items-center justify-center mb-6 border border-accent/10 shadow-[0_8px_20px_rgba(254,44,85,0.1)]">
+        <Icon className="w-8 h-8 text-accent" />
       </div>
-      <p className="text-[0.88rem] text-text-secondary mb-1">{title}</p>
-      <p className="text-[0.76rem] text-text-muted">{description}</p>
+      <h3 className="text-[1.1rem] font-bold text-text mb-2">{title}</h3>
+      <p className="text-[0.82rem] text-text-muted mb-8 max-w-[280px] leading-relaxed">
+        {description}
+      </p>
+      <Button
+        variant="outline"
+        size="lg"
+        onClick={() => setView("settings")}
+        className="gap-2 rounded-[14px] px-8 border-accent/20 hover:bg-accent-soft hover:text-accent"
+      >
+        <Key className="w-4 h-4" />
+        前往登录 Cookie
+      </Button>
     </motion.div>
   );
 }
 
 function ErrorState({ message }: { message: string }) {
+  const toast = useToastStore((s) => s.toast);
   return (
     <motion.div
-      initial={false}
-      animate={{ opacity: 1, y: 0 }}
-      className="rounded-[16px] border border-danger/20 bg-danger-soft p-5 text-danger"
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="flex flex-col items-center justify-center min-h-[300px] rounded-[var(--radius-xl)] bg-danger-soft border border-danger/20 p-12 text-center"
     >
-      <div className="text-[0.88rem] font-semibold mb-1">读取失败</div>
-      <div className="text-[0.78rem] text-text-secondary">{message}</div>
+      <div className="w-14 h-14 rounded-[18px] bg-danger/10 flex items-center justify-center mb-5">
+        <AlertCircle className="w-7 h-7 text-danger" />
+      </div>
+      <h3 className="text-[1rem] font-bold text-danger mb-2">读取失败</h3>
+      <p className="text-[0.78rem] text-text-secondary mb-6 max-w-[320px]">
+        {message}
+      </p>
+      <Button
+        variant="danger-outline"
+        size="sm"
+        onClick={() => {
+          window.location.reload();
+        }}
+        className="rounded-[10px]"
+      >
+        <RefreshCw className="w-3.5 h-3.5 mr-2" />
+        重试
+      </Button>
     </motion.div>
   );
 }
