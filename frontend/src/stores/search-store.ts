@@ -8,6 +8,7 @@ import {
   type VideoInfo,
 } from "@/lib/tauri";
 import { useAppStore, useLogStore } from "@/stores/app-store";
+import { useToastStore } from "@/components/ui/toast";
 
 const PAGE_SIZE = 18;
 

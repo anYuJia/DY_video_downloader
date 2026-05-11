@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useDownloadStore, useLogStore } from "@/stores/app-store";
+import { useToastStore } from "@/components/ui/toast";
 import type { DownloadTask } from "@/types";
 import { listenEvent } from "./tauri";
 
@@ -147,6 +148,7 @@ function normalizeSpeedBps(payload: { speed_bps?: number; speed_mbps?: number })
 export function useSocket() {
   const updateTask = useDownloadStore((s) => s.updateTask);
   const addLog = useLogStore((s) => s.addLog);
+  const toast = useToastStore((s) => s.toast);
   const unlistenRefs = useRef<(() => void)[]>([]);
 
   useEffect(() => {

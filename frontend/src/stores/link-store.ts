@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { getErrorMessage, parseLink, type UserInfo, type VideoInfo } from "@/lib/tauri";
 import { useAppStore, useLogStore } from "@/stores/app-store";
+import { useToastStore } from "@/components/ui/toast";
 
 interface LinkStoreState {
   link: string;
@@ -27,9 +28,11 @@ export const useLinkStore = create<LinkStoreState>((set) => ({
     }
 
     const addLog = useLogStore.getState().addLog;
+    const toast = useToastStore.getState().toast;
     useAppStore.getState().setView("link");
     set({ link, parsing: true, videos: [], user: null, error: null });
     addLog("解析链接...", "info");
+    toast("正在解析链接...", "info");
 
     try {
       const result = await parseLink(link);
