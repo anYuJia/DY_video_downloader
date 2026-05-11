@@ -119,6 +119,12 @@ function mergeDetailedUserIntoSearchState(
   return { users, currentUser };
 }
 
+function openVerifyWindow(verifyUrl: string | undefined, addLog: (message: string, type: "info" | "success" | "warning" | "error") => void) {
+  void openVerifyBrowser(verifyUrl)
+    .then((result) => addLog(result.message, result.success ? "info" : "warning"))
+    .catch(() => addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
+}
+
 function uniqueVideos(existing: VideoInfo[], incoming: VideoInfo[]) {
   const seen = new Set(existing.map((video) => video.aweme_id).filter(Boolean));
   const next = [...existing];
@@ -145,6 +151,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
     latestVideoRequestId += 1;
     latestLoadMoreRequestId += 1;
     const addLog = useLogStore.getState().addLog;
+    const toast = useToastStore.getState().toast;
     useAppStore.getState().setView("search");
 
     set({
@@ -162,6 +169,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
     });
 
     addLog(`搜索用户: ${query}`, "info");
+    const loadingToastId = toast(`正在搜索用户: ${query}`, "loading");
 
     try {
       const enrichSearchUserStats = (baseUsers: UserInfo[]) => {
@@ -183,15 +191,15 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       };
 
       const result = await searchUser(query);
+      useToastStore.getState().dismiss(loadingToastId);
       if (requestId !== latestSearchRequestId) return;
 
       if (result.need_verify) {
-        void openVerifyBrowser(result.verify_url)
-          .then((verifyResult) => addLog(verifyResult.message, verifyResult.success ? "info" : "warning"))
-          .catch(() => addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
+        openVerifyWindow(result.verify_url, addLog);
         const message = result.message || "需要完成抖音验证";
         set({ searching: false, error: message });
         addLog(message, "warning");
+        toast(message, "warning", "需要验证");
         return;
       }
 
@@ -199,6 +207,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
         const message = formatSearchErrorMessage(result.message);
         set({ searching: false, error: message });
         addLog(message, "error");
+        toast(message, "error", "搜索失败");
         return;
       }
 
@@ -213,6 +222,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
           error: null,
         });
         addLog(`已匹配用户: ${result.user.nickname}`, "success");
+        toast(`已找到用户: ${result.user.nickname}`, "success");
         enrichSearchUserStats([result.user]);
         return;
       }
@@ -227,13 +237,16 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
         hasMore: false,
         error: users.length > 0 ? null : "未找到用户",
       });
-      addLog(`找到 ${users.length} 个候选用户`, users.length > 0 ? "success" : "warning");
+      const msg = `找到 ${users.length} 个候选用户`;
+      addLog(msg, users.length > 0 ? "success" : "warning");
+      toast(msg, users.length > 0 ? "success" : "warning");
       enrichSearchUserStats(users);
     } catch (error) {
       if (requestId !== latestSearchRequestId) return;
       const message = formatSearchErrorMessage(error instanceof Error ? error.message : undefined);
       set({ searching: false, error: message });
       addLog(message, "error");
+      toast(message, "error", "搜索异常");
     }
   },
 
@@ -242,6 +255,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
     latestVideoRequestId += 1;
     latestLoadMoreRequestId += 1;
     const addLog = useLogStore.getState().addLog;
+    const toast = useToastStore.getState().toast;
 
     set({
       loadingUser: true,
@@ -259,12 +273,11 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       if (requestId !== latestUserRequestId) return;
 
       if (detail.need_verify) {
-        void openVerifyBrowser(detail.verify_url)
-          .then((verifyResult) => addLog(verifyResult.message, verifyResult.success ? "info" : "warning"))
-          .catch(() => addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
+        openVerifyWindow(detail.verify_url, addLog);
         const message = detail.message || "需要完成抖音验证";
         set({ loadingUser: false, error: message, currentUser: user });
         addLog(message, "warning");
+        toast(message, "warning", "需要验证");
         return;
       }
 
@@ -272,6 +285,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
         const message = detail.message || "获取用户详情失败";
         set({ loadingUser: false, error: message, currentUser: user });
         addLog(message, "error");
+        toast(message, "error", "加载失败");
         return;
       }
 
@@ -287,6 +301,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       const message = error instanceof Error ? error.message : "获取用户详情失败";
       set({ loadingUser: false, error: message, currentUser: user });
       addLog(message, "error");
+      toast(message, "error", "加载异常");
     }
   },
 
@@ -298,6 +313,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
     latestLoadMoreRequestId += 1;
     const secUid = state.currentUser.sec_uid;
     const addLog = useLogStore.getState().addLog;
+    const toast = useToastStore.getState().toast;
     const keepExistingVideos = state.videos.length > 0;
     set({
       loadingVideos: true,
@@ -312,12 +328,11 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       if (requestId !== latestVideoRequestId || get().currentUser?.sec_uid !== secUid) return;
 
       if (result.need_verify) {
-        void openVerifyBrowser(result.verify_url)
-          .then((verifyResult) => addLog(verifyResult.message, verifyResult.success ? "info" : "warning"))
-          .catch(() => addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
-        const message = result.message || "需要完成抖音验证后再加载作品";
+        openVerifyWindow(result.verify_url, addLog);
+        const message = result.message || "需要完成抖音验证";
         set({ loadingVideos: false, error: message });
         addLog(message, "warning");
+        toast(message, "warning", "需要验证");
         return;
       }
 
@@ -325,6 +340,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
         const message = result.message || "获取作品列表失败";
         set({ loadingVideos: false, error: message });
         addLog(message, "error");
+        toast(message, "error", "加载失败");
         return;
       }
 
@@ -342,6 +358,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       const message = error instanceof Error ? error.message : "获取作品列表失败";
       set({ loadingVideos: false, error: message });
       addLog(message, "error");
+      toast(message, "error", "加载异常");
     }
   },
 
@@ -362,10 +379,8 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       if (requestId !== latestLoadMoreRequestId || get().currentUser?.sec_uid !== secUid) return;
 
       if (result.need_verify) {
-        void openVerifyBrowser(result.verify_url)
-          .then((verifyResult) => addLog(verifyResult.message, verifyResult.success ? "info" : "warning"))
-          .catch(() => addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
-        const message = result.message || "需要完成抖音验证后再加载更多作品";
+        openVerifyWindow(result.verify_url, addLog);
+        const message = result.message || "需要完成抖音验证";
         set({ loadingMore: false, error: message });
         addLog(message, "warning");
         return;

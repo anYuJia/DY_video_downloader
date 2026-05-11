@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useDownloadStore, useLogStore } from "@/stores/app-store";
+import { useToastStore } from "@/components/ui/toast";
 import type { VideoInfo } from "@/lib/tauri";
 import {
   addDownloadTask,
@@ -25,6 +26,7 @@ export function useDownloads() {
   const removeTask = useDownloadStore((s) => s.removeTask);
   const clearCompleted = useDownloadStore((s) => s.clearCompleted);
   const addLog = useLogStore((s) => s.addLog);
+  const toast = useToastStore((s) => s.toast);
 
   const getTaskLabel = useCallback((taskId: string) => {
     return useDownloadStore.getState().tasks[taskId]?.filename || taskId;
@@ -34,7 +36,9 @@ export function useDownloads() {
     async (video: VideoInfo) => {
       const taskId = video.aweme_id;
       const displayName = `${video.author.nickname}_${video.aweme_id}`;
-      addLog(`开始下载: ${video.desc?.slice(0, 30) || video.aweme_id}`, "info");
+      const logMsg = `开始下载: ${video.desc?.slice(0, 30) || video.aweme_id}`;
+      addLog(logMsg, "info");
+      toast(logMsg, "info");
 
       updateTask({
         id: taskId,
@@ -59,14 +63,17 @@ export function useDownloads() {
         const msg = e instanceof Error ? e.message : "下载失败";
         updateTask({ id: taskId, status: "error" });
         addLog(msg, "error");
+        toast(msg, "error");
       }
     },
-    [updateTask, replaceTaskId, addLog]
+    [updateTask, replaceTaskId, addLog, toast]
   );
 
   const downloadBatch = useCallback(
     async (videos: VideoInfo[]) => {
-      addLog(`批量下载 ${videos.length} 个视频`, "info");
+      const logMsg = `批量下载 ${videos.length} 个作品`;
+      addLog(logMsg, "info");
+      toast(logMsg, "info");
 
       for (const video of videos) {
         try {
@@ -88,8 +95,9 @@ export function useDownloads() {
       }
 
       addLog("批量下载已提交", "success");
+      toast("已添加至下载队列", "success", "批量下载");
     },
-    [updateTask, addLog]
+    [updateTask, addLog, toast]
   );
 
   const cancelDownload = useCallback(
@@ -102,12 +110,16 @@ export function useDownloads() {
         if (!result.success) {
           throw new Error(result.message || "取消下载失败");
         }
-        addLog(`已取消下载: ${getTaskLabel(taskId)}`, "warning");
+        const label = getTaskLabel(taskId);
+        addLog(`已取消下载: ${label}`, "warning");
+        toast(`已取消下载: ${label}`, "warning");
       } catch (error) {
-        addLog(error instanceof Error ? error.message : "取消下载失败", "error");
+        const msg = error instanceof Error ? error.message : "取消下载失败";
+        addLog(msg, "error");
+        toast(msg, "error");
       }
     },
-    [updateTask, addLog, getTaskLabel]
+    [updateTask, addLog, getTaskLabel, toast]
   );
 
   const pauseTask = useCallback(
@@ -120,13 +132,17 @@ export function useDownloads() {
         if (!result.success) {
           throw new Error(result.message || "暂停下载失败");
         }
-        addLog(`已暂停下载: ${getTaskLabel(taskId)}`, "info");
+        const label = getTaskLabel(taskId);
+        addLog(`已暂停下载: ${label}`, "info");
+        toast(`已暂停下载: ${label}`, "info");
       } catch (error) {
         updateTask({ id: taskId, status: previousStatus });
-        addLog(error instanceof Error ? error.message : "暂停下载失败", "error");
+        const msg = error instanceof Error ? error.message : "暂停下载失败";
+        addLog(msg, "error");
+        toast(msg, "error");
       }
     },
-    [updateTask, addLog, getTaskLabel]
+    [updateTask, addLog, getTaskLabel, toast]
   );
 
   const resumeTask = useCallback(
@@ -139,13 +155,17 @@ export function useDownloads() {
         if (!result.success) {
           throw new Error(result.message || "继续下载失败");
         }
-        addLog(`继续下载: ${getTaskLabel(taskId)}`, "info");
+        const label = getTaskLabel(taskId);
+        addLog(`继续下载: ${label}`, "info");
+        toast(`继续下载: ${label}`, "info");
       } catch (error) {
         updateTask({ id: taskId, status: previousStatus });
-        addLog(error instanceof Error ? error.message : "继续下载失败", "error");
+        const msg = error instanceof Error ? error.message : "继续下载失败";
+        addLog(msg, "error");
+        toast(msg, "error");
       }
     },
-    [updateTask, addLog, getTaskLabel]
+    [updateTask, addLog, getTaskLabel, toast]
   );
 
   const removeDownload = useCallback(

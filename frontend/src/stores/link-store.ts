@@ -40,6 +40,7 @@ export const useLinkStore = create<LinkStoreState>((set) => ({
         const message = result.message || "链接解析失败";
         set({ parsing: false, error: message });
         addLog(message, "error");
+        toast(message, "error", "解析失败");
         return;
       }
 
@@ -56,16 +57,20 @@ export const useLinkStore = create<LinkStoreState>((set) => ({
         error: videos.length > 0 || result.user ? null : "没有解析到可下载内容",
       });
 
-      addLog(
-        videos.length > 0
-          ? `链接解析完成，获取到 ${videos.length} 个作品`
-          : "链接解析完成",
-        videos.length > 0 || result.user ? "success" : "warning"
-      );
+      const msg = videos.length > 0
+        ? `链接解析完成，获取到 ${videos.length} 个作品`
+        : result.user
+          ? `已找到用户: ${result.user.nickname}`
+          : "链接解析完成";
+      
+      const type = videos.length > 0 || result.user ? "success" : "warning";
+      addLog(msg, type);
+      toast(msg, type, "解析完成");
     } catch (error) {
       const message = getErrorMessage(error, "链接解析失败");
       set({ parsing: false, error: message });
       addLog(message, "error");
+      toast(message, "error", "解析异常");
     }
   },
 

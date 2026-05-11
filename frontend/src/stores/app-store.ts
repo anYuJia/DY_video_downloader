@@ -43,6 +43,48 @@ export const useAppStore = create<AppState>((set) => ({
     set({ cookieLoggedIn: loggedIn, cookieNickname: nickname || "" }),
 }));
 
+// ── Alert Store ──
+
+export interface AlertConfig {
+  title: string;
+  description: React.ReactNode;
+  variant?: "info" | "success" | "warning" | "error" | "danger";
+  actionLabel?: string;
+  cancelLabel?: string;
+  onAction?: () => void;
+  onCancel?: () => void;
+}
+
+interface AlertStore {
+  isOpen: boolean;
+  config: AlertConfig | null;
+  showAlert: (config: AlertConfig) => void;
+  hideAlert: () => void;
+}
+
+export const useAlertStore = create<AlertStore>((set) => ({
+  isOpen: false,
+  config: null,
+  showAlert: (config) => set({ isOpen: true, config }),
+  hideAlert: () => set({ isOpen: false }),
+}));
+
+// ── Global Loader Store ──
+
+interface LoaderStore {
+  isLoading: boolean;
+  message: string;
+  showLoader: (message?: string) => void;
+  hideLoader: () => void;
+}
+
+export const useLoaderStore = create<LoaderStore>((set) => ({
+  isLoading: false,
+  message: "",
+  showLoader: (message = "正在处理...") => set({ isLoading: true, message }),
+  hideLoader: () => set({ isLoading: false, message: "" }),
+}));
+
 // ── Download Store ──
 
 interface DownloadStore {

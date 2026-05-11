@@ -177,7 +177,9 @@ export function useSocket() {
             mediaCount: d.media_count,
             fileTotal: d.media_count,
           });
-          addLog(`开始下载: ${d.display_name || d.desc}`, "info");
+          const msg = `开始下载: ${d.display_name || d.desc}`;
+          addLog(msg, "info");
+          toast(msg, "info");
         });
 
       // batch-download-started
@@ -198,7 +200,9 @@ export function useSocket() {
             speed: 0,
             etaSeconds: undefined,
           });
-          addLog(d.message || `开始下载 ${d.total_videos || 0} 个视频`, "info");
+          const msg = d.message || `开始批量下载 ${d.total_videos || 0} 个作品`;
+          addLog(msg, "info");
+          toast(msg, "info", "批量下载");
         });
 
       // download-progress
@@ -302,6 +306,9 @@ export function useSocket() {
           const cancelled = isCancelledMessage(d.error);
           updateTask({ id: d.task_id, status: cancelled ? "cancelled" : "error", speed: 0, errorMessage: d.error });
           addLog(d.error, cancelled ? "warning" : "error");
+          if (!cancelled) {
+            toast(d.error, "error", "下载失败");
+          }
         });
 
       // download-error
@@ -309,11 +316,16 @@ export function useSocket() {
           const cancelled = isCancelledMessage(d.message);
           updateTask({ id: d.task_id, status: cancelled ? "cancelled" : "error", speed: 0, errorMessage: d.message });
           addLog(d.message, cancelled ? "warning" : "error");
+          if (!cancelled) {
+            toast(d.message, "error", "下载异常");
+          }
         });
 
       await register<DownloadCancelledPayload>("download-cancelled", (d) => {
           updateTask({ id: d.task_id, status: "cancelled", speed: 0, etaSeconds: 0 });
-          addLog(d.message || "下载已取消", "warning");
+          const msg = d.message || "下载已取消";
+          addLog(msg, "warning");
+          toast(msg, "warning");
         });
 
       // download-completed
@@ -332,7 +344,9 @@ export function useSocket() {
               savePath: d.save_path,
               finishedTime: Date.now(),
             });
-            addLog(d.message || `下载完成: ${d.display_name || d.task_id}`, "success");
+            const msg = d.message || `下载完成: ${d.display_name || d.task_id}`;
+            addLog(msg, "success");
+            toast(msg, "success", "下载完成");
           }
       );
 
@@ -368,7 +382,9 @@ export function useSocket() {
             failedCount: failed,
             errorMessage: status === "error" ? d.message || "批量下载失败" : undefined,
           });
-          addLog(d.message || "批量下载已完成", failed > 0 ? "warning" : "success");
+          const msg = d.message || "批量下载已完成";
+          addLog(msg, failed > 0 ? "warning" : "success");
+          toast(msg, failed > 0 ? "warning" : "success", "批量下载已完成");
         });
 
       // batch-download-cancelled
