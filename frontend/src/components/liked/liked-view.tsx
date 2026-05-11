@@ -145,6 +145,10 @@ export function LikedView() {
           setPlayerIndex(null);
           setDetailVideo(video);
         }}
+        onAuthor={(video) => {
+          setPlayerIndex(null);
+          void handleGoToAuthor(video);
+        }}
       />
 
       <VideoDetailModal

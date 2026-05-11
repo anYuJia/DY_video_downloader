@@ -244,6 +244,10 @@ export function VideoGrid() {
           setPlayerIndex(null);
           setDetailVideo(video);
         }}
+        onAuthor={(video) => {
+          setPlayerIndex(null);
+          void openAuthor(video);
+        }}
       />
 
       <VideoDetailModal

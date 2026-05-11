@@ -178,6 +178,10 @@ export function LinkView() {
           setPlayerIndex(null);
           setDetailVideo(video);
         }}
+        onAuthor={(video) => {
+          setPlayerIndex(null);
+          void openAuthor(video);
+        }}
       />
 
       <VideoDetailModal

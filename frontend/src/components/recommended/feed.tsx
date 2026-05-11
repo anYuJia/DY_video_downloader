@@ -166,6 +166,10 @@ export function RecommendedFeed() {
           setPlayerIndex(null);
           setDetailVideo(video);
         }}
+        onAuthor={(video) => {
+          setPlayerIndex(null);
+          void openAuthor(video);
+        }}
       />
       <VideoDetailModal
         video={detailVideo}
