@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { Sidebar } from "./sidebar";
 import { BottomBar } from "./bottom-bar";
@@ -19,7 +19,7 @@ export function AppShell() {
   const commandOpen = useAppStore((s) => s.commandOpen);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     scrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [currentView]);
 
@@ -31,7 +31,7 @@ export function AppShell() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 relative">
         <div ref={scrollRef} className="flex-1 overflow-x-hidden overflow-y-auto">
-          <AnimatePresence initial={false}>
+          <AnimatePresence initial={false} mode="wait">
             {renderView(currentView)}
           </AnimatePresence>
         </div>

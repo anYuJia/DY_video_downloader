@@ -918,7 +918,7 @@ export function SettingsView() {
         </SettingGroup>
 
         {/* Quality */}
-        <SettingGroup icon={Gauge} label="下载质量" status={fieldStatus("download_quality")}>
+        <SettingGroup icon={Gauge} label="视频下载质量" status={fieldStatus("download_quality")}>
           <Select value={downloadQuality} onValueChange={(value) => void handleQualityChange(value)}>
             <SelectTrigger className="h-10" disabled={savingFields.download_quality}>
               <SelectValue />
@@ -930,6 +930,9 @@ export function SettingsView() {
               <SelectItem value="smallest">最小体积</SelectItem>
             </SelectContent>
           </Select>
+          <p className="text-[0.75rem] text-text-muted mt-2">
+            只影响视频作品；图片、图集和 Live Photo 会按原始媒体下载。
+          </p>
         </SettingGroup>
 
         {/* Concurrency */}
