@@ -7,10 +7,28 @@ import {
   type UserInfo,
   type VideoInfo,
 } from "@/lib/tauri";
-import { useAppStore, useLogStore } from "@/stores/app-store";
+import { useAlertStore, useAppStore, useLogStore } from "@/stores/app-store";
 import { useToastStore } from "@/components/ui/toast";
 
 const PAGE_SIZE = 18;
+
+// ... (utility functions)
+
+function checkQuotaError(message: string | undefined): boolean {
+  const text = (message || "").toLowerCase();
+  return /无额度|次数限制|quota|limit|too many requests/i.test(text);
+}
+
+function showQuotaAlert(message: string) {
+  useAlertStore.getState().showAlert({
+    title: "达到使用限制",
+    variant: "warning",
+    description: `${message}\n\n当前的 API 调用额度已耗尽或触发了频率限制。这通常是由于短时间内请求过多导致的。请稍后再试，或检查你的网络代理及 Cookie 设置。`,
+    actionLabel: "知道了",
+  });
+}
+
+// ... (rest of the file)
 
 let latestSearchRequestId = 0;
 let latestUserRequestId = 0;
@@ -207,7 +225,12 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
         const message = formatSearchErrorMessage(result.message);
         set({ searching: false, error: message });
         addLog(message, "error");
-        toast(message, "error", "搜索失败");
+        
+        if (checkQuotaError(message)) {
+          showQuotaAlert(message);
+        } else {
+          toast(message, "error", "搜索失败");
+        }
         return;
       }
 
@@ -246,7 +269,12 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       const message = formatSearchErrorMessage(error instanceof Error ? error.message : undefined);
       set({ searching: false, error: message });
       addLog(message, "error");
-      toast(message, "error", "搜索异常");
+      
+      if (checkQuotaError(message)) {
+        showQuotaAlert(message);
+      } else {
+        toast(message, "error", "搜索异常");
+      }
     }
   },
 
@@ -285,7 +313,12 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
         const message = detail.message || "获取用户详情失败";
         set({ loadingUser: false, error: message, currentUser: user });
         addLog(message, "error");
-        toast(message, "error", "加载失败");
+        
+        if (checkQuotaError(message)) {
+          showQuotaAlert(message);
+        } else {
+          toast(message, "error", "加载失败");
+        }
         return;
       }
 
@@ -301,7 +334,12 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       const message = error instanceof Error ? error.message : "获取用户详情失败";
       set({ loadingUser: false, error: message, currentUser: user });
       addLog(message, "error");
-      toast(message, "error", "加载异常");
+      
+      if (checkQuotaError(message)) {
+        showQuotaAlert(message);
+      } else {
+        toast(message, "error", "加载异常");
+      }
     }
   },
 
@@ -340,7 +378,12 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
         const message = result.message || "获取作品列表失败";
         set({ loadingVideos: false, error: message });
         addLog(message, "error");
-        toast(message, "error", "加载失败");
+        
+        if (checkQuotaError(message)) {
+          showQuotaAlert(message);
+        } else {
+          toast(message, "error", "加载失败");
+        }
         return;
       }
 
@@ -358,7 +401,12 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       const message = error instanceof Error ? error.message : "获取作品列表失败";
       set({ loadingVideos: false, error: message });
       addLog(message, "error");
-      toast(message, "error", "加载异常");
+      
+      if (checkQuotaError(message)) {
+        showQuotaAlert(message);
+      } else {
+        toast(message, "error", "加载异常");
+      }
     }
   },
 
