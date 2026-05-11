@@ -114,59 +114,85 @@ function ToastItem({
     }
   }, [onDismiss, toast.duration]);
 
-  // Premium stacking logic: items slide up and scale down slightly as they get older
+  // Magnetic Stacking logic
   const reverseIndex = total - 1 - index;
-  const yOffset = reverseIndex * 12;
-  const scale = 1 - reverseIndex * 0.04;
-  const opacity = 1 - reverseIndex * 0.2;
+  const scale = 1 - reverseIndex * 0.05;
+  const yOffset = reverseIndex * -12; // Slide up
+  const zIndex = total - reverseIndex;
+  const opacity = 1 - reverseIndex * 0.15;
 
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, x: 20, scale: 0.9 }}
+      initial={{ opacity: 0, y: 24, scale: 0.9, filter: "blur(10px)" }}
       animate={{
         opacity,
-        x: 0,
         scale,
-        y: -yOffset,
-        transition: { type: "spring", stiffness: 450, damping: 35, mass: 1 },
+        y: yOffset,
+        filter: "blur(0px)",
+        transition: {
+          type: "spring",
+          stiffness: 400,
+          damping: 32,
+          mass: 0.8,
+          layout: { duration: 0.2 }
+        },
       }}
-      exit={{ opacity: 0, x: 20, scale: 0.8, transition: { duration: 0.15 } }}
-      style={{ originX: 1, originY: 1 }}
+      exit={{ 
+        opacity: 0, 
+        x: 40, 
+        scale: 0.9, 
+        filter: "blur(10px)",
+        transition: { duration: 0.2, ease: "easeIn" } 
+      }}
+      style={{ 
+        zIndex,
+        originX: 1,
+        originY: 1,
+      }}
       className={cn(
-        "pointer-events-auto relative flex w-80 flex-col overflow-hidden rounded-[var(--radius-lg)] border bg-surface-solid/85 backdrop-blur-2xl shadow-[0_20px_40px_rgba(0,0,0,0.25)]",
-        colorMap[toast.type]
+        "pointer-events-auto relative flex w-[340px] flex-col overflow-hidden rounded-[20px]",
+        "bg-surface-solid/80 backdrop-blur-3xl shadow-[0_24px_48px_-12px_rgba(0,0,0,0.5)]",
+        "border border-white/[0.08] transition-colors duration-300",
+        toast.type === "loading" && "border-accent/30 shadow-[0_0_40px_-12px_rgba(254,44,85,0.2)]",
+        toast.type === "success" && "border-success/30 shadow-[0_0_40px_-12px_rgba(34,197,94,0.15)]",
+        toast.type === "error" && "border-danger/30 shadow-[0_0_40px_-12px_rgba(239,68,68,0.15)]"
       )}
     >
-      <div className="flex items-start gap-3 p-4">
-        <div className={cn("mt-0.5 shrink-0", toast.type === "loading" && "animate-spin")}>
+      <div className="flex items-start gap-4 p-5">
+        <div className={cn(
+          "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-surface-raised shadow-sm border border-white/[0.05]",
+          colorMap[toast.type],
+          toast.type === "loading" && "animate-spin"
+        )}>
           <Icon className="h-4.5 w-4.5" />
         </div>
         
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 pt-0.5">
           {toast.title && (
-            <div className="text-[0.85rem] font-bold leading-tight text-text mb-1 truncate">
+            <div className="text-[0.88rem] font-black leading-tight text-text mb-1.5 tracking-tight truncate">
               {toast.title}
             </div>
           )}
           <div className={cn(
-            "text-[0.8rem] leading-relaxed text-text-secondary line-clamp-3",
-            !toast.title && "font-medium text-text"
+            "text-[0.82rem] leading-[1.5] text-text-secondary line-clamp-3",
+            !toast.title && "font-bold text-text text-[0.88rem]"
           )}>
             {toast.message}
           </div>
 
           {toast.action && (
-            <div className="mt-3 flex justify-end">
+            <div className="mt-4 flex justify-end">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   toast.action?.onClick();
                   onDismiss();
                 }}
-                className="rounded-[8px] bg-white/[0.08] px-3 py-1.5 text-[0.72rem] font-bold text-text hover:bg-white/[0.15] transition-colors"
+                className="group relative flex items-center justify-center h-8 px-4 rounded-[10px] bg-accent text-[0.72rem] font-black text-white shadow-lg shadow-accent/20 active:scale-[0.96] transition-all"
               >
-                {toast.action.label}
+                <span className="relative z-10">{toast.action.label}</span>
+                <div className="absolute inset-0 rounded-[10px] bg-white opacity-0 group-hover:opacity-10 transition-opacity" />
               </button>
             </div>
           )}
@@ -174,20 +200,29 @@ function ToastItem({
 
         <button
           onClick={onDismiss}
-          className="shrink-0 -mr-1 -mt-1 p-1.5 rounded-full text-text-muted hover:text-text hover:bg-white/[0.05] transition-colors"
+          className="shrink-0 -mr-2 -mt-2 p-2 rounded-full text-text-muted hover:text-text hover:bg-white/[0.05] transition-colors"
         >
-          <X className="h-3.5 w-3.5" />
+          <X className="h-4 w-4" />
         </button>
       </div>
 
-      {/* Progress bar for auto-dismissing toasts */}
+      {/* Modern thin progress bar */}
       {typeof toast.duration === "number" && toast.duration > 0 && isPresent && (
-        <motion.div
-          initial={{ width: "100%" }}
-          animate={{ width: "0%" }}
-          transition={{ duration: toast.duration / 1000, ease: "linear" }}
-          className="absolute bottom-0 left-0 h-[2px] bg-current opacity-20"
-        />
+        <div className="absolute bottom-0 left-0 w-full h-[3px] bg-white/[0.03]">
+          <motion.div
+            initial={{ width: "100%" }}
+            animate={{ width: "0%" }}
+            transition={{ duration: toast.duration / 1000, ease: "linear" }}
+            className={cn(
+              "h-full rounded-r-full",
+              toast.type === "info" && "bg-info",
+              toast.type === "success" && "bg-success",
+              toast.type === "error" && "bg-danger",
+              toast.type === "warning" && "bg-warning",
+              toast.type === "loading" && "bg-accent"
+            )}
+          />
+        </div>
       )}
     </motion.div>
   );

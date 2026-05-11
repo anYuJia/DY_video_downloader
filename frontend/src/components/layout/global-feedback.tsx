@@ -38,19 +38,29 @@ export function GlobalAlert() {
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && hideAlert()}>
-      <DialogContent className="max-w-[400px]">
-        <DialogHeader className="flex-row items-start gap-4 space-y-0">
-          <div className={cn("mt-1 rounded-full p-1", iconColor)}>
+      <DialogContent className="max-w-[420px] glass-premium">
+        <DialogHeader className="flex-row items-start gap-5 space-y-0 pt-2">
+          <motion.div
+            initial={{ scale: 0.5, rotate: -20, opacity: 0 }}
+            animate={{ scale: 1, rotate: 0, opacity: 1 }}
+            transition={{ type: "spring", stiffness: 300, damping: 20, delay: 0.1 }}
+            className={cn(
+              "mt-0.5 flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] bg-surface-raised shadow-sm",
+              iconColor
+            )}
+          >
             <Icon className="h-6 w-6" />
-          </div>
-          <div className="flex-1">
-            <DialogTitle className="text-[1.05rem]">{config.title}</DialogTitle>
-            <DialogDescription className="mt-2 text-[0.82rem] leading-relaxed">
+          </motion.div>
+          <div className="flex-1 min-w-0 pt-0.5">
+            <DialogTitle className="text-[1.1rem] font-bold tracking-tight">
+              {config.title}
+            </DialogTitle>
+            <DialogDescription className="mt-2.5 text-[0.85rem] leading-relaxed text-text-secondary">
               {config.description}
             </DialogDescription>
           </div>
         </DialogHeader>
-        <DialogFooter className="mt-6 gap-2">
+        <DialogFooter className="mt-8 gap-2.5 sm:flex-row">
           {config.onCancel && (
             <Button
               variant="outline"
@@ -58,7 +68,7 @@ export function GlobalAlert() {
                 config.onCancel?.();
                 hideAlert();
               }}
-              className="flex-1 rounded-[12px]"
+              className="h-11 flex-1 rounded-[14px] font-bold"
             >
               {config.cancelLabel || "取消"}
             </Button>
@@ -69,7 +79,7 @@ export function GlobalAlert() {
               config.onAction?.();
               hideAlert();
             }}
-            className="flex-1 rounded-[12px]"
+            className="h-11 flex-1 rounded-[14px] font-bold shadow-md active:scale-[0.98] transition-transform"
           >
             {config.actionLabel || "确认"}
           </Button>
@@ -89,27 +99,40 @@ export function GlobalLoader() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-background/60 backdrop-blur-md"
+          className="fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-background/40 backdrop-blur-[32px]"
         >
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            {/* Animated Nebula background effects */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-accent/20 blur-[100px] animate-[nebula-pulse_4s_ease-in-out_infinite]" />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-info/10 blur-[80px] animate-[nebula-pulse_6s_ease-in-out_infinite_reverse]" />
+          </div>
+
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
+            initial={{ scale: 0.8, opacity: 0, y: 10 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.9, opacity: 0 }}
-            className="flex flex-col items-center"
+            transition={{ type: "spring", stiffness: 350, damping: 25 }}
+            className="relative flex flex-col items-center"
           >
-            <div className="relative mb-6">
-              {/* Spinning outer ring */}
-              <div className="h-16 w-16 rounded-full border-4 border-accent/20 border-t-accent animate-spin" />
-              {/* Inner glowing core */}
-              <div className="absolute inset-0 m-auto h-8 w-8 rounded-full bg-accent/20 blur-xl animate-pulse" />
+            <div className="relative mb-8 h-20 w-20">
+              {/* Complex multilayer spinner */}
+              <div className="absolute inset-0 rounded-full border-[3px] border-white/5" />
+              <div className="absolute inset-0 rounded-full border-[3px] border-transparent border-t-accent animate-[loader-spin-custom_1.5s_linear_infinite]" />
+              <div className="absolute inset-2 rounded-full border-[2px] border-transparent border-b-info opacity-60 animate-[loader-spin-custom_2s_linear_infinite_reverse]" />
+              
+              {/* Inner glowing pulse */}
+              <div className="absolute inset-0 m-auto h-2 w-2 rounded-full bg-accent shadow-[0_0_15px_var(--color-accent)] animate-pulse" />
             </div>
             
-            <p className="text-[0.95rem] font-bold text-text tracking-wide">
-              {message}
-            </p>
-            <p className="mt-2 text-[0.75rem] text-text-muted">
-              请稍候，程序正在全速运行中
-            </p>
+            <h2 className="text-[1.2rem] font-black text-text tracking-tight mb-2">
+              {message || "正在处理"}
+            </h2>
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/10">
+              <span className="flex h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
+              <span className="text-[0.72rem] font-bold text-text-muted uppercase tracking-widest">
+                System Processing
+              </span>
+            </div>
           </motion.div>
         </motion.div>
       )}
