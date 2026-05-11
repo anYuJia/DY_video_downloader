@@ -9,6 +9,7 @@ import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import { useDownloads } from "@/hooks/use-downloads";
 import { useSearchStore } from "@/stores/search-store";
 import type { VideoInfo } from "@/lib/tauri";
+import { videoAuthorToUserInfo } from "@/lib/video-author";
 
 export function VideoGrid() {
   const currentUser = useSearchStore((s) => s.currentUser);
@@ -16,6 +17,7 @@ export function VideoGrid() {
   const loadingVideos = useSearchStore((s) => s.loadingVideos);
   const loadingMore = useSearchStore((s) => s.loadingMore);
   const hasMore = useSearchStore((s) => s.hasMore);
+  const selectUser = useSearchStore((s) => s.selectUser);
   const loadVideos = useSearchStore((s) => s.loadVideos);
   const loadMore = useSearchStore((s) => s.loadMore);
   const { downloadVideo, downloadBatch } = useDownloads();
@@ -23,6 +25,7 @@ export function VideoGrid() {
   const [playerIndex, setPlayerIndex] = useState<number | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [authorLoadingId, setAuthorLoadingId] = useState<string | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const showPlaceholder = currentUser && !loadingVideos && videos.length === 0;
@@ -33,6 +36,17 @@ export function VideoGrid() {
     }
     const index = videos.findIndex((item) => item.aweme_id === video.aweme_id);
     setPlayerIndex(index >= 0 ? index : 0);
+  };
+  const openAuthor = async (video: VideoInfo) => {
+    const userInfo = videoAuthorToUserInfo(video);
+    if (!userInfo || authorLoadingId) return;
+    setAuthorLoadingId(video.aweme_id);
+    try {
+      await selectUser(userInfo);
+      await loadVideos();
+    } finally {
+      setAuthorLoadingId(null);
+    }
   };
   const selectedVideos = videos.filter((video) => selectedIds.has(video.aweme_id));
   const toggleSelected = (awemeId: string) => {
@@ -189,6 +203,8 @@ export function VideoGrid() {
                   onSelect={openPlayer}
                   onDetail={setDetailVideo}
                   onDownload={(item) => void downloadVideo(item)}
+                  onAuthor={(item) => void openAuthor(item)}
+                  authorLoading={authorLoadingId === video.aweme_id}
                   selected={selectedIds.has(video.aweme_id)}
                 />
               ))}

@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { Download, Eye, Play, UserRound } from 'lucide-react';
+import { Download, Eye, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { VideoCover } from '@/components/media/video-cover';
 import { cn, formatTime } from '@/lib/utils';
@@ -70,7 +70,7 @@ export function VideoCard({
       }}
       tabIndex={0}
     >
-      <VideoCover video={video} className='h-[280px]' />
+      <VideoCover video={video} className='h-[280px]' showPlayOverlay={false} />
 
       {/* Body */}
       <div className='flex h-[120px] flex-col p-3'>
@@ -96,50 +96,38 @@ export function VideoCard({
             variant='outline'
             size='icon-sm'
             className='h-8 flex-1 rounded-[8px]'
-            onClick={(event) => stopAndRun(event, onDownload)}
-            title='下载'
-            aria-label='下载作品'
+            onClick={(event) => stopAndRun(event, onAuthor)}
+            disabled={!onAuthor || !video.author?.sec_uid || authorLoading}
+            title={video.author?.sec_uid ? '进入作者主页' : '作者信息不可用'}
+            aria-label='进入作者主页'
           >
-            <Download className='w-3.5 h-3.5' />
+            {authorLoading ? (
+              <span className='h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent' />
+            ) : (
+              <UserRound className='h-3.5 w-3.5' />
+            )}
           </Button>
-          {onDetail && (
-            <Button
-              variant='info-outline'
-              size='icon-sm'
-              className='h-8 flex-1 rounded-[8px]'
-              onClick={(event) => stopAndRun(event, onDetail)}
-              title='详情'
-              aria-label='查看详情'
-            >
-              <Eye className='h-3.5 w-3.5' />
-            </Button>
-          )}
-          {onAuthor && video.author?.sec_uid && (
-            <Button
-              variant='outline'
-              size='icon-sm'
-              className='h-8 flex-1 rounded-[8px]'
-              onClick={(event) => stopAndRun(event, onAuthor)}
-              disabled={authorLoading}
-              title='进入作者主页'
-              aria-label='进入作者主页'
-            >
-              {authorLoading ? (
-                <span className='h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent' />
-              ) : (
-                <UserRound className='h-3.5 w-3.5' />
-              )}
-            </Button>
-          )}
+          <Button
+            variant='info-outline'
+            size='icon-sm'
+            className='h-8 flex-1 rounded-[8px]'
+            onClick={(event) => stopAndRun(event, onDetail)}
+            disabled={!onDetail}
+            title='详情'
+            aria-label='查看详情'
+          >
+            <Eye className='h-3.5 w-3.5' />
+          </Button>
           <Button
             variant='success-outline'
             size='icon-sm'
             className='h-8 flex-1 rounded-[8px]'
-            onClick={(event) => stopAndRun(event, onSelect)}
-            title='播放'
-            aria-label='播放作品'
+            onClick={(event) => stopAndRun(event, onDownload)}
+            disabled={!onDownload}
+            title='下载'
+            aria-label='下载作品'
           >
-            <Play className='w-3.5 h-3.5' />
+            <Download className='w-3.5 h-3.5' />
           </Button>
         </div>
       </div>

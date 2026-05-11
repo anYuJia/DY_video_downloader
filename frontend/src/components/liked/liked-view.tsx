@@ -21,6 +21,7 @@ import { useDownloads } from "@/hooks/use-downloads";
 import { useAppStore, useDownloadStore, useLogStore } from "@/stores/app-store";
 import { useSearchStore } from "@/stores/search-store";
 import { downloadUserVideos, mediaProxyUrl, type UserInfo, type VideoInfo } from "@/lib/tauri";
+import { videoAuthorToUserInfo } from "@/lib/video-author";
 import { cn, formatNumber } from "@/lib/utils";
 
 type LikedTab = "videos" | "authors";
@@ -39,6 +40,7 @@ export function LikedView() {
   const { downloadVideo, downloadBatch } = useDownloads();
   const [detailVideo, setDetailVideo] = useState<VideoInfo | null>(null);
   const [playerIndex, setPlayerIndex] = useState<number | null>(null);
+  const [authorLoadingId, setAuthorLoadingId] = useState<string | null>(null);
   const setView = useAppStore((s) => s.setView);
   const selectUser = useSearchStore((s) => s.selectUser);
   const searchLoadVideos = useSearchStore((s) => s.loadVideos);
@@ -49,28 +51,16 @@ export function LikedView() {
   };
 
   const handleGoToAuthor = async (video: VideoInfo) => {
-    const author = video.author;
-    if (!author?.sec_uid) return;
-    const userInfo: UserInfo = {
-      uid: author.uid,
-      sec_uid: author.sec_uid,
-      nickname: author.nickname,
-      avatar_thumb: author.avatar_thumb,
-      avatar_medium: author.avatar_medium,
-      avatar_larger: author.avatar_medium || author.avatar_thumb,
-      signature: author.signature || "",
-      follower_count: author.follower_count || 0,
-      following_count: author.following_count || 0,
-      aweme_count: author.aweme_count || 0,
-      favoriting_count: author.favoriting_count || 0,
-      total_favorited: 0,
-      is_follow: author.is_follow || false,
-      unique_id: author.unique_id,
-      verify_status: author.verify_status || 0,
-    };
-    await selectUser(userInfo);
-    setView("search");
-    await searchLoadVideos();
+    const userInfo = videoAuthorToUserInfo(video);
+    if (!userInfo || authorLoadingId) return;
+    setAuthorLoadingId(video.aweme_id);
+    try {
+      setView("search");
+      await selectUser(userInfo);
+      await searchLoadVideos();
+    } finally {
+      setAuthorLoadingId(null);
+    }
   };
 
   useEffect(() => {
@@ -132,6 +122,7 @@ export function LikedView() {
             onDetail={setDetailVideo}
             onDownload={(video) => void downloadVideo(video)}
             onAuthor={handleGoToAuthor}
+            authorLoadingId={authorLoadingId}
             onDownloadAll={() => void downloadBatch(videos)}
           />
         ) : (
@@ -177,6 +168,7 @@ function LikedVideosPanel({
   onDetail,
   onDownload,
   onAuthor,
+  authorLoadingId,
   onDownloadAll,
 }: {
   videos: VideoInfo[];
@@ -187,6 +179,7 @@ function LikedVideosPanel({
   onDetail: (video: VideoInfo) => void;
   onDownload: (video: VideoInfo) => void;
   onAuthor: (video: VideoInfo) => void;
+  authorLoadingId: string | null;
   onDownloadAll: () => void;
 }) {
   return (
@@ -229,6 +222,7 @@ function LikedVideosPanel({
               onDetail={onDetail}
               onDownload={onDownload}
               onAuthor={onAuthor}
+              authorLoading={authorLoadingId === video.aweme_id}
             />
           ))}
         </motion.div>

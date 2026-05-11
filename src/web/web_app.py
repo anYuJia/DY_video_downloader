@@ -904,6 +904,22 @@ def init_app():
     except Exception as e:
         logger.error(f"Web应用初始化失败: {str(e)}")
 
+
+def _dialog_cancelled(result: subprocess.CompletedProcess[str]) -> bool:
+    stdout = (result.stdout or "").strip()
+    stderr = (result.stderr or "").strip().lower()
+    if stdout:
+        return False
+    if not stderr and result.returncode in (0, 1):
+        return True
+    return any(token in stderr for token in ("cancel", "canceled", "cancelled", "user canceled", "user cancelled"))
+
+
+def _dialog_error_message(result: subprocess.CompletedProcess[str], fallback: str) -> str:
+    stderr = (result.stderr or "").strip()
+    return stderr or fallback
+
+
 @app.route('/')
 def index():
     """主页"""
@@ -1189,7 +1205,9 @@ def select_directory():
 
             if directory:
                 return jsonify({'success': True, 'path': directory})
-            return jsonify({'success': False, 'message': '用户取消选择'})
+            if _dialog_cancelled(result):
+                return jsonify({'success': False, 'message': '用户取消选择'})
+            raise RuntimeError(_dialog_error_message(result, '选择目录失败'))
 
         if not IS_MACOS:
             if shutil.which('zenity'):
@@ -1201,7 +1219,9 @@ def select_directory():
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     return jsonify({'success': True, 'path': result.stdout.strip()})
-                return jsonify({'success': False, 'message': '用户取消选择'})
+                if _dialog_cancelled(result):
+                    return jsonify({'success': False, 'message': '用户取消选择'})
+                raise RuntimeError(_dialog_error_message(result, '选择目录失败'))
 
             if shutil.which('kdialog'):
                 result = subprocess.run(
@@ -1212,14 +1232,17 @@ def select_directory():
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     return jsonify({'success': True, 'path': result.stdout.strip()})
-                return jsonify({'success': False, 'message': '用户取消选择'})
+                if _dialog_cancelled(result):
+                    return jsonify({'success': False, 'message': '用户取消选择'})
+                raise RuntimeError(_dialog_error_message(result, '选择目录失败'))
 
             return jsonify({'success': False, 'message': '当前系统缺少目录选择器，请安装 zenity 或 kdialog'})
 
+        initial_dir_json = json.dumps(str(initial_dir))
         script = f'''
         tell application "System Events"
             activate
-            set selected_folder to choose folder with prompt "选择下载目录:" default location POSIX file "{initial_dir}"
+            set selected_folder to choose folder with prompt "选择下载目录:" default location POSIX file {initial_dir_json}
             return POSIX path of selected_folder
         end tell
         '''
@@ -1234,8 +1257,14 @@ def select_directory():
         if result.returncode == 0 and result.stdout.strip():
             directory = result.stdout.strip()
             return jsonify({'success': True, 'path': directory})
-        return jsonify({'success': False, 'message': '用户取消选择'})
+        if _dialog_cancelled(result):
+            return jsonify({'success': False, 'message': '用户取消选择'})
+        raise RuntimeError(_dialog_error_message(result, '选择目录失败'))
+    except subprocess.TimeoutExpired:
+        logger.warning("选择目录超时")
+        return jsonify({'success': False, 'message': '选择目录超时，请重试'}), 504
     except Exception as e:
+        logger.exception("选择目录失败")
         return jsonify({'success': False, 'message': f'选择失败：{str(e)}'}), 500
 
 

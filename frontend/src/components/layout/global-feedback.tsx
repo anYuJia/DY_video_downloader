@@ -55,14 +55,17 @@ export function GlobalAlert() {
             <DialogTitle className="text-[1.1rem] font-bold tracking-tight">
               {config.title}
             </DialogTitle>
-            <DialogDescription className="mt-2.5 text-[0.85rem] leading-relaxed text-text-secondary">
-              {config.description}
+            <DialogDescription asChild>
+              <div className="mt-2.5 text-[0.85rem] leading-relaxed text-text-secondary">
+                {config.description}
+              </div>
             </DialogDescription>
           </div>
         </DialogHeader>
         <DialogFooter className="mt-8 gap-2.5 sm:flex-row">
           {config.onCancel && (
             <Button
+              type="button"
               variant="outline"
               onClick={() => {
                 config.onCancel?.();
@@ -74,6 +77,7 @@ export function GlobalAlert() {
             </Button>
           )}
           <Button
+            type="button"
             variant={config.variant === "danger" ? "danger" : "default"}
             onClick={() => {
               config.onAction?.();
@@ -96,23 +100,20 @@ export function GlobalLoader() {
     <AnimatePresence>
       {isLoading && (
         <motion.div
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-background/40 backdrop-blur-[32px]"
         >
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            {/* Animated Nebula background effects */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-accent/20 blur-[100px] animate-[nebula-pulse_4s_ease-in-out_infinite]" />
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-info/10 blur-[80px] animate-[nebula-pulse_6s_ease-in-out_infinite_reverse]" />
-          </div>
-
           <motion.div
             initial={{ scale: 0.8, opacity: 0, y: 10 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.9, opacity: 0 }}
             transition={{ type: "spring", stiffness: 350, damping: 25 }}
-            className="relative flex flex-col items-center"
+            className="relative flex flex-col items-center rounded-[20px] bg-surface-solid/85 px-8 py-7 shadow-[0_28px_80px_rgba(0,0,0,0.38),0_0_0_1px_var(--color-border)]"
           >
             <div className="relative mb-8 h-20 w-20">
               {/* Complex multilayer spinner */}
@@ -127,10 +128,10 @@ export function GlobalLoader() {
             <h2 className="text-[1.2rem] font-black text-text tracking-tight mb-2">
               {message || "正在处理"}
             </h2>
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/10">
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface border border-border">
               <span className="flex h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
               <span className="text-[0.72rem] font-bold text-text-muted uppercase tracking-widest">
-                System Processing
+                请稍候
               </span>
             </div>
           </motion.div>

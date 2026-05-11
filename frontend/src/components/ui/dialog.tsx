@@ -15,7 +15,7 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-black/42 backdrop-blur-[2px]",
+      "fixed inset-0 z-[9500] bg-black/42 backdrop-blur-[2px]",
       "duration-200 ease-[var(--ease-spring)]",
       "data-[state=open]:opacity-100 data-[state=closed]:opacity-0",
       className
@@ -34,8 +34,8 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 translate-x-[-50%] translate-y-[-50%]",
-        "w-full max-w-lg rounded-[var(--radius-xl)] bg-surface-solid p-6 shadow-[0_44px_110px_rgba(0,0,0,0.42),0_0_0_1px_var(--color-border)]",
+        "fixed left-[50%] top-[50%] z-[9500] translate-x-[-50%] translate-y-[-50%]",
+        "w-[calc(100vw-2rem)] max-w-lg rounded-[var(--radius-xl)] bg-surface-solid p-6 shadow-[0_44px_110px_rgba(0,0,0,0.42),0_0_0_1px_var(--color-border)]",
         "duration-200 ease-[var(--ease-spring)]",
         "data-[state=open]:opacity-100 data-[state=open]:scale-100",
         "data-[state=closed]:opacity-0 data-[state=closed]:scale-95",
@@ -44,7 +44,11 @@ const DialogContent = React.forwardRef<
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-[var(--radius-sm)] p-1 text-text-muted hover:text-text hover:bg-surface-raised transition-[background-color,color,transform,opacity] duration-[var(--duration-fast)] cursor-pointer">
+      <DialogPrimitive.Close
+        type="button"
+        aria-label="关闭弹窗"
+        className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-[var(--radius-sm)] text-text-muted hover:text-text hover:bg-surface-raised active:scale-[0.96] transition-[background-color,color,transform,opacity] duration-[var(--duration-fast)] cursor-pointer"
+      >
         <X className="h-4 w-4" />
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>

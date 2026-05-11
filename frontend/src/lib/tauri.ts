@@ -1223,10 +1223,17 @@ export async function saveConfig(config: Partial<AppConfig>): Promise<{ success:
 
 export async function selectDirectory(): Promise<string | null> {
   if (shouldUseBrowserBridge()) {
-    const result = await requestJson<{ success: boolean; path?: string }>("/api/select_directory", {
+    const result = await requestJson<{ success: boolean; path?: string; message?: string }>("/api/select_directory", {
       method: "POST",
     });
-    return result.success ? result.path || null : null;
+    if (result.success) {
+      return result.path || null;
+    }
+    const message = result.message || "选择目录失败";
+    if (/取消/.test(message)) {
+      return null;
+    }
+    throw new Error(message);
   }
   return invoke("select_directory");
 }

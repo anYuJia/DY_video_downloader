@@ -265,6 +265,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       toast(msg, users.length > 0 ? "success" : "warning");
       enrichSearchUserStats(users);
     } catch (error) {
+      useToastStore.getState().dismiss(loadingToastId);
       if (requestId !== latestSearchRequestId) return;
       const message = formatSearchErrorMessage(error instanceof Error ? error.message : undefined);
       set({ searching: false, error: message });

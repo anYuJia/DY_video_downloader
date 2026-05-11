@@ -7,8 +7,11 @@ import { VideoCard } from "@/components/search/video-card";
 import { VideoDetailModal } from "@/components/modals/video-detail";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import { useDownloads } from "@/hooks/use-downloads";
+import { useAppStore } from "@/stores/app-store";
 import { useLinkStore } from "@/stores/link-store";
+import { useSearchStore } from "@/stores/search-store";
 import { mediaProxyUrl, type VideoInfo } from "@/lib/tauri";
+import { videoAuthorToUserInfo } from "@/lib/video-author";
 
 export function LinkView() {
   const link = useLinkStore((s) => s.link);
@@ -18,10 +21,14 @@ export function LinkView() {
   const error = useLinkStore((s) => s.error);
   const parse = useLinkStore((s) => s.parse);
   const clear = useLinkStore((s) => s.clear);
+  const setView = useAppStore((s) => s.setView);
+  const selectUser = useSearchStore((s) => s.selectUser);
+  const searchLoadVideos = useSearchStore((s) => s.loadVideos);
   const { downloadVideo, downloadBatch } = useDownloads();
   const [inputValue, setInputValue] = useState(link);
   const [detailVideo, setDetailVideo] = useState<VideoInfo | null>(null);
   const [playerIndex, setPlayerIndex] = useState<number | null>(null);
+  const [authorLoadingId, setAuthorLoadingId] = useState<string | null>(null);
 
   useEffect(() => {
     setInputValue(link);
@@ -34,6 +41,19 @@ export function LinkView() {
   const openPlayer = (video: VideoInfo) => {
     const index = videos.findIndex((item) => item.aweme_id === video.aweme_id);
     setPlayerIndex(index >= 0 ? index : 0);
+  };
+
+  const openAuthor = async (video: VideoInfo) => {
+    const userInfo = videoAuthorToUserInfo(video);
+    if (!userInfo || authorLoadingId) return;
+    setAuthorLoadingId(video.aweme_id);
+    try {
+      setView("search");
+      await selectUser(userInfo);
+      await searchLoadVideos();
+    } finally {
+      setAuthorLoadingId(null);
+    }
   };
 
   return (
@@ -130,6 +150,8 @@ export function LinkView() {
                 onSelect={openPlayer}
                 onDetail={setDetailVideo}
                 onDownload={(item) => void downloadVideo(item)}
+                onAuthor={(item) => void openAuthor(item)}
+                authorLoading={authorLoadingId === video.aweme_id}
               />
             ))}
           </div>

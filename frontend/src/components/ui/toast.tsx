@@ -36,9 +36,8 @@ export const useToastStore = create<ToastStore>((set) => ({
   nextId: 1,
   toast: (message, type = "info", title, action) => {
     const id = Date.now() + Math.random();
-    set((s) => ({
+    set(() => ({
       toasts: [
-        ...s.toasts.slice(-4),
         { id, message, type, title, action, duration: type === "loading" ? 0 : 4500 },
       ],
     }));
@@ -77,7 +76,7 @@ export function Toaster() {
   const dismiss = useToastStore((s) => s.dismiss);
 
   return (
-    <div className="fixed bottom-6 right-6 z-[9000] flex flex-col items-end gap-3 pointer-events-none">
+    <div className="fixed inset-x-4 bottom-4 z-[8500] flex flex-col items-stretch gap-3 pointer-events-none sm:inset-x-auto sm:bottom-6 sm:right-6 sm:items-end">
       <AnimatePresence mode="popLayout" initial={false}>
         {toasts.map((toast, index) => (
           <ToastItem
@@ -123,6 +122,9 @@ function ToastItem({
 
   return (
     <motion.div
+      role={toast.type === "error" || toast.type === "warning" ? "alert" : "status"}
+      aria-live={toast.type === "error" || toast.type === "warning" ? "assertive" : "polite"}
+      aria-atomic="true"
       layout
       initial={{ opacity: 0, y: 24, scale: 0.9, filter: "blur(10px)" }}
       animate={{
@@ -151,7 +153,7 @@ function ToastItem({
         originY: 1,
       }}
       className={cn(
-        "pointer-events-auto relative flex w-[340px] flex-col overflow-hidden rounded-[20px]",
+        "pointer-events-auto relative flex w-full flex-col overflow-hidden rounded-[20px] sm:w-[340px]",
         "bg-surface-solid/80 backdrop-blur-3xl shadow-[0_24px_48px_-12px_rgba(0,0,0,0.5)]",
         "border border-white/[0.08] transition-colors duration-300",
         toast.type === "loading" && "border-accent/30 shadow-[0_0_40px_-12px_rgba(254,44,85,0.2)]",
@@ -163,9 +165,8 @@ function ToastItem({
         <div className={cn(
           "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-surface-raised shadow-sm border border-white/[0.05]",
           colorMap[toast.type],
-          toast.type === "loading" && "animate-spin"
         )}>
-          <Icon className="h-4.5 w-4.5" />
+          <Icon className={cn("h-4.5 w-4.5", toast.type === "loading" && "animate-spin")} />
         </div>
         
         <div className="flex-1 min-w-0 pt-0.5">
@@ -184,12 +185,14 @@ function ToastItem({
           {toast.action && (
             <div className="mt-4 flex justify-end">
               <button
+                type="button"
+                aria-label={toast.action.label}
                 onClick={(e) => {
                   e.stopPropagation();
                   toast.action?.onClick();
                   onDismiss();
                 }}
-                className="group relative flex items-center justify-center h-8 px-4 rounded-[10px] bg-accent text-[0.72rem] font-black text-white shadow-lg shadow-accent/20 active:scale-[0.96] transition-all"
+                className="group relative flex items-center justify-center h-8 px-4 rounded-[10px] bg-accent text-[0.72rem] font-black text-white shadow-lg shadow-accent/20 active:scale-[0.96] transition-[background-color,color,box-shadow,transform,opacity]"
               >
                 <span className="relative z-10">{toast.action.label}</span>
                 <div className="absolute inset-0 rounded-[10px] bg-white opacity-0 group-hover:opacity-10 transition-opacity" />
@@ -199,8 +202,10 @@ function ToastItem({
         </div>
 
         <button
+          type="button"
+          aria-label="关闭通知"
           onClick={onDismiss}
-          className="shrink-0 -mr-2 -mt-2 p-2 rounded-full text-text-muted hover:text-text hover:bg-white/[0.05] transition-colors"
+          className="shrink-0 -mr-1 -mt-1 flex h-10 w-10 items-center justify-center rounded-full text-text-muted hover:text-text hover:bg-white/[0.05] active:scale-[0.96] transition-[background-color,color,transform,opacity]"
         >
           <X className="h-4 w-4" />
         </button>
@@ -250,4 +255,3 @@ export function useToast() {
       toast(message, "loading", title),
   };
 }
-
