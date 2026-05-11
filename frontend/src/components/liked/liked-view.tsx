@@ -21,7 +21,7 @@ import { downloadUserVideos, mediaProxyUrl, type UserInfo, type VideoInfo } from
 import { cn, formatNumber } from "@/lib/utils";
 
 type LikedTab = "videos" | "authors";
-const ORIGINAL_VIDEO_GRID_CLASS = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3";
+const ORIGINAL_VIDEO_GRID_CLASS = "grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3";
 
 export function LikedView() {
   const [tab, setTab] = useState<LikedTab>("videos");
@@ -155,6 +155,28 @@ function LikedVideosPanel({
   onDownload: (video: VideoInfo) => void;
   onDownloadAll: () => void;
 }) {
+  const setView = useAppStore((s) => s.setView);
+  const addLog = useLogStore((s) => s.addLog);
+  const selectUser = useSearchStore((s) => s.selectUser);
+  const loadVideos = useSearchStore((s) => s.loadVideos);
+  const [busyAuthorAwemeId, setBusyAuthorAwemeId] = useState<string | null>(null);
+
+  const handleOpenAuthor = async (video: VideoInfo) => {
+    const author = videoAuthorToUser(video);
+    if (!author) {
+      addLog("无法获取作者主页信息", "warning");
+      return;
+    }
+    setBusyAuthorAwemeId(video.aweme_id);
+    try {
+      await selectUser(author);
+      setView("search");
+      await loadVideos();
+    } finally {
+      setBusyAuthorAwemeId(null);
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-end gap-2 mb-4">
@@ -194,12 +216,36 @@ function LikedVideosPanel({
               onSelect={onSelect}
               onDetail={onDetail}
               onDownload={onDownload}
+              onAuthor={(item) => void handleOpenAuthor(item)}
+              authorLoading={busyAuthorAwemeId === video.aweme_id}
             />
           ))}
         </motion.div>
       )}
     </div>
   );
+}
+
+function videoAuthorToUser(video: VideoInfo): UserInfo | null {
+  const author = video.author;
+  if (!author?.sec_uid) return null;
+  return {
+    uid: author.uid || "",
+    nickname: author.nickname || "未知作者",
+    avatar_thumb: author.avatar_thumb || author.avatar_medium || "",
+    avatar_medium: author.avatar_medium || author.avatar_thumb || "",
+    avatar_larger: author.avatar_medium || author.avatar_thumb || "",
+    signature: author.signature || "",
+    follower_count: author.follower_count || 0,
+    following_count: author.following_count || 0,
+    total_favorited: 0,
+    aweme_count: author.aweme_count || 0,
+    favoriting_count: author.favoriting_count || 0,
+    is_follow: author.is_follow || false,
+    sec_uid: author.sec_uid,
+    unique_id: author.unique_id || "",
+    verify_status: author.verify_status || 0,
+  };
 }
 
 function LikedAuthorsPanel({

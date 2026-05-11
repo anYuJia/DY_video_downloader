@@ -61,10 +61,10 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="flex flex-col w-[var(--sidebar-width)] h-full border-r border-border bg-gradient-to-b from-surface-solid/94 to-background-soft/86 shrink-0">
+    <aside className="flex h-full w-[var(--sidebar-width)] shrink-0 flex-col bg-gradient-to-b from-surface-solid/94 to-background-soft/86 shadow-[16px_0_40px_rgba(0,0,0,0.08)] max-lg:w-[72px]">
       {/* Brand */}
       <motion.div
-        className="flex items-center gap-3 px-5 py-5"
+        className="flex items-center gap-3 px-5 py-5 max-lg:justify-center max-lg:px-3"
         initial={false}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
@@ -72,7 +72,7 @@ export function Sidebar() {
         <div className="w-10 h-10 rounded-[14px] overflow-hidden flex items-center justify-center">
           <img src="/animated_icon.svg" alt="Douyin Downloader" className="w-10 h-10" />
         </div>
-        <div className="flex flex-col min-w-0">
+        <div className="flex min-w-0 flex-col max-lg:hidden">
           <span className="text-[0.9rem] font-[780] tracking-tight text-text truncate">
             Douyin Downloader
           </span>
@@ -84,12 +84,12 @@ export function Sidebar() {
 
       {/* Navigation */}
       <motion.nav
-        className="flex-1 flex flex-col gap-1 px-3 overflow-y-auto"
+        className="flex-1 flex flex-col gap-1 px-3 overflow-y-auto max-lg:items-center"
         variants={containerVariants}
         initial={false}
         animate="show"
       >
-        <div className="text-[0.68rem] font-bold text-text-muted uppercase tracking-[0.08em] px-2 mb-2">
+        <div className="px-2 mb-2 text-[0.68rem] font-bold uppercase tracking-[0.08em] text-text-muted max-lg:hidden">
           导航
         </div>
 
@@ -102,8 +102,10 @@ export function Sidebar() {
               key={item.label}
               variants={itemVariants}
               onClick={() => handleNavClick(item)}
+              title={item.label}
+              aria-label={item.label}
               className={cn(
-                "group relative flex items-center gap-3 h-[42px] px-3 rounded-[14px] text-left transition-[background-color,color,box-shadow,transform] duration-[var(--duration-fast)] ease-[var(--ease-spring)] cursor-pointer",
+                "group relative flex h-[42px] w-full items-center gap-3 rounded-[14px] px-3 text-left transition-[background-color,color,box-shadow,transform] duration-[var(--duration-fast)] ease-[var(--ease-spring)] cursor-pointer max-lg:w-[44px] max-lg:justify-center max-lg:px-0",
                 isActive
                   ? "bg-accent-soft text-accent shadow-[0_8px_24px_rgba(254,44,85,0.10)]"
                   : "text-text-muted hover:text-text hover:bg-surface-raised"
@@ -111,19 +113,11 @@ export function Sidebar() {
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
             >
-              {isActive && (
-                <motion.div
-                  layoutId="sidebar-active"
-                  className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-accent"
-                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                />
-              )}
-
               <Icon className="w-[18px] h-[18px] shrink-0" />
-              <span className="text-[0.8125rem] font-semibold truncate">{item.label}</span>
+              <span className="truncate text-[0.8125rem] font-semibold max-lg:hidden">{item.label}</span>
 
               {item.id === "downloads" && activeCount > 0 && (
-                <Badge variant="default" size="sm" className="ml-auto">
+                <Badge variant="default" size="sm" className="ml-auto max-lg:absolute max-lg:-right-1 max-lg:-top-1 max-lg:ml-0">
                   {activeCount}
                 </Badge>
               )}
@@ -134,12 +128,12 @@ export function Sidebar() {
 
       {/* Status — pinned to bottom */}
       <div className="px-3 py-3">
-        <div className="flex items-center gap-2 px-3 h-[42px] rounded-[14px] bg-surface/50 text-text-muted">
+        <div className="flex h-[42px] items-center gap-2 rounded-[14px] bg-surface/50 px-3 text-text-muted max-lg:justify-center max-lg:px-0" title={cookieLoggedIn ? "已登录" : "需要登录 Cookie"}>
           <Circle className={cn(
             "w-2 h-2",
             cookieLoggedIn ? "fill-success text-success" : "fill-warning text-warning"
           )} />
-          <span className="text-[0.72rem] font-medium">
+          <span className="text-[0.72rem] font-medium max-lg:hidden">
             {cookieLoggedIn ? "已登录" : "需要登录 Cookie"}
           </span>
         </div>

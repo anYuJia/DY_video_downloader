@@ -121,7 +121,7 @@ export function LinkView() {
             <p className="text-[0.9rem] text-text-secondary">正在解析链接...</p>
           </div>
         ) : videos.length > 0 ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3">
             {videos.map((video, index) => (
               <VideoCard
                 key={video.aweme_id}

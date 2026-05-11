@@ -137,7 +137,7 @@ export function VideoGrid() {
         </div>
 
         {loadingVideos && videos.length === 0 ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3">
             {Array.from({ length: 8 }).map((_, index) => (
               <div
                 key={index}
@@ -176,7 +176,7 @@ export function VideoGrid() {
         ) : (
           <>
           <motion.div
-            className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3"
+            className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3"
             initial={false}
             animate="show"
             variants={{ hidden: {}, show: { transition: { staggerChildren: 0.04 } } }}

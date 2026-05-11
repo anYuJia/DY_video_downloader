@@ -9,7 +9,7 @@ import { VideoDetailModal } from "@/components/modals/video-detail";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import type { VideoInfo } from "@/lib/tauri";
 
-const ORIGINAL_VIDEO_GRID_CLASS = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3";
+const ORIGINAL_VIDEO_GRID_CLASS = "grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3";
 
 export function RecommendedFeed() {
   const { videos, loading, loadingMore, hasMore, loadFeed, loadMore, refresh } = useRecommended();

@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { Download, Eye, Play } from "lucide-react";
+import { Download, Eye, Play, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VideoCover } from "@/components/media/video-cover";
 import { cn, formatTime } from "@/lib/utils";
@@ -12,6 +12,8 @@ interface VideoCardProps {
   onSelect?: (video: VideoInfo) => void;
   onDetail?: (video: VideoInfo) => void;
   onDownload?: (video: VideoInfo) => void;
+  onAuthor?: (video: VideoInfo) => void;
+  authorLoading?: boolean;
   selected?: boolean;
   animate?: boolean;
 }
@@ -22,6 +24,8 @@ export function VideoCard({
   onSelect,
   onDetail,
   onDownload,
+  onAuthor,
+  authorLoading,
   selected,
   animate = false,
 }: VideoCardProps) {
@@ -75,7 +79,7 @@ export function VideoCard({
         <span className="mb-auto min-w-0 truncate text-[0.7rem] text-text-muted">
           {[authorLabel, formatTime(video.create_time)].filter(Boolean).join(" · ")}
         </span>
-        <div className="mt-2 flex gap-1.5">
+        <div className="mt-2 flex gap-1.5 transition-[opacity,transform] duration-[var(--duration-base)] ease-[var(--ease-spring)] sm:translate-y-1 sm:opacity-55 sm:group-hover:translate-y-0 sm:group-hover:opacity-100 sm:group-focus-within:translate-y-0 sm:group-focus-within:opacity-100">
           <Button
             variant="outline"
             size="icon-sm"
@@ -96,6 +100,23 @@ export function VideoCard({
               aria-label="查看详情"
             >
               <Eye className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          {onAuthor && video.author?.sec_uid && (
+            <Button
+              variant="outline"
+              size="icon-sm"
+              className="h-8 flex-1 rounded-[6px]"
+              onClick={(event) => stopAndRun(event, onAuthor)}
+              disabled={authorLoading}
+              title="进入作者主页"
+              aria-label="进入作者主页"
+            >
+              {authorLoading ? (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              ) : (
+                <UserRound className="h-3.5 w-3.5" />
+              )}
             </Button>
           )}
           <Button

@@ -30,7 +30,7 @@ export function AppShell() {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 relative">
-        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div ref={scrollRef} className="flex-1 overflow-x-hidden overflow-y-auto">
           <AnimatePresence initial={false}>
             {renderView(currentView)}
           </AnimatePresence>

@@ -628,14 +628,14 @@ export function SettingsView() {
       initial={false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
-      className="p-8 max-w-[640px] mx-auto"
+      className="mx-auto w-full max-w-[1040px] p-6 lg:p-8"
     >
       <h1 className="text-[1.4rem] font-bold text-text mb-1">设置</h1>
-      <p className="text-[0.82rem] text-text-muted mb-8">
+      <p className="mb-6 text-[0.82rem] text-text-muted">
         更改后自动保存，无需手动提交
       </p>
 
-      <div className="flex flex-col gap-6">
+      <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
         {/* Cookie Section */}
         <SettingGroup icon={Key} label="Cookie 登录">
           {/* Already logged in */}
@@ -938,7 +938,7 @@ export function SettingsView() {
         </SettingGroup>
 
         {/* Divider */}
-        <div className="h-px bg-white/[0.06]" />
+        <div className="h-px bg-white/[0.06] lg:hidden" />
 
         {/* About */}
         <SettingGroup icon={Info} label="关于">
@@ -1027,15 +1027,17 @@ function SettingGroup({
   icon: Icon,
   label,
   status,
+  className,
   children,
 }: {
   icon: React.ElementType;
   label: string;
   status?: SettingStatus;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div>
+    <div className={className}>
       <div className="flex items-center justify-between gap-3 mb-3">
         <label className="flex items-center gap-2 text-[0.85rem] font-semibold text-text">
           <Icon className="w-4 h-4 text-text-muted" />
