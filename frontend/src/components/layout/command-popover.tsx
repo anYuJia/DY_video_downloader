@@ -144,7 +144,7 @@ export function CommandPopover() {
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.15 }}
-        className="fixed inset-0 z-[1080] bg-black/42 backdrop-blur-[2px]"
+        className="fixed inset-0 z-[1080] bg-black/40 backdrop-blur-md"
         onClick={() => setCommandOpen(false)}
       />
 
@@ -163,9 +163,9 @@ export function CommandPopover() {
         className={cn(
           "fixed z-[1090] flex flex-col overflow-hidden",
           "inset-0 m-auto w-fit h-fit",
-          "w-[540px] max-w-[calc(100vw-48px)]",
+          "w-[640px] max-w-[calc(100vw-48px)]",
           "rounded-[var(--radius-xl)]",
-          "bg-surface-solid/[0.96]",
+          "bg-surface-solid/80 backdrop-blur-3xl",
           "shadow-[0_44px_110px_rgba(0,0,0,0.42),0_0_0_1px_var(--color-border)]"
         )}
       >

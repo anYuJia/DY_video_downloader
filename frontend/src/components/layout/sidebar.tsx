@@ -61,7 +61,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="flex h-full w-[var(--sidebar-width)] shrink-0 flex-col bg-gradient-to-b from-surface-solid/94 to-background-soft/86 shadow-[16px_0_40px_rgba(0,0,0,0.08)] max-lg:w-[72px]">
+    <aside className="flex h-full w-[var(--sidebar-width)] shrink-0 flex-col bg-surface-solid/60 backdrop-blur-2xl shadow-[1px_0_0_0_var(--color-border),16px_0_40px_rgba(0,0,0,0.04)] max-lg:w-[72px]">
       {/* Brand */}
       <motion.div
         className="flex items-center gap-3 px-5 py-5 max-lg:justify-center max-lg:px-3"

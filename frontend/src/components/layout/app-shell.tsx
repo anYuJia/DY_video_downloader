@@ -48,11 +48,16 @@ export function AppShell() {
 
 function renderView(view: string) {
   const variants = {
-    initial: { y: 6 },
-    animate: { y: 0 },
+    initial: { opacity: 0, y: 8, scale: 0.985 },
+    animate: { opacity: 1, y: 0, scale: 1 },
+    exit: { opacity: 0, y: -4, scale: 0.99 },
   };
 
-  const transition = { duration: 0.16, ease: easeConfig };
+  const transition = {
+    duration: 0.22,
+    ease: easeConfig,
+    opacity: { duration: 0.15 },
+  };
 
   switch (view) {
     case "home":
