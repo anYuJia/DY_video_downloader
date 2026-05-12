@@ -7,7 +7,6 @@ import { useRecommended } from "@/hooks/use-recommended";
 import { useDownloads } from "@/hooks/use-downloads";
 import { VideoDetailModal } from "@/components/modals/video-detail";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
-import { useAppStore } from "@/stores/app-store";
 import { useSearchStore } from "@/stores/search-store";
 import type { VideoInfo } from "@/lib/tauri";
 import { videoAuthorToUserInfo } from "@/lib/video-author";
@@ -17,9 +16,7 @@ const ORIGINAL_VIDEO_GRID_CLASS = "grid grid-cols-[repeat(auto-fill,minmax(210px
 export function RecommendedFeed() {
   const { videos, loading, loadingMore, hasMore, loadFeed, loadMore, refresh } = useRecommended();
   const { downloadVideo } = useDownloads();
-  const setView = useAppStore((s) => s.setView);
-  const selectUser = useSearchStore((s) => s.selectUser);
-  const searchLoadVideos = useSearchStore((s) => s.loadVideos);
+  const openUser = useSearchStore((s) => s.openUser);
   const [detailVideo, setDetailVideo] = useState<VideoInfo | null>(null);
   const [playerIndex, setPlayerIndex] = useState<number | null>(null);
   const [authorLoadingId, setAuthorLoadingId] = useState<string | null>(null);
@@ -35,9 +32,7 @@ export function RecommendedFeed() {
     if (!user || authorLoadingId) return;
     setAuthorLoadingId(video.aweme_id);
     try {
-      setView("search");
-      await selectUser(user);
-      await searchLoadVideos();
+      await openUser(user);
     } finally {
       setAuthorLoadingId(null);
     }

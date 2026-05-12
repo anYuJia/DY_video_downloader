@@ -2,7 +2,7 @@
 // TypeScript Type Exports
 // ═══════════════════════════════════════════════
 
-export type ViewType = "home" | "search" | "link" | "recommended" | "downloads" | "liked" | "liked-authors" | "settings";
+export type ViewType = "home" | "search" | "user" | "link" | "recommended" | "downloads" | "liked" | "collected" | "liked-authors" | "settings";
 
 export type ThemeMode = "light" | "dark" | "auto";
 

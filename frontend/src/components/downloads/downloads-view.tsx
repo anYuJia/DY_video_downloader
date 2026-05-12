@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useDownloadStore, useLogStore } from "@/stores/app-store";
 import { TaskCard } from "./task-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import {
   Select,
   SelectTrigger,
@@ -19,7 +20,6 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  Eye,
   FileImage,
   FileVideo,
   FolderOpen,
@@ -39,14 +39,31 @@ import {
   listDownloadFilesPage,
   localFileAssetUrl,
   mediaProxyUrl,
-  openFile,
   openFileLocation,
   type HistoryItem,
+  type VideoInfo,
 } from "@/lib/tauri";
 import { cn, formatBytes } from "@/lib/utils";
 
 const FILE_PAGE_SIZE_OPTIONS = [12, 24, 48, 96] as const;
 type LocalMediaKind = "video" | "image" | "audio" | "media";
+type DownloadDisplayMode = "file" | "work";
+type DownloadPlayerState = {
+  videos: VideoInfo[];
+  initialIndex: number;
+  initialMediaIndex: number;
+} | null;
+
+interface DownloadWorkGroup {
+  id: string;
+  title: string;
+  author: string;
+  timestamp: number;
+  size: number;
+  items: HistoryItem[];
+  coverItem: HistoryItem;
+  mediaCounts: Record<LocalMediaKind, number>;
+}
 
 export function DownloadsView() {
   const tasks = useDownloadStore((s) => s.tasks);
@@ -72,42 +89,91 @@ export function DownloadsView() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [sortBy, setSortBy] = useState("date_desc");
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [selectedWorks, setSelectedWorks] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
   const [diskFiles, setDiskFiles] = useState<HistoryItem[]>([]);
   const [diskTotal, setDiskTotal] = useState(0);
   const [diskLoading, setDiskLoading] = useState(false);
+  const [displayMode, setDisplayMode] = useState<DownloadDisplayMode>("file");
+  const [workDiskFiles, setWorkDiskFiles] = useState<HistoryItem[]>([]);
+  const [workDiskLoading, setWorkDiskLoading] = useState(false);
+  const [playerState, setPlayerState] = useState<DownloadPlayerState>(null);
   const [filePage, setFilePage] = useState(1);
   const [filePageSize, setFilePageSize] = useState<number>(24);
+  const diskRequestIdRef = useRef(0);
+  const workRequestIdRef = useRef(0);
 
   useEffect(() => {
     void syncTasks();
   }, [syncTasks]);
 
   const loadDiskFiles = useCallback(async (forceRefresh = false) => {
+    const requestId = ++diskRequestIdRef.current;
     setDiskLoading(true);
     try {
       const page = await listDownloadFilesPage({
         offset: (filePage - 1) * filePageSize,
         limit: filePageSize,
         forceRefresh,
+        query: searchQuery.trim() || undefined,
+        mediaType: typeFilter,
+        sortBy,
       });
+      if (requestId !== diskRequestIdRef.current) return;
       setDiskFiles(page.items);
       setDiskTotal(page.total);
     } catch (error) {
-      addLog(error instanceof Error ? error.message : "扫描下载目录失败", "error");
+      if (requestId === diskRequestIdRef.current) {
+        addLog(error instanceof Error ? error.message : "扫描下载目录失败", "error");
+      }
     } finally {
-      setDiskLoading(false);
+      if (requestId === diskRequestIdRef.current) {
+        setDiskLoading(false);
+      }
     }
-  }, [addLog, filePage, filePageSize]);
+  }, [addLog, filePage, filePageSize, searchQuery, sortBy, typeFilter]);
 
   useEffect(() => {
     void loadDiskFiles();
   }, [loadDiskFiles]);
 
+  const loadWorkDiskFiles = useCallback(async (forceRefresh = false) => {
+    const requestId = ++workRequestIdRef.current;
+    setWorkDiskLoading(true);
+    try {
+      const page = await listDownloadFilesPage({
+        offset: 0,
+        forceRefresh,
+        query: searchQuery.trim() || undefined,
+        mediaType: typeFilter,
+        sortBy,
+      });
+      if (requestId !== workRequestIdRef.current) return;
+      setWorkDiskFiles(page.items);
+    } catch (error) {
+      if (requestId === workRequestIdRef.current) {
+        addLog(error instanceof Error ? error.message : "整理下载作品失败", "error");
+      }
+    } finally {
+      if (requestId === workRequestIdRef.current) {
+        setWorkDiskLoading(false);
+      }
+    }
+  }, [addLog, searchQuery, sortBy, typeFilter]);
+
+  useEffect(() => {
+    if (displayMode !== "work") return;
+    void loadWorkDiskFiles();
+  }, [displayMode, loadWorkDiskFiles]);
+
   const handleRefresh = useCallback(() => {
     void syncTasks();
     void loadHistory();
     void loadDiskFiles(true);
-  }, [syncTasks, loadHistory, loadDiskFiles]);
+    if (displayMode === "work") {
+      void loadWorkDiskFiles(true);
+    }
+  }, [displayMode, syncTasks, loadHistory, loadDiskFiles, loadWorkDiskFiles]);
 
   const handleOpenDir = useCallback(() => {
     void openDownloadsDirectory();
@@ -155,61 +221,47 @@ export function DownloadsView() {
   }, [tasks, taskMatchesFilters, sortBy]);
 
   const mergedFiles = useMemo(() => {
-    const historyByPath = new Map(
-      historyItems
-        .filter((item) => item.path)
-        .map((item) => [item.path, item] as const)
-    );
-
-    return diskFiles.map((file) => {
-      const history = historyByPath.get(file.path);
-      return {
-        ...file,
-        ...history,
-        id: file.id || file.path,
-        path: file.path,
-        file_path: file.path,
-        size: file.size || history?.size || 0,
-        timestamp: history?.timestamp || file.timestamp,
-      };
-    });
+    return mergeDownloadFileItems(diskFiles, historyItems);
   }, [diskFiles, historyItems]);
 
-  const historyList = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    return mergedFiles
-      .filter((item) => {
-        if (query) {
-          const matched = [item.filename, item.title, item.author, item.aweme_id, item.path]
-            .filter(Boolean)
-            .some((value) => String(value).toLowerCase().includes(query));
-          if (!matched) return false;
-        }
-        if (typeFilter !== "all" && getHistoryMediaKind(item) !== typeFilter) {
-          return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        if (sortBy === "date_asc") return (a.timestamp || 0) - (b.timestamp || 0);
-        if (sortBy === "size_desc") return (b.size || 0) - (a.size || 0);
-        if (sortBy === "size_asc") return (a.size || 0) - (b.size || 0);
-        return (b.timestamp || 0) - (a.timestamp || 0);
-      });
-  }, [mergedFiles, searchQuery, sortBy, typeFilter]);
+  const mergedWorkFiles = useMemo(() => {
+    return mergeDownloadFileItems(workDiskFiles, historyItems);
+  }, [historyItems, workDiskFiles]);
 
-  const totalFilePages = Math.max(1, Math.ceil((diskTotal || historyList.length) / filePageSize));
+  const historyList = useMemo(() => {
+    return mergedFiles;
+  }, [mergedFiles]);
+
+  const workGroups = useMemo(() => {
+    return buildDownloadWorkGroups(mergedWorkFiles, sortBy);
+  }, [mergedWorkFiles, sortBy]);
+
+  const totalFileItems = displayMode === "work" ? workGroups.length : diskTotal;
+  const totalFilePages = Math.max(1, Math.ceil(totalFileItems / filePageSize));
   const safeFilePage = Math.min(filePage, totalFilePages);
   const filePageStart = (safeFilePage - 1) * filePageSize;
-  const totalFileItems = diskTotal || historyList.length;
-  const filePageEnd = Math.min(filePageStart + historyList.length, totalFileItems);
   const paginatedHistoryList = historyList;
-  const pageSelectedCount = paginatedHistoryList.filter((item) => selectedFiles.has(item.id)).length;
-  const allPageSelected = paginatedHistoryList.length > 0 && pageSelectedCount === paginatedHistoryList.length;
+  const paginatedWorkGroups = useMemo(() => {
+    return workGroups.slice(filePageStart, filePageStart + filePageSize);
+  }, [filePageSize, filePageStart, workGroups]);
+  const displayedItemCount = displayMode === "work" ? paginatedWorkGroups.length : historyList.length;
+  const filePageEnd = Math.min(filePageStart + displayedItemCount, totalFileItems);
+  const pageSelectedCount = displayMode === "work"
+    ? paginatedWorkGroups.filter((group) => selectedWorks.has(group.id)).length
+    : paginatedHistoryList.filter((item) => selectedFiles.has(item.id)).length;
+  const allPageSelected =
+    displayMode === "work"
+      ? paginatedWorkGroups.length > 0 && pageSelectedCount === paginatedWorkGroups.length
+      : paginatedHistoryList.length > 0 && pageSelectedCount === paginatedHistoryList.length;
+  const selectedCount = displayMode === "work" ? selectedWorks.size : selectedFiles.size;
+  const localListLoading = historyLoading || diskLoading || (displayMode === "work" && workDiskLoading);
 
   useEffect(() => {
     setFilePage(1);
-  }, [searchQuery, sortBy, typeFilter, filePageSize]);
+    setSelectionMode(false);
+    setSelectedFiles(new Set());
+    setSelectedWorks(new Set());
+  }, [displayMode, searchQuery, sortBy, typeFilter, filePageSize]);
 
   useEffect(() => {
     if (filePage > totalFilePages) {
@@ -225,7 +277,28 @@ export function DownloadsView() {
     });
   }, [paginatedHistoryList]);
 
+  useEffect(() => {
+    const validIds = new Set(paginatedWorkGroups.map((group) => group.id));
+    setSelectedWorks((current) => {
+      const next = new Set([...current].filter((id) => validIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [paginatedWorkGroups]);
+
   const toggleSelectAll = useCallback(() => {
+    if (displayMode === "work") {
+      setSelectedWorks((current) => {
+        const next = new Set(current);
+        if (allPageSelected) {
+          paginatedWorkGroups.forEach((group) => next.delete(group.id));
+        } else {
+          paginatedWorkGroups.forEach((group) => next.add(group.id));
+        }
+        return next;
+      });
+      return;
+    }
+
     setSelectedFiles((current) => {
       const next = new Set(current);
       if (allPageSelected) {
@@ -235,7 +308,18 @@ export function DownloadsView() {
       }
       return next;
     });
-  }, [allPageSelected, paginatedHistoryList]);
+  }, [allPageSelected, displayMode, paginatedHistoryList, paginatedWorkGroups]);
+
+  const toggleSelectionMode = useCallback(() => {
+    setSelectionMode((enabled) => {
+      const nextEnabled = !enabled;
+      if (!nextEnabled) {
+        setSelectedFiles(new Set());
+        setSelectedWorks(new Set());
+      }
+      return nextEnabled;
+    });
+  }, []);
 
   const activeTasks = tasksList.filter(
     (t) => t.status === "downloading" || t.status === "pending" || t.status === "paused"
@@ -246,18 +330,55 @@ export function DownloadsView() {
     (t) => t.status === "completed" && !t.filePath && !t.savePath
   );
 
-  const handleOpenHistory = useCallback(async (item: HistoryItem) => {
-    if (!item.path) return;
-    try {
-      await openFile(item.path);
-    } catch (error) {
+  const openDownloadPlayer = useCallback((items: HistoryItem[], initialItem?: HistoryItem) => {
+    const playableItems = getPlayableDownloadItems(items);
+    const video = buildDownloadPlayerVideo(playableItems);
+    if (!video) {
+      addLog("没有可播放的本地媒体文件", "error");
+      return;
+    }
+
+    const mediaIndex = Math.max(
+      0,
+      playableItems.findIndex((item) => initialItem && isSameDownloadItem(item, initialItem))
+    );
+    setPlayerState({
+      videos: [video],
+      initialIndex: 0,
+      initialMediaIndex: mediaIndex,
+    });
+  }, [addLog]);
+
+  const handlePlayHistory = useCallback(async (item: HistoryItem) => {
+    const knownItems = dedupeDownloadItems([
+      ...historyItems,
+      ...diskFiles,
+      ...workDiskFiles,
+      item,
+    ]);
+    let group = findDownloadWorkGroupForItem(item, knownItems, sortBy);
+
+    if (!group || group.items.length <= 1) {
       try {
-        await openFileLocation(item.path);
+        const page = await listDownloadFilesPage({
+          offset: 0,
+          query: searchQuery.trim() || undefined,
+          mediaType: typeFilter,
+          sortBy,
+        });
+        const allFilteredItems = mergeDownloadFileItems(page.items, historyItems);
+        group = findDownloadWorkGroupForItem(item, allFilteredItems, sortBy) || group;
       } catch {
-        addLog(error instanceof Error ? error.message : "打开文件失败，文件可能已经不存在", "error");
+        // Fall back to the selected file if the full scan cannot be read.
       }
     }
-  }, [addLog]);
+
+    openDownloadPlayer(group?.items?.length ? group.items : [item], item);
+  }, [diskFiles, historyItems, openDownloadPlayer, searchQuery, sortBy, typeFilter, workDiskFiles]);
+
+  const handlePlayWorkGroup = useCallback((group: DownloadWorkGroup) => {
+    openDownloadPlayer(group.items, group.items[0]);
+  }, [openDownloadPlayer]);
 
   const handleRevealHistory = useCallback(async (item: HistoryItem) => {
     if (!item.path) return;
@@ -268,25 +389,55 @@ export function DownloadsView() {
     }
   }, [addLog]);
 
-  const handleDeleteHistory = useCallback(async (item: HistoryItem, removeFile = false) => {
+  const handleRevealWorkGroup = useCallback((group: DownloadWorkGroup) => {
+    const firstItem = group.items.find((item) => item.path);
+    if (firstItem) {
+      void handleRevealHistory(firstItem);
+    }
+  }, [handleRevealHistory]);
+
+  const handleDeleteItems = useCallback(async (items: HistoryItem[]) => {
+    const targets = getPlayableDownloadItems(items).filter((item) => item.path);
+    if (targets.length === 0) {
+      addLog("没有可删除的本地文件", "warning");
+      return;
+    }
+
     try {
-      if (removeFile && item.path) {
+      for (const item of targets) {
         await deleteFile(item.path);
+        try {
+          await deleteHistoryItem(item.aweme_id || item.id);
+        } catch {
+          // The disk scan is the source of truth; stale history cleanup is best-effort.
+        }
       }
-      await deleteHistoryItem(item.aweme_id || item.id);
+      const deletedIds = new Set(targets.map((item) => item.id));
       setSelectedFiles((current) => {
-        if (!current.has(item.id)) return current;
-        const next = new Set(current);
-        next.delete(item.id);
+        const next = new Set([...current].filter((id) => !deletedIds.has(id)));
         return next;
       });
+      setSelectedWorks(new Set());
+      setSelectionMode(false);
       void loadHistory();
       void loadDiskFiles();
-      addLog(removeFile ? "已删除文件和记录" : "已移除下载记录", "info");
+      if (displayMode === "work") {
+        void loadWorkDiskFiles();
+      }
+      addLog(targets.length > 1 ? `已删除 ${targets.length} 个文件` : "已删除文件", "info");
     } catch (error) {
       addLog(error instanceof Error ? error.message : "删除失败", "error");
     }
-  }, [addLog, deleteHistoryItem, loadDiskFiles, loadHistory]);
+  }, [addLog, deleteHistoryItem, displayMode, loadDiskFiles, loadHistory, loadWorkDiskFiles]);
+
+  const handleDeleteSelected = useCallback(() => {
+    const targets = displayMode === "work"
+      ? paginatedWorkGroups
+          .filter((group) => selectedWorks.has(group.id))
+          .flatMap((group) => group.items)
+      : paginatedHistoryList.filter((item) => selectedFiles.has(item.id));
+    void handleDeleteItems(targets);
+  }, [displayMode, handleDeleteItems, paginatedHistoryList, paginatedWorkGroups, selectedFiles, selectedWorks]);
 
   return (
     <div>
@@ -296,7 +447,9 @@ export function DownloadsView() {
           <FolderOpen className="w-4 h-4 text-accent" />
           <h3 className="text-[0.9rem] font-semibold text-text">我的下载</h3>
           <Badge variant="secondary">{activeTasks.length} 个进行中</Badge>
-          <Badge variant="outline">{totalFileItems} 个作品本地文件</Badge>
+          <Badge variant="outline">
+            {displayMode === "work" ? `${totalFileItems} 个作品` : `${totalFileItems} 个本地文件`}
+          </Badge>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={handleOpenDir}>
@@ -317,11 +470,20 @@ export function DownloadsView() {
           <Input
             placeholder="搜索文件名、作者..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setFilePage(1);
+              setSearchQuery(e.target.value);
+            }}
             className="pl-8 h-8 text-[0.8rem]"
           />
         </div>
-        <Select value={typeFilter} onValueChange={setTypeFilter}>
+        <Select
+          value={typeFilter}
+          onValueChange={(value) => {
+            setFilePage(1);
+            setTypeFilter(value);
+          }}
+        >
           <SelectTrigger className="w-[120px] h-8 text-[0.8rem]">
             <SelectValue />
           </SelectTrigger>
@@ -332,7 +494,13 @@ export function DownloadsView() {
             <SelectItem value="audio">音频</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={sortBy} onValueChange={setSortBy}>
+        <Select
+          value={sortBy}
+          onValueChange={(value) => {
+            setFilePage(1);
+            setSortBy(value);
+          }}
+        >
           <SelectTrigger className="w-[120px] h-8 text-[0.8rem]">
             <SelectValue />
           </SelectTrigger>
@@ -343,58 +511,33 @@ export function DownloadsView() {
             <SelectItem value="size_asc">最小优先</SelectItem>
           </SelectContent>
         </Select>
-      </div>
-
-      {/* Batch Actions */}
-      {totalFileItems > 0 && (
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex h-8 shrink-0 items-center rounded-[var(--radius-sm)] border border-border bg-surface p-0.5">
           <button
-            onClick={toggleSelectAll}
-            className="flex items-center gap-1.5 px-2.5 h-8 rounded-[var(--radius-sm)] bg-surface border border-border text-[0.78rem] text-text-secondary hover:text-text cursor-pointer transition-[background-color,border-color,color,box-shadow,opacity]"
-          >
-            {allPageSelected ? (
-              <CheckSquare className="w-3.5 h-3.5 text-accent" />
-            ) : (
-              <Square className="w-3.5 h-3.5" />
+            type="button"
+            onClick={() => setDisplayMode("file")}
+            className={cn(
+              "h-7 rounded-[10px] px-3 text-[0.75rem] font-semibold transition-[background-color,color,box-shadow]",
+              displayMode === "file"
+                ? "bg-accent text-white shadow-[0_6px_18px_rgba(254,44,85,0.24)]"
+                : "text-text-muted hover:text-text"
             )}
-            全选本页
+          >
+            文件形式
           </button>
-          {selectedFiles.size > 0 && (
-            <>
-              <Badge variant="default">{selectedFiles.size} 已选</Badge>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const first = historyList.find((item) => selectedFiles.has(item.id));
-                  if (first) void handleOpenHistory(first);
-                }}
-              >
-                <Play className="w-3 h-3" />
-                打开
-              </Button>
-              <Button
-                variant="danger-outline"
-                size="sm"
-                onClick={() => {
-                  paginatedHistoryList
-                    .filter((item) => selectedFiles.has(item.id))
-                    .forEach((item) => void handleDeleteHistory(item, false));
-                  setSelectedFiles(new Set());
-                }}
-              >
-                <Trash2 className="w-3 h-3" />
-                移除记录
-              </Button>
-            </>
-          )}
-          {(completedTasks.length > 0 || stoppedTasks.length > 0) && (
-            <Button variant="ghost" size="sm" onClick={clearCompleted} className="ml-auto">
-              清除已完成
-            </Button>
-          )}
+          <button
+            type="button"
+            onClick={() => setDisplayMode("work")}
+            className={cn(
+              "h-7 rounded-[10px] px-3 text-[0.75rem] font-semibold transition-[background-color,color,box-shadow]",
+              displayMode === "work"
+                ? "bg-accent text-white shadow-[0_6px_18px_rgba(254,44,85,0.24)]"
+                : "text-text-muted hover:text-text"
+            )}
+          >
+            作品形式
+          </button>
         </div>
-      )}
+      </div>
 
       {/* Active Tasks */}
       {activeTasks.length > 0 && (
@@ -482,13 +625,17 @@ export function DownloadsView() {
           <div className="flex items-center gap-2">
             <FileVideo className="w-4 h-4 text-info" />
             <div className="text-[0.7rem] font-bold text-text-muted uppercase tracking-wider">
-              作品本地文件 ({totalFileItems})
+              {displayMode === "work" ? "下载作品" : "本地文件"} ({totalFileItems})
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {(historyLoading || diskLoading) && (
+            {localListLoading && (
               <span className="text-[0.72rem] text-text-muted">
-                {diskLoading ? "扫描下载目录中..." : "同步历史中..."}
+                {displayMode === "work" && workDiskLoading
+                  ? "整理作品中..."
+                  : diskLoading
+                    ? "扫描下载目录中..."
+                    : "同步历史中..."}
               </span>
             )}
             {totalFileItems > 0 && (
@@ -496,9 +643,22 @@ export function DownloadsView() {
                 {filePageStart + 1}-{filePageEnd} / {totalFileItems}
               </span>
             )}
+            {totalFileItems > 0 && (
+              <Button variant={selectionMode ? "default" : "outline"} size="sm" onClick={toggleSelectionMode}>
+                {selectionMode ? (
+                  <Square className="h-3.5 w-3.5" />
+                ) : (
+                  <CheckSquare className="h-3.5 w-3.5" />
+                )}
+                {selectionMode ? "取消" : "选择"}
+              </Button>
+            )}
             <Select
               value={String(filePageSize)}
-              onValueChange={(value) => setFilePageSize(Number(value))}
+              onValueChange={(value) => {
+                setFilePage(1);
+                setFilePageSize(Number(value));
+              }}
             >
               <SelectTrigger className="w-[92px] h-8 text-[0.75rem]">
                 <SelectValue />
@@ -514,33 +674,91 @@ export function DownloadsView() {
           </div>
         </div>
 
+        {selectionMode && totalFileItems > 0 && (
+          <div className="mb-3 flex items-center gap-2">
+            <button
+              onClick={toggleSelectAll}
+              className="flex h-8 items-center gap-1.5 rounded-[var(--radius-sm)] border border-border bg-surface px-2.5 text-[0.78rem] text-text-secondary transition-[background-color,border-color,color,box-shadow,opacity] hover:text-text"
+            >
+              {allPageSelected ? (
+                <CheckSquare className="h-3.5 w-3.5 text-accent" />
+              ) : (
+                <Square className="h-3.5 w-3.5" />
+              )}
+              全选本页
+            </button>
+            {selectedCount > 0 && (
+              <>
+                <Badge variant="default">{selectedCount} 已选</Badge>
+                <Button variant="danger-outline" size="sm" onClick={handleDeleteSelected}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                  删除文件
+                </Button>
+              </>
+            )}
+            {(completedTasks.length > 0 || stoppedTasks.length > 0) && (
+              <Button variant="ghost" size="sm" onClick={clearCompleted} className="ml-auto">
+                清除已完成
+              </Button>
+            )}
+          </div>
+        )}
+
         {totalFileItems > 0 ? (
           <>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
-              {paginatedHistoryList.map((item) => (
-                <HistoryFileCard
-                  key={item.id}
-                  item={item}
-                  selected={selectedFiles.has(item.id)}
-                  allowVideoPreview={filePageSize <= 24}
-                  onToggle={() => {
-                    setSelectedFiles((current) => {
-                      const next = new Set(current);
-                      if (next.has(item.id)) {
-                        next.delete(item.id);
-                      } else {
-                        next.add(item.id);
-                      }
-                      return next;
-                    });
-                  }}
-                  onOpen={() => void handleOpenHistory(item)}
-                  onReveal={() => void handleRevealHistory(item)}
-                  onRemoveRecord={() => void handleDeleteHistory(item, false)}
-                  onDeleteFile={() => void handleDeleteHistory(item, true)}
-                />
-              ))}
-            </div>
+            {displayMode === "work" ? (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
+                {paginatedWorkGroups.map((group) => (
+                  <DownloadWorkCard
+                    key={group.id}
+                    group={group}
+                    selected={selectedWorks.has(group.id)}
+                    selectionMode={selectionMode}
+                    allowVideoPreview={filePageSize <= 24}
+                    onToggle={() => {
+                      setSelectedWorks((current) => {
+                        const next = new Set(current);
+                        if (next.has(group.id)) {
+                          next.delete(group.id);
+                        } else {
+                          next.add(group.id);
+                        }
+                        return next;
+                      });
+                    }}
+                    onPlay={() => handlePlayWorkGroup(group)}
+                    onReveal={() => handleRevealWorkGroup(group)}
+                    onDeleteFile={() => void handleDeleteItems(group.items)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
+                {paginatedHistoryList.map((item) => (
+                  <HistoryFileCard
+                    key={item.id}
+                    item={item}
+                    selected={selectedFiles.has(item.id)}
+                    selectionMode={selectionMode}
+                    allowVideoPreview={filePageSize <= 24}
+                    onToggle={() => {
+                      setSelectedFiles((current) => {
+                        const next = new Set(current);
+                        if (next.has(item.id)) {
+                          next.delete(item.id);
+                        } else {
+                          next.add(item.id);
+                        }
+                        return next;
+                      });
+                    }}
+                    onOpen={() => void handlePlayHistory(item)}
+                    onReveal={() => void handleRevealHistory(item)}
+                    onDeleteFile={() => void handleDeleteItems([item])}
+                  />
+                ))}
+              </div>
+            )}
             <FilePagination
               page={safeFilePage}
               totalPages={totalFilePages}
@@ -550,10 +768,19 @@ export function DownloadsView() {
               onPageChange={setFilePage}
             />
           </>
+        ) : localListLoading ? (
+          <div className="rounded-[16px] border border-border bg-surface-solid/60 p-6 text-center">
+            <p className="text-[0.85rem] text-text-secondary mb-1">
+              {displayMode === "work" ? "正在整理下载作品..." : "正在扫描下载目录..."}
+            </p>
+            <p className="text-[0.76rem] text-text-muted">
+              文件越多，首次整理需要的时间越长。
+            </p>
+          </div>
         ) : (
           <div className="rounded-[16px] border border-border bg-surface-solid/60 p-6 text-center">
             <p className="text-[0.85rem] text-text-secondary mb-1">
-              没有找到本地作品文件
+              {displayMode === "work" ? "没有找到下载作品" : "没有找到本地文件"}
             </p>
             <p className="text-[0.76rem] text-text-muted">
               这里直接扫描下载目录，已过滤 .DS_Store、.downloaded 和非媒体文件。
@@ -562,8 +789,17 @@ export function DownloadsView() {
         )}
       </div>
 
+      <FullscreenPlayer
+        videos={playerState?.videos || []}
+        initialIndex={playerState?.initialIndex || 0}
+        initialMediaIndex={playerState?.initialMediaIndex || 0}
+        open={Boolean(playerState)}
+        onClose={() => setPlayerState(null)}
+        onDownload={() => addLog("本地文件已经在下载目录中", "info")}
+      />
+
       {/* Empty State */}
-      {tasksList.length === 0 && totalFileItems === 0 && (
+      {tasksList.length === 0 && totalFileItems === 0 && !localListLoading && (
         <motion.div
           initial={false}
           animate={{ opacity: 1, y: 0 }}
@@ -583,20 +819,20 @@ export function DownloadsView() {
 function HistoryFileCard({
   item,
   selected,
+  selectionMode,
   onToggle,
   onOpen,
   onReveal,
-  onRemoveRecord,
   onDeleteFile,
   allowVideoPreview,
 }: {
   item: HistoryItem;
   selected: boolean;
+  selectionMode: boolean;
   allowVideoPreview: boolean;
   onToggle: () => void;
   onOpen: () => void;
   onReveal: () => void;
-  onRemoveRecord: () => void;
   onDeleteFile: () => void;
 }) {
   const filename = item.filename || item.title || item.id;
@@ -609,16 +845,16 @@ function HistoryFileCard({
   return (
     <div
       className={cn(
-        "group rounded-[18px] border bg-surface-solid/75 p-4 transition-[background-color,border-color,box-shadow]",
+        "group relative rounded-[18px] border bg-surface-solid/75 p-4 transition-[background-color,border-color,box-shadow]",
         selected
           ? "border-accent/45 bg-accent-soft/20 shadow-[0_0_0_1px_var(--color-accent-ring)]"
           : "border-border hover:border-border-strong hover:bg-surface-raised"
       )}
     >
-      <div className="flex items-start gap-3">
+      {selectionMode && (
         <button
           onClick={onToggle}
-          className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-surface border border-border text-text-muted hover:text-text transition-[background-color,color,border-color]"
+          className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-[10px] border border-border bg-surface/95 text-text-muted shadow-[0_8px_22px_rgba(0,0,0,0.16)] transition-[background-color,color,border-color,box-shadow] hover:text-text"
           title={selected ? "取消选择" : "选择"}
         >
           {selected ? (
@@ -627,7 +863,9 @@ function HistoryFileCard({
             <Square className="h-4 w-4" />
           )}
         </button>
+      )}
 
+      <div className={cn("flex items-start gap-3", selectionMode && "pr-8")}>
         <HistoryFileThumbnail
           item={item}
           mediaKind={mediaKind}
@@ -665,20 +903,122 @@ function HistoryFileCard({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button variant="default" size="sm" onClick={onOpen}>
+      <div className="mt-3 grid grid-cols-[0.86fr_0.86fr_1.15fr] gap-2">
+        <Button variant="default" size="sm" onClick={onOpen} className="min-w-0 gap-1 px-1.5 text-[0.72rem] sm:gap-1.5 sm:px-2 sm:text-[0.75rem]">
           <Play className="h-3.5 w-3.5" />
-          打开
+          播放
         </Button>
-        <Button variant="outline" size="sm" onClick={onReveal}>
+        <Button variant="outline" size="sm" onClick={onReveal} className="min-w-0 gap-1 px-1.5 text-[0.72rem] sm:gap-1.5 sm:px-2 sm:text-[0.75rem]">
           <FolderOpen className="h-3.5 w-3.5" />
           定位
         </Button>
-        <Button variant="ghost" size="sm" onClick={onRemoveRecord}>
-          <Eye className="h-3.5 w-3.5" />
-          仅移除记录
+        <Button variant="danger-outline" size="sm" onClick={onDeleteFile} className="min-w-0 gap-1 px-1.5 text-[0.72rem] sm:gap-1.5 sm:px-2 sm:text-[0.75rem]">
+          <Trash2 className="h-3.5 w-3.5" />
+          删除文件
         </Button>
-        <Button variant="danger-outline" size="sm" onClick={onDeleteFile} className="ml-auto">
+      </div>
+    </div>
+  );
+}
+
+function DownloadWorkCard({
+  group,
+  selected,
+  selectionMode,
+  onToggle,
+  onPlay,
+  onReveal,
+  onDeleteFile,
+  allowVideoPreview,
+}: {
+  group: DownloadWorkGroup;
+  selected: boolean;
+  selectionMode: boolean;
+  allowVideoPreview: boolean;
+  onToggle: () => void;
+  onPlay: () => void;
+  onReveal: () => void;
+  onDeleteFile: () => void;
+}) {
+  const coverKind = getHistoryMediaKind(group.coverItem);
+  const createdAt = group.timestamp
+    ? new Date(group.timestamp * 1000).toLocaleString()
+    : "";
+  const firstPath = group.items.find((item) => item.path)?.path || "";
+
+  return (
+    <div
+      className={cn(
+        "group relative rounded-[18px] border bg-surface-solid/75 p-4 transition-[background-color,border-color,box-shadow]",
+        selected
+          ? "border-accent/45 bg-accent-soft/20 shadow-[0_0_0_1px_var(--color-accent-ring)]"
+          : "border-border hover:border-border-strong hover:bg-surface-raised"
+      )}
+    >
+      {selectionMode && (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-[10px] border border-border bg-surface/95 text-text-muted shadow-[0_8px_22px_rgba(0,0,0,0.16)] transition-[background-color,color,border-color,box-shadow] hover:text-text"
+          title={selected ? "取消选择" : "选择"}
+        >
+          {selected ? (
+            <CheckSquare className="h-4 w-4 text-accent" />
+          ) : (
+            <Square className="h-4 w-4" />
+          )}
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={onPlay}
+        className={cn("flex w-full items-start gap-3 text-left", selectionMode && "pr-8")}
+      >
+        <HistoryFileThumbnail
+          item={group.coverItem}
+          mediaKind={coverKind}
+          filename={group.title}
+          allowVideoPreview={allowVideoPreview}
+          className="h-28 w-20"
+          label={`${group.items.length} 个`}
+        />
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <FileVideo className="h-4 w-4 shrink-0 text-info" />
+            <span className="truncate text-[0.88rem] font-semibold text-text group-hover:text-accent transition-colors">
+              {group.title}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.68rem] text-text-muted tabular-nums">
+            <Badge variant="secondary" size="sm">{formatWorkMediaSummary(group)}</Badge>
+            <span>{formatBytes(group.size)}</span>
+            {createdAt && (
+              <span className="inline-flex items-center gap-1">
+                <CalendarClock className="h-3 w-3" />
+                {createdAt}
+              </span>
+            )}
+            {group.author && <span>@{group.author}</span>}
+          </div>
+
+          <div className="mt-2 truncate text-[0.66rem] text-text-muted" title={firstPath}>
+            {firstPath || "作品没有可定位的文件路径"}
+          </div>
+        </div>
+      </button>
+
+      <div className="mt-3 grid grid-cols-[0.86fr_0.86fr_1.15fr] gap-2">
+        <Button variant="default" size="sm" onClick={onPlay} className="min-w-0 gap-1 px-1.5 text-[0.72rem] sm:gap-1.5 sm:px-2 sm:text-[0.75rem]">
+          <Play className="h-3.5 w-3.5" />
+          播放
+        </Button>
+        <Button variant="outline" size="sm" onClick={onReveal} className="min-w-0 gap-1 px-1.5 text-[0.72rem] sm:gap-1.5 sm:px-2 sm:text-[0.75rem]">
+          <FolderOpen className="h-3.5 w-3.5" />
+          定位
+        </Button>
+        <Button variant="danger-outline" size="sm" onClick={onDeleteFile} className="min-w-0 gap-1 px-1.5 text-[0.72rem] sm:gap-1.5 sm:px-2 sm:text-[0.75rem]">
           <Trash2 className="h-3.5 w-3.5" />
           删除文件
         </Button>
@@ -692,11 +1032,15 @@ function HistoryFileThumbnail({
   mediaKind,
   filename,
   allowVideoPreview,
+  className,
+  label,
 }: {
   item: HistoryItem;
   mediaKind: LocalMediaKind;
   filename: string;
   allowVideoPreview: boolean;
+  className?: string;
+  label?: string;
 }) {
   const coverUrl = useMemo(() => (item.cover ? mediaProxyUrl(item.cover, "image") : ""), [item.cover]);
   const localUrl = useMemo(() => localFileAssetUrl(item.path), [item.path]);
@@ -717,7 +1061,10 @@ function HistoryFileThumbnail({
   const hasPreview = showCover || showLocalImage || showLocalVideo;
 
   return (
-    <div className="relative h-24 w-[72px] shrink-0 overflow-hidden rounded-[14px] bg-background-soft shadow-[inset_0_0_0_1px_var(--image-outline)]">
+    <div className={cn(
+      "relative h-24 w-[72px] shrink-0 overflow-hidden rounded-[14px] bg-background-soft shadow-[inset_0_0_0_1px_var(--image-outline)]",
+      className
+    )}>
       {hasPreview && !loaded && (
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_25%,rgba(254,44,85,0.18),transparent_36%),linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))]" />
       )}
@@ -788,7 +1135,7 @@ function HistoryFileThumbnail({
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 pb-1.5 pt-7">
         <span className="text-[0.62rem] font-semibold text-white/90">
-          {formatMediaKindLabel(mediaKind)}
+          {label || formatMediaKindLabel(mediaKind)}
         </span>
       </div>
     </div>
@@ -799,6 +1146,300 @@ function MediaKindIcon({ kind, className }: { kind: LocalMediaKind; className?: 
   if (kind === "image") return <FileImage className={className} />;
   if (kind === "audio") return <Music2 className={className} />;
   return <FileVideo className={className} />;
+}
+
+function mergeDownloadFileItems(files: HistoryItem[], historyItems: HistoryItem[]): HistoryItem[] {
+  const historyByPath = new Map(
+    historyItems
+      .filter((item) => item.path)
+      .map((item) => [item.path, item] as const)
+  );
+
+  return files.map((file) => {
+    const history = historyByPath.get(file.path);
+    return {
+      ...file,
+      ...history,
+      id: file.id || file.path,
+      path: file.path,
+      file_path: file.path,
+      size: file.size || history?.size || 0,
+      timestamp: history?.timestamp || file.timestamp,
+    };
+  });
+}
+
+function buildDownloadWorkGroups(items: HistoryItem[], sortBy: string): DownloadWorkGroup[] {
+  const grouped = new Map<string, HistoryItem[]>();
+
+  for (const item of dedupeDownloadItems(items)) {
+    if (!item.path) continue;
+    const key = getDownloadWorkKey(item);
+    const groupItems = grouped.get(key) || [];
+    groupItems.push(item);
+    grouped.set(key, groupItems);
+  }
+
+  const groups = Array.from(grouped.entries()).map(([id, groupItems]) => {
+    const sortedItems = sortDownloadWorkItems(groupItems);
+    const coverItem = chooseDownloadWorkCover(sortedItems);
+    const mediaCounts = createEmptyMediaCounts();
+
+    for (const item of sortedItems) {
+      mediaCounts[getHistoryMediaKind(item)] += 1;
+    }
+
+    return {
+      id,
+      title: resolveDownloadWorkTitle(sortedItems),
+      author: sortedItems.find((item) => item.author)?.author || "",
+      timestamp: Math.max(...sortedItems.map((item) => Number(item.timestamp || item.create_time || 0))),
+      size: sortedItems.reduce((sum, item) => sum + (Number(item.size || item.file_size || 0) || 0), 0),
+      items: sortedItems,
+      coverItem,
+      mediaCounts,
+    };
+  });
+
+  return sortDownloadWorkGroups(groups, sortBy);
+}
+
+function findDownloadWorkGroupForItem(
+  item: HistoryItem,
+  items: HistoryItem[],
+  sortBy: string
+): DownloadWorkGroup | null {
+  const targetKey = getDownloadWorkKey(item);
+  return buildDownloadWorkGroups(items, sortBy).find((group) => group.id === targetKey) || null;
+}
+
+function dedupeDownloadItems(items: HistoryItem[]): HistoryItem[] {
+  const seen = new Set<string>();
+  const result: HistoryItem[] = [];
+
+  for (const item of items) {
+    const key = getDownloadItemKey(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+
+  return result;
+}
+
+function getPlayableDownloadItems(items: HistoryItem[]): HistoryItem[] {
+  return dedupeDownloadItems(items).filter((item) => Boolean(item.path));
+}
+
+function buildDownloadPlayerVideo(items: HistoryItem[]): VideoInfo | null {
+  const playableItems = getPlayableDownloadItems(items);
+  if (playableItems.length === 0) return null;
+
+  const title = resolveDownloadWorkTitle(playableItems);
+  const authorName = playableItems.find((item) => item.author)?.author || "本地下载";
+  const coverItem = chooseDownloadWorkCover(playableItems);
+  const coverUrl = getDownloadCoverUrl(coverItem);
+  const mediaUrls = playableItems.map((item) => ({
+    type: getHistoryMediaKind(item) === "image" ? "image" : "video",
+    url: localFileAssetUrl(item.path),
+  }));
+  const imageUrls = mediaUrls
+    .filter((item) => item.type === "image")
+    .map((item) => item.url);
+  const firstVideoUrl = mediaUrls.find((item) => item.type === "video")?.url || "";
+  const timestamp = Math.max(...playableItems.map((item) => Number(item.timestamp || item.create_time || 0)));
+  const allImages = mediaUrls.length > 0 && mediaUrls.every((item) => item.type === "image");
+  const allVideos = mediaUrls.length > 0 && mediaUrls.every((item) => item.type === "video");
+  const mediaType = allImages ? "image" : allVideos ? "video" : "mixed";
+
+  return {
+    aweme_id: "",
+    desc: title,
+    create_time: timestamp,
+    author: {
+      uid: "",
+      sec_uid: "",
+      nickname: authorName,
+      avatar_thumb: "",
+      avatar_medium: "",
+      signature: "",
+      follower_count: 0,
+      following_count: 0,
+      aweme_count: 0,
+      favoriting_count: 0,
+      is_follow: false,
+      verify_status: 0,
+      unique_id: "",
+    },
+    video: {
+      preview_addr: null,
+      play_addr: firstVideoUrl,
+      play_addr_h264: null,
+      play_addr_lowbr: null,
+      download_addr: firstVideoUrl || mediaUrls[0]?.url || null,
+      cover: coverUrl,
+      dynamic_cover: "",
+      origin_cover: coverUrl,
+      width: 0,
+      height: 0,
+      duration: 0,
+      ratio: "",
+      bit_rate: null,
+    },
+    statistics: {
+      play_count: 0,
+      digg_count: 0,
+      comment_count: 0,
+      share_count: 0,
+      collect_count: 0,
+      forward_count: 0,
+    },
+    media_urls: mediaUrls,
+    image_urls: imageUrls,
+    images: imageUrls,
+    live_photo_urls: null,
+    live_photos: null,
+    has_live_photo: false,
+    is_image: allImages,
+    media_type: mediaType,
+    raw_media_type: mediaType,
+    bgm_url: null,
+    cover_url: coverUrl,
+    music: null,
+  };
+}
+
+function getDownloadWorkKey(item: HistoryItem): string {
+  const awemeId = String(item.aweme_id || "").trim();
+  if (isUsableAwemeId(awemeId, item)) return `aweme:${awemeId}`;
+
+  const title = normalizeDownloadWorkTitle(resolveDownloadItemTitle(item));
+  const scope = (item.author || getParentDirectoryName(item.path) || "unknown").trim().toLowerCase();
+  return `work:${scope}:${title.toLowerCase()}`;
+}
+
+function isUsableAwemeId(awemeId: string, item: HistoryItem): boolean {
+  if (!awemeId) return false;
+  if (item.path && awemeId === item.path) return false;
+  if (/[\\/]/.test(awemeId) || awemeId.includes(":")) return false;
+  return awemeId.length <= 80;
+}
+
+function resolveDownloadWorkTitle(items: HistoryItem[]): string {
+  const title = items
+    .map(resolveDownloadItemTitle)
+    .map(normalizeDownloadWorkTitle)
+    .find(Boolean);
+  return title || "未命名作品";
+}
+
+function resolveDownloadItemTitle(item: HistoryItem): string {
+  const direct = String(item.title || item.desc || item.filename || "").trim();
+  if (direct) return stripKnownMediaExtension(direct);
+  return getFileStem(item.path || item.file_path || "") || item.id || "未命名作品";
+}
+
+function normalizeDownloadWorkTitle(value: string): string {
+  let result = stripKnownMediaExtension(value).trim();
+
+  for (let index = 0; index < 3; index += 1) {
+    const next = result
+      .replace(/\s*[（(]\d{1,4}[）)]$/u, "")
+      .replace(/\s*[\[【]\d{1,4}[\]】]$/u, "")
+      .replace(/(?:[_-](?:\d{1,4}|img\d{0,4}|image\d{0,4}|photo\d{0,4}|cover|poster|live[_-]?photo\d{0,4}|实况|封面|图片\d{0,4}))$/iu, "")
+      .replace(/第\d{1,4}[张集]$/u, "")
+      .trim();
+    if (next === result) break;
+    result = next;
+  }
+
+  return result || stripKnownMediaExtension(value).trim();
+}
+
+function sortDownloadWorkItems(items: HistoryItem[]): HistoryItem[] {
+  return [...items].sort((a, b) => {
+    const titleCompare = resolveDownloadItemTitle(a).localeCompare(
+      resolveDownloadItemTitle(b),
+      undefined,
+      { numeric: true, sensitivity: "base" }
+    );
+    if (titleCompare !== 0) return titleCompare;
+    return (a.path || "").localeCompare(b.path || "", undefined, { numeric: true, sensitivity: "base" });
+  });
+}
+
+function sortDownloadWorkGroups(groups: DownloadWorkGroup[], sortBy: string): DownloadWorkGroup[] {
+  return [...groups].sort((a, b) => {
+    if (sortBy === "date_asc") return a.timestamp - b.timestamp;
+    if (sortBy === "size_desc") return b.size - a.size;
+    if (sortBy === "size_asc") return a.size - b.size;
+    return b.timestamp - a.timestamp;
+  });
+}
+
+function chooseDownloadWorkCover(items: HistoryItem[]): HistoryItem {
+  return (
+    items.find((item) => item.cover) ||
+    items.find((item) => getHistoryMediaKind(item) === "image") ||
+    items.find((item) => getHistoryMediaKind(item) === "video") ||
+    items[0]!
+  );
+}
+
+function getDownloadCoverUrl(item: HistoryItem): string {
+  if (item.cover) return item.cover;
+  if (getHistoryMediaKind(item) === "image" && item.path) {
+    return localFileAssetUrl(item.path);
+  }
+  return "";
+}
+
+function createEmptyMediaCounts(): Record<LocalMediaKind, number> {
+  return {
+    video: 0,
+    image: 0,
+    audio: 0,
+    media: 0,
+  };
+}
+
+function formatWorkMediaSummary(group: DownloadWorkGroup): string {
+  const parts = [
+    group.mediaCounts.video ? `视频 ${group.mediaCounts.video}` : "",
+    group.mediaCounts.image ? `图片 ${group.mediaCounts.image}` : "",
+    group.mediaCounts.audio ? `音频 ${group.mediaCounts.audio}` : "",
+    group.mediaCounts.media ? `媒体 ${group.mediaCounts.media}` : "",
+  ].filter(Boolean);
+
+  return parts.join(" · ") || `${group.items.length} 个文件`;
+}
+
+function isSameDownloadItem(a: HistoryItem, b: HistoryItem): boolean {
+  const aPath = a.path || a.file_path || "";
+  const bPath = b.path || b.file_path || "";
+  if (aPath && bPath) return aPath === bPath;
+  return getDownloadItemKey(a) === getDownloadItemKey(b);
+}
+
+function getDownloadItemKey(item: HistoryItem): string {
+  return item.path || item.file_path || item.id || item.aweme_id || item.filename || "";
+}
+
+function getParentDirectoryName(path: string): string {
+  const normalized = (path || "").replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts.length >= 2 ? parts[parts.length - 2] : "";
+}
+
+function getFileStem(path: string): string {
+  const filename = (path || "").split(/[\\/]/).pop() || "";
+  return stripKnownMediaExtension(filename);
+}
+
+function stripKnownMediaExtension(value: string): string {
+  const extension = getPathExtension(value);
+  if (!extension || !mediaKindFromExtension(extension)) return value;
+  return value.slice(0, Math.max(0, value.length - extension.length - 1));
 }
 
 function getHistoryMediaKind(item: HistoryItem): LocalMediaKind {

@@ -4,11 +4,13 @@ import { Badge } from "@/components/ui/badge";
 import {
   Home,
   Search,
+  UserRound,
   Link2,
   Sparkles,
   FolderOpen,
   Heart,
   Settings,
+  Star,
   Circle,
 } from "lucide-react";
 import { motion } from "framer-motion";
@@ -18,16 +20,17 @@ interface NavItem {
   id: ViewType;
   label: string;
   icon: React.ElementType;
-  command?: "search" | "link";
 }
 
 const navItems: NavItem[] = [
   { id: "home", label: "首页", icon: Home },
-  { id: "search", label: "搜索用户", icon: Search, command: "search" },
-  { id: "link", label: "粘贴链接", icon: Link2, command: "link" },
+  { id: "search", label: "搜索用户", icon: Search },
+  { id: "user", label: "用户主页", icon: UserRound },
+  { id: "link", label: "解析链接", icon: Link2 },
   { id: "recommended", label: "推荐视频", icon: Sparkles },
   { id: "downloads", label: "我的下载", icon: FolderOpen },
   { id: "liked", label: "点赞视频", icon: Heart },
+  { id: "collected", label: "收藏内容", icon: Star },
   { id: "settings", label: "设置", icon: Settings },
 ];
 
@@ -46,18 +49,11 @@ const itemVariants = {
 export function Sidebar() {
   const currentView = useAppStore((s) => s.currentView);
   const setView = useAppStore((s) => s.setView);
-  const setCommandOpen = useAppStore((s) => s.setCommandOpen);
-  const setCommandMode = useAppStore((s) => s.setCommandMode);
   const cookieLoggedIn = useAppStore((s) => s.cookieLoggedIn);
   const activeCount = useDownloadStore((s) => s.activeCount);
 
   const handleNavClick = (item: NavItem) => {
-    if (item.command) {
-      setCommandMode(item.command);
-      setCommandOpen(true);
-    } else {
-      setView(item.id);
-    }
+    setView(item.id);
   };
 
   return (

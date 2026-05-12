@@ -1,17 +1,41 @@
-import { useEffect, useState } from "react";
-import { AlertCircle, Download, Link2, Loader2, RefreshCw, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  AlertCircle,
+  ArrowUpRight,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Download,
+  FileVideo,
+  Link2,
+  Loader2,
+  RefreshCw,
+  Trash2,
+  UserRound,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { VideoCard } from "@/components/search/video-card";
 import { VideoDetailModal } from "@/components/modals/video-detail";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import { useDownloads } from "@/hooks/use-downloads";
-import { useAppStore } from "@/stores/app-store";
 import { useLinkStore } from "@/stores/link-store";
 import { useSearchStore } from "@/stores/search-store";
-import { mediaProxyUrl, type VideoInfo } from "@/lib/tauri";
+import {
+  clearRecentParsedLinks,
+  loadRecentParsedLinks,
+  removeRecentParsedLink,
+  type RecentParsedLink,
+} from "@/lib/recent-searches";
+import { mediaProxyUrl, type UserInfo, type VideoInfo } from "@/lib/tauri";
 import { videoAuthorToUserInfo } from "@/lib/video-author";
+import { cn, formatNumber } from "@/lib/utils";
+
+const HISTORY_PAGE_SIZE = 8;
+const LINK_COMPLETION_LIMIT = 6;
 
 export function LinkView() {
   const link = useLinkStore((s) => s.link);
@@ -21,21 +45,86 @@ export function LinkView() {
   const error = useLinkStore((s) => s.error);
   const parse = useLinkStore((s) => s.parse);
   const clear = useLinkStore((s) => s.clear);
-  const setView = useAppStore((s) => s.setView);
-  const selectUser = useSearchStore((s) => s.selectUser);
-  const searchLoadVideos = useSearchStore((s) => s.loadVideos);
+  const openUser = useSearchStore((s) => s.openUser);
   const { downloadVideo, downloadBatch } = useDownloads();
   const [inputValue, setInputValue] = useState(link);
+  const [history, setHistory] = useState<RecentParsedLink[]>([]);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [activeCompletionIndex, setActiveCompletionIndex] = useState(-1);
   const [detailVideo, setDetailVideo] = useState<VideoInfo | null>(null);
   const [playerIndex, setPlayerIndex] = useState<number | null>(null);
   const [authorLoadingId, setAuthorLoadingId] = useState<string | null>(null);
+
+  const totalHistoryPages = Math.max(1, Math.ceil(history.length / HISTORY_PAGE_SIZE));
+  const safeHistoryPage = Math.min(historyPage, totalHistoryPages);
+  const pagedHistory = useMemo(() => {
+    const start = (safeHistoryPage - 1) * HISTORY_PAGE_SIZE;
+    return history.slice(start, start + HISTORY_PAGE_SIZE);
+  }, [history, safeHistoryPage]);
+
+  const syncHistory = () => {
+    setHistory(loadRecentParsedLinks());
+  };
+
+  useEffect(() => {
+    syncHistory();
+  }, []);
 
   useEffect(() => {
     setInputValue(link);
   }, [link]);
 
-  const handleParse = () => {
-    void parse(inputValue);
+  useEffect(() => {
+    if (historyPage > totalHistoryPages) {
+      setHistoryPage(totalHistoryPages);
+    }
+  }, [historyPage, totalHistoryPages]);
+
+  const completions = useMemo(() => {
+    const keyword = inputValue.trim().toLowerCase();
+    if (!keyword) return [];
+    return history
+      .filter((entry) => linkMatchesKeyword(entry, keyword))
+      .slice(0, LINK_COMPLETION_LIMIT);
+  }, [history, inputValue]);
+
+  const showCompletions = inputFocused && inputValue.trim().length > 0 && completions.length > 0;
+  const hasResult = videos.length > 0 || Boolean(user);
+  const completionListId = "parse-link-completions";
+  const activeCompletionId =
+    showCompletions && activeCompletionIndex >= 0 && activeCompletionIndex < completions.length
+      ? `${completionListId}-${activeCompletionIndex}`
+      : undefined;
+
+  useEffect(() => {
+    setActiveCompletionIndex((current) => (current >= completions.length ? -1 : current));
+  }, [completions.length]);
+
+  const handleParse = async (value = inputValue) => {
+    const target = value.trim();
+    if (!target || parsing) return;
+    setInputValue(target);
+    setInputFocused(false);
+    setActiveCompletionIndex(-1);
+    await parse(target);
+    syncHistory();
+  };
+
+  const handleClearInput = () => {
+    setInputValue("");
+    setActiveCompletionIndex(-1);
+    clear();
+  };
+
+  const handleRemoveHistory = (key: string) => {
+    setHistory(removeRecentParsedLink(key));
+  };
+
+  const handleClearHistory = () => {
+    clearRecentParsedLinks();
+    setHistory([]);
+    setHistoryPage(1);
   };
 
   const openPlayer = (video: VideoInfo) => {
@@ -48,9 +137,7 @@ export function LinkView() {
     if (!userInfo || authorLoadingId) return;
     setAuthorLoadingId(video.aweme_id);
     try {
-      setView("search");
-      await selectUser(userInfo);
-      await searchLoadVideos();
+      await openUser(userInfo);
     } finally {
       setAuthorLoadingId(null);
     }
@@ -58,114 +145,278 @@ export function LinkView() {
 
   return (
     <>
-      <div>
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Link2 className="h-4 w-4 text-info" />
-            <h3 className="text-[0.9rem] font-semibold text-text">粘贴链接</h3>
-            {videos.length > 0 && <Badge variant="secondary">{videos.length} 个作品</Badge>}
-          </div>
-          {videos.length > 0 && (
-            <Button variant="outline" size="sm" onClick={() => void downloadBatch(videos)}>
-              <Download className="h-3.5 w-3.5" />
-              下载全部
-            </Button>
-          )}
-        </div>
-
-        <div className="mb-4 rounded-[18px] border border-border bg-surface-solid/75 p-4">
-          <div className="flex gap-2">
-            <Input
-              value={inputValue}
-              onChange={(event) => setInputValue(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") handleParse();
-              }}
-              placeholder="粘贴抖音分享链接或完整视频 URL"
-              className="h-10 flex-1"
-            />
-            {inputValue && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => {
-                  setInputValue("");
-                  clear();
-                }}
-                title="清空"
-              >
-                <X className="h-4 w-4" />
+      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-5">
+        <section className="rounded-[20px] bg-surface-solid/78 p-5 shadow-[0_18px_52px_rgba(0,0,0,0.16),inset_0_0_0_1px_rgba(255,255,255,0.04)]">
+          <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Link2 className="h-4 w-4 text-info" />
+              <h3 className="text-[0.95rem] font-semibold text-text">解析链接</h3>
+              {videos.length > 0 && <Badge variant="secondary">{videos.length} 个作品</Badge>}
+              {user && <Badge variant="info">解析到用户</Badge>}
+            </div>
+            {videos.length > 0 && (
+              <Button variant="outline" size="sm" onClick={() => void downloadBatch(videos)}>
+                <Download className="h-3.5 w-3.5" />
+                下载全部
               </Button>
             )}
-            <Button onClick={handleParse} disabled={parsing || !inputValue.trim()} className="h-10">
+          </div>
+
+          <div className="flex items-start gap-2">
+            <div className="relative min-w-0 flex-1">
+              <div
+                className={cn(
+                  "flex h-12 items-center gap-3 rounded-[16px] bg-white/[0.045] px-4 shadow-[0_10px_30px_rgba(0,0,0,0.12)] transition-[background-color,box-shadow]",
+                  inputFocused && "bg-white/[0.07] shadow-[0_18px_42px_rgba(0,0,0,0.18)]",
+                  inputValue.trim() && "bg-info/[0.07]"
+                )}
+              >
+                <div
+                  className={cn(
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.06] text-text-muted transition-[background-color,color]",
+                    inputValue.trim() && "bg-info/15 text-info"
+                  )}
+                >
+                  <Link2 className="h-4 w-4" />
+                </div>
+                <input
+                  autoFocus
+                  value={inputValue}
+                  onChange={(event) => {
+                    setInputValue(event.target.value);
+                    setInputFocused(true);
+                    setActiveCompletionIndex(-1);
+                  }}
+                  onFocus={() => {
+                    setInputFocused(true);
+                    setActiveCompletionIndex(-1);
+                    syncHistory();
+                  }}
+                  onBlur={() => window.setTimeout(() => {
+                    setInputFocused(false);
+                    setActiveCompletionIndex(-1);
+                  }, 120)}
+                  onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing) return;
+                    if (showCompletions && event.key === "ArrowDown") {
+                      event.preventDefault();
+                      setActiveCompletionIndex((current) =>
+                        current < 0 ? 0 : (current + 1) % completions.length
+                      );
+                      return;
+                    }
+                    if (showCompletions && event.key === "ArrowUp") {
+                      event.preventDefault();
+                      setActiveCompletionIndex((current) =>
+                        current < 0 ? completions.length - 1 : (current - 1 + completions.length) % completions.length
+                      );
+                      return;
+                    }
+                    if (showCompletions && event.key === "Escape") {
+                      event.preventDefault();
+                      setInputFocused(false);
+                      setActiveCompletionIndex(-1);
+                      return;
+                    }
+                    if (event.key === "Enter") {
+                      if (showCompletions && activeCompletionIndex >= 0 && completions[activeCompletionIndex]) {
+                        event.preventDefault();
+                        void handleParse(completions[activeCompletionIndex].link);
+                        return;
+                      }
+                      void handleParse();
+                    }
+                  }}
+                  placeholder="粘贴抖音分享文案、短链接或完整视频 URL"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={showCompletions}
+                  aria-controls={showCompletions ? completionListId : undefined}
+                  aria-activedescendant={activeCompletionId}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="completion-input min-w-0 flex-1 bg-transparent text-[0.95rem] font-medium text-text outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0 placeholder:text-text-muted/60"
+                />
+                {inputValue && (
+                  <button
+                    type="button"
+                    onClick={handleClearInput}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-text-muted transition-[background-color,color] hover:bg-surface-raised hover:text-text"
+                    title="清空"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+
+              <AnimatePresence initial={false}>
+                {showCompletions && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -4, scale: 0.99 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -4, scale: 0.99 }}
+                    transition={{ type: "spring", duration: 0.22, bounce: 0 }}
+                    className="absolute left-0 right-0 top-[calc(100%+8px)] z-40 overflow-hidden rounded-[16px] bg-surface-solid/98 shadow-[0_24px_68px_rgba(0,0,0,0.32),0_0_0_1px_var(--color-border)] backdrop-blur-xl"
+                    id={completionListId}
+                    role="listbox"
+                    onMouseDown={(event) => event.preventDefault()}
+                  >
+                    <div className="py-1.5">
+                      {completions.map((entry, index) => {
+                        const active = index === activeCompletionIndex;
+                        return (
+                        <button
+                          id={`${completionListId}-${index}`}
+                          key={entry.key}
+                          type="button"
+                          role="option"
+                          onClick={() => void handleParse(entry.link)}
+                          onMouseEnter={() => setActiveCompletionIndex(index)}
+                          aria-selected={active}
+                          className={cn(
+                            "completion-option group flex w-full items-center gap-3 px-3 py-2.5 text-left outline-none transition-[background-color,color] focus:outline-none focus-visible:outline-none focus-visible:ring-0",
+                            active ? "bg-info/10" : "hover:bg-surface-raised"
+                          )}
+                        >
+                          <RecentLinkThumb entry={entry} className="h-9 w-9 rounded-[11px]" />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-[0.84rem] font-semibold text-text">{entry.title}</div>
+                            <div className="truncate text-[0.68rem] text-text-muted">{entry.subtitle || entry.link}</div>
+                          </div>
+                          <ArrowUpRight className={cn(
+                            "h-3.5 w-3.5 shrink-0 text-text-muted opacity-0 transition-[opacity,color,transform] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-info group-hover:opacity-100",
+                            active && "translate-x-0.5 -translate-y-0.5 text-info opacity-100"
+                          )} />
+                        </button>
+                      );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <Button onClick={() => void handleParse()} disabled={parsing || !inputValue.trim()} className="h-12 px-5">
               {parsing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               {parsing ? "解析中" : "解析"}
             </Button>
           </div>
+
           {link && (
-            <div className="mt-2 truncate text-[0.72rem] text-text-muted">
+            <div className="mt-3 truncate text-[0.72rem] text-text-muted">
               当前链接：{link}
             </div>
           )}
-        </div>
 
-        {error && (
-          <div className="mb-4 flex items-start gap-2 rounded-[14px] border border-danger/20 bg-danger-soft px-4 py-3 text-[0.78rem] text-danger">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
+          {error && (
+            <div className="mt-3 flex items-start gap-2 rounded-[12px] border border-danger/20 bg-danger-soft px-3 py-2 text-[0.78rem] text-danger">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+        </section>
 
         {user && (
-          <div className="mb-4 rounded-[18px] border border-border bg-surface-solid/75 p-4">
-            <div className="text-[0.78rem] font-bold uppercase tracking-wider text-text-muted mb-2">
-              解析到用户
-            </div>
-            <div className="flex items-center gap-3">
-              <img
-                src={mediaProxyUrl(user.avatar_thumb || user.avatar_medium || user.avatar_larger, "image")}
-                alt={user.nickname}
-                className="h-12 w-12 rounded-full object-cover"
-              />
-              <div className="min-w-0">
-                <div className="truncate text-[0.9rem] font-semibold text-text">{user.nickname}</div>
-                <div className="truncate text-[0.72rem] text-text-muted">@{user.unique_id || user.sec_uid}</div>
-              </div>
-            </div>
-          </div>
+          <ParsedUserPanel user={user} onOpen={() => void openUser(user)} />
         )}
 
-        {parsing && videos.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
+        {parsing && !hasResult ? (
+          <section className="flex flex-col items-center justify-center rounded-[18px] border border-border bg-surface-solid/60 py-16 text-center">
             <Loader2 className="mb-4 h-8 w-8 animate-spin text-info" />
             <p className="text-[0.9rem] text-text-secondary">正在解析链接...</p>
-          </div>
+            <p className="mt-1 text-[0.76rem] text-text-muted">短链会先跟随跳转，再读取作品详情。</p>
+          </section>
         ) : videos.length > 0 ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3">
-            {videos.map((video, index) => (
-              <VideoCard
-                key={video.aweme_id}
-                video={video}
-                index={index}
-                onSelect={openPlayer}
-                onDetail={setDetailVideo}
-                onDownload={(item) => void downloadVideo(item)}
-                onAuthor={(item) => void openAuthor(item)}
-                authorLoading={authorLoadingId === video.aweme_id}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-[18px] border border-border bg-surface-solid/70 p-8 text-center">
+          <section>
+            <div className="mb-3 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <FileVideo className="h-4 w-4 text-accent" />
+                <h3 className="text-[0.9rem] font-semibold text-text">解析结果</h3>
+                <Badge variant="outline">{videos.length} 个作品</Badge>
+              </div>
+            </div>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3">
+              {videos.map((video, index) => (
+                <VideoCard
+                  key={video.aweme_id || `${video.desc}-${index}`}
+                  video={video}
+                  index={index}
+                  onSelect={openPlayer}
+                  onDetail={setDetailVideo}
+                  onDownload={(item) => void downloadVideo(item)}
+                  onAuthor={(item) => void openAuthor(item)}
+                  authorLoading={authorLoadingId === video.aweme_id}
+                />
+              ))}
+            </div>
+          </section>
+        ) : !error && !hasResult && (
+          <section className="rounded-[18px] border border-dashed border-border bg-surface-solid/45 p-8 text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-[18px] bg-info/10">
               <Link2 className="h-6 w-6 text-info" />
             </div>
             <p className="text-[0.9rem] font-semibold text-text">等待链接</p>
-            <p className="mt-1 text-[0.78rem] text-text-muted">
-              支持分享短链、视频链接、合集/图集链接。解析完成后可以播放、查看详情或下载。
+            <p className="mx-auto mt-1 max-w-[420px] text-[0.78rem] leading-relaxed text-text-muted">
+              支持分享短链、视频链接、图集和复制出来的整段分享文案。解析完成后可以播放、查看详情或下载。
             </p>
-          </div>
+          </section>
         )}
+
+        <section>
+          <div className="mb-3 flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Clock3 className="h-4 w-4 text-success" />
+              <h3 className="text-[0.9rem] font-semibold text-text">最近解析</h3>
+              <Badge variant="outline">{history.length} 条</Badge>
+            </div>
+            {history.length > 0 && (
+              <Button variant="outline" size="sm" onClick={handleClearHistory}>
+                <Trash2 className="h-3.5 w-3.5" />
+                全部删除
+              </Button>
+            )}
+          </div>
+
+          {history.length === 0 ? (
+            <div className="rounded-[18px] border border-dashed border-border bg-surface-solid/45 p-8 text-center text-[0.82rem] text-text-muted">
+              成功解析过的链接会显示在这里，可以再次点击解析或删除记录。
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
+                {pagedHistory.map((entry) => (
+                  <RecentLinkCard
+                    key={entry.key}
+                    entry={entry}
+                    onParse={() => void handleParse(entry.link)}
+                    onRemove={() => handleRemoveHistory(entry.key)}
+                  />
+                ))}
+              </div>
+              {totalHistoryPages > 1 && (
+                <div className="mt-4 flex items-center justify-end gap-2 text-[0.78rem] text-text-muted">
+                  <span className="tabular-nums">{safeHistoryPage} / {totalHistoryPages}</span>
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    disabled={safeHistoryPage <= 1}
+                    onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    disabled={safeHistoryPage >= totalHistoryPages}
+                    onClick={() => setHistoryPage((page) => Math.min(totalHistoryPages, page + 1))}
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </section>
       </div>
 
       <FullscreenPlayer
@@ -194,4 +445,164 @@ export function LinkView() {
       />
     </>
   );
+}
+
+function ParsedUserPanel({ user, onOpen }: { user: UserInfo; onOpen: () => void }) {
+  const avatar = user.avatar_thumb || user.avatar_medium || user.avatar_larger;
+  const stats = [
+    { label: "作品", value: user.aweme_count || 0 },
+    { label: "关注", value: user.following_count || 0 },
+    { label: "粉丝", value: user.follower_count || 0 },
+    { label: "获赞", value: user.total_favorited || 0 },
+  ];
+
+  return (
+    <section className="rounded-[18px] border border-border bg-surface-solid/72 p-4 shadow-[0_14px_38px_rgba(0,0,0,0.12)]">
+      <div className="flex items-start gap-4">
+        {avatar ? (
+          <img
+            src={mediaProxyUrl(avatar, "image")}
+            alt={user.nickname || "用户头像"}
+            className="h-14 w-14 shrink-0 rounded-full object-cover shadow-[0_8px_22px_rgba(0,0,0,0.18)]"
+          />
+        ) : (
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-info/10 text-info">
+            <UserRound className="h-6 w-6" />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex min-w-0 items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
+            <div className="truncate text-[0.95rem] font-semibold text-text">{user.nickname || "解析到用户"}</div>
+          </div>
+          <div className="truncate text-[0.72rem] text-text-muted">@{user.unique_id || user.sec_uid || user.uid || "unknown"}</div>
+          {user.signature && (
+            <p className="mt-2 line-clamp-2 text-[0.76rem] leading-relaxed text-text-secondary">{user.signature}</p>
+          )}
+        </div>
+        <Button variant="outline" size="sm" onClick={onOpen} className="shrink-0">
+          <UserRound className="h-3.5 w-3.5" />
+          进入主页
+        </Button>
+      </div>
+
+      <div className="mt-4 grid grid-cols-4 gap-2">
+        {stats.map((stat) => (
+          <div key={stat.label} className="rounded-[10px] bg-background-soft/70 px-2 py-2 text-center">
+            <div className="truncate text-[0.78rem] font-semibold tabular-nums text-text">{formatNumber(stat.value)}</div>
+            <div className="mt-0.5 text-[0.62rem] text-text-muted">{stat.label}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RecentLinkCard({
+  entry,
+  onParse,
+  onRemove,
+}: {
+  entry: RecentParsedLink;
+  onParse: () => void;
+  onRemove: () => void;
+}) {
+  const timeLabel = new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(entry.lastParsedAt);
+
+  return (
+    <motion.div
+      initial={false}
+      animate={{ opacity: 1, y: 0 }}
+      role="button"
+      tabIndex={0}
+      onClick={onParse}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onParse();
+        }
+      }}
+      className="group min-w-0 cursor-pointer rounded-[18px] border border-border bg-surface-solid/78 p-4 transition-[background-color,border-color,box-shadow,transform] hover:border-border-strong hover:bg-surface-raised hover:shadow-md active:scale-[0.99]"
+    >
+      <div className="mb-3 flex items-start gap-3">
+        <RecentLinkThumb entry={entry} className="h-12 w-12 rounded-[14px]" />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="truncate text-[0.9rem] font-semibold text-text">{entry.title}</div>
+            <span className="shrink-0 text-[0.68rem] text-text-muted">{timeLabel}</span>
+          </div>
+          <div className="truncate text-[0.72rem] text-text-muted">{entry.subtitle || entry.link}</div>
+        </div>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove();
+          }}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] text-text-muted opacity-70 transition-[background-color,color,opacity] hover:bg-danger-soft hover:text-danger group-hover:opacity-100"
+          aria-label="删除解析记录"
+          title="删除解析记录"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <div className="mb-3 truncate rounded-[10px] bg-background-soft/70 px-2.5 py-2 font-mono text-[0.66rem] text-text-muted">
+        {entry.link}
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <Badge variant={entry.kind === "user" ? "info" : entry.kind === "video" ? "default" : "secondary"} size="sm">
+          {formatLinkKind(entry)}
+        </Badge>
+        <span className="flex items-center gap-1 text-[0.7rem] font-semibold text-info">
+          重新解析
+          <ArrowUpRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+        </span>
+      </div>
+    </motion.div>
+  );
+}
+
+function RecentLinkThumb({ entry, className }: { entry: RecentParsedLink; className?: string }) {
+  const cover = entry.cover ? mediaProxyUrl(entry.cover, "image") : "";
+
+  if (cover) {
+    return (
+      <img
+        src={cover}
+        alt={entry.title}
+        className={cn("shrink-0 object-cover shadow-[inset_0_0_0_1px_var(--image-outline)]", className)}
+        loading="lazy"
+      />
+    );
+  }
+
+  return (
+    <div className={cn("flex shrink-0 items-center justify-center bg-info/10 text-info", className)}>
+      {entry.kind === "user" ? <UserRound className="h-5 w-5" /> : <Link2 className="h-5 w-5" />}
+    </div>
+  );
+}
+
+function linkMatchesKeyword(entry: RecentParsedLink, keyword: string): boolean {
+  return [
+    entry.title,
+    entry.subtitle,
+    entry.link,
+    entry.userName,
+  ].filter(Boolean).some((value) => String(value).toLowerCase().includes(keyword));
+}
+
+function formatLinkKind(entry: RecentParsedLink): string {
+  if (entry.kind === "user") return "用户";
+  if (entry.videoCount > 1) return `${entry.videoCount} 个作品`;
+  if (entry.kind === "video") return "作品";
+  if (entry.kind === "mixed") return "作品和用户";
+  return "链接";
 }

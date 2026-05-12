@@ -290,6 +290,105 @@ def build_download_history() -> list[dict]:
     return get_download_history_items()
 
 
+def _download_history_media_kind(item: dict) -> str:
+    raw_type = str(item.get('media_type') or item.get('file_type') or '').strip().lower().lstrip('.')
+    if raw_type in ('video', 'image', 'audio'):
+        return raw_type
+
+    extension = str(item.get('extension') or raw_type or '').strip().lower().lstrip('.')
+    if not extension and item.get('path'):
+        extension = Path(str(item.get('path'))).suffix.lower().lstrip('.')
+
+    if extension in ('mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi', 'flv'):
+        return 'video'
+    if extension in ('jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'heic', 'heif'):
+        return 'image'
+    if extension in ('mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg'):
+        return 'audio'
+    return 'media'
+
+
+def _download_history_timestamp(item: dict) -> int:
+    try:
+        return int(item.get('timestamp') or item.get('modified_at') or item.get('create_time') or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _download_history_size(item: dict) -> int:
+    try:
+        return int(item.get('size') or item.get('file_size') or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _download_history_matches_query(item: dict, query: str) -> bool:
+    if not query:
+        return True
+
+    fields = (
+        item.get('name'),
+        item.get('filename'),
+        item.get('title'),
+        item.get('desc'),
+        item.get('author'),
+        item.get('author_id'),
+        item.get('aweme_id'),
+        item.get('id'),
+        item.get('path'),
+        item.get('relative_path'),
+        item.get('root_path'),
+        item.get('extension'),
+        item.get('media_type'),
+        item.get('file_type'),
+    )
+    return any(query in str(value).lower() for value in fields if value)
+
+
+def _request_non_negative_int(name: str) -> int | None:
+    raw_value = request.args.get(name)
+    if raw_value in (None, ''):
+        return None
+    try:
+        return max(0, int(raw_value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _filter_download_history_items(items: list[dict]) -> tuple[list[dict], int, int, dict | None]:
+    query = str(request.args.get('query') or '').strip().lower()
+    media_type = str(request.args.get('media_type') or request.args.get('mediaType') or 'all').strip().lower()
+    sort_by = str(request.args.get('sort_by') or request.args.get('sortBy') or 'date_desc').strip()
+
+    filtered = [
+        dict(item)
+        for item in items
+        if _download_history_matches_query(item, query)
+        and (media_type == 'all' or _download_history_media_kind(item) == media_type)
+    ]
+
+    if sort_by == 'date_asc':
+        filtered.sort(key=_download_history_timestamp)
+    elif sort_by == 'size_desc':
+        filtered.sort(key=_download_history_size, reverse=True)
+    elif sort_by == 'size_asc':
+        filtered.sort(key=_download_history_size)
+    else:
+        filtered.sort(key=_download_history_timestamp, reverse=True)
+
+    total = len(filtered)
+    total_size = sum(_download_history_size(item) for item in filtered)
+    latest = dict(filtered[0]) if filtered else None
+
+    offset = _request_non_negative_int('offset') or 0
+    limit = _request_non_negative_int('limit')
+    paged = filtered[offset:]
+    if limit is not None:
+        paged = paged[:limit]
+
+    return paged, total, total_size, latest
+
+
 def move_directory_contents(source_dir: Path, target_dir: Path) -> int:
     """将源目录中的内容合并移动到目标目录。"""
     moved_count = 0
@@ -1273,13 +1372,19 @@ def get_download_history():
     """获取下载历史文件列表。"""
     try:
         force_refresh = str(request.args.get('refresh', '')).lower() in ('1', 'true', 'yes')
+        items, total, total_size, latest = _filter_download_history_items(
+            get_download_history_items(force_refresh=force_refresh)
+        )
         root = get_download_root()
         return jsonify({
             'success': True,
             'download_root': str(root),
             'download_roots': [str(item) for item in get_all_download_roots()],
             'base_dir': Config.BASE_DIR,
-            'items': get_download_history_items(force_refresh=force_refresh)
+            'items': items,
+            'total': total,
+            'total_size': total_size,
+            'latest': latest,
         })
     except Exception as e:
         logger.error(f"获取下载历史失败: {str(e)}")
@@ -1955,19 +2060,40 @@ def get_liked_videos_api():
     try:
         data = request.json
         count = data.get('count', 20)
+        cursor = data.get('cursor') or data.get('max_cursor') or 0
         if not user_manager:
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
-        videos = run_async(user_manager.get_liked_videos(count))
-        if isinstance(videos, dict):
-            if videos.get('_need_verify'):
-                return jsonify(_verify_error_response(videos, '获取点赞视频失败，请完成验证后重试'))
-            if videos.get('_need_login'):
-                return jsonify(_login_error_response(videos))
+        result = run_async(user_manager.get_liked_videos(count, cursor, include_pagination=True))
+        if isinstance(result, dict):
+            if result.get('_need_verify'):
+                return jsonify(_verify_error_response(result, '获取点赞视频失败，请完成验证后重试'))
+            if result.get('_need_login'):
+                return jsonify(_login_error_response(result))
+            if 'data' in result:
+                videos = result.get('data') or []
+                if not videos and int(cursor or 0) <= 0:
+                    login_status = _verify_native_cookie_login(Config.COOKIE or '')
+                    if not login_status.get('success'):
+                        return jsonify(_login_error_response(login_status))
+                    return jsonify({
+                        'success': False,
+                        'need_verify': True,
+                        'verify_url': 'https://www.douyin.com/',
+                        'message': '获取点赞视频失败。该接口需要登录态，请确认Cookie有效且包含完整的登录信息。如果Cookie已过期请重新获取。',
+                    })
+                return jsonify({
+                    'success': True,
+                    'data': videos,
+                    'count': len(videos),
+                    'cursor': result.get('cursor') or 0,
+                    'has_more': bool(result.get('has_more')),
+                })
             return jsonify({
                 'success': False,
-                'message': _api_message(videos, '获取点赞视频失败，请检查 Cookie 或稍后重试'),
+                'message': _api_message(result, '获取点赞视频失败，请检查 Cookie 或稍后重试'),
             })
-        if not videos:
+        videos = result or []
+        if not videos and int(cursor or 0) <= 0:
             login_status = _verify_native_cookie_login(Config.COOKIE or '')
             if not login_status.get('success'):
                 return jsonify(_login_error_response(login_status))
@@ -1980,7 +2106,9 @@ def get_liked_videos_api():
         return jsonify({
             'success': True,
             'data': videos,
-            'count': len(videos)
+            'count': len(videos),
+            'cursor': 0,
+            'has_more': False,
         })
     except Exception as e:
         return jsonify({'success': False, 'message': f'获取点赞视频失败: {str(e)}'}), 500
@@ -2025,6 +2153,108 @@ def get_liked_authors_api():
         })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/get_collected_videos', methods=['POST'])
+def get_collected_videos_api():
+    """获取收藏视频列表"""
+    try:
+        data = request.json or {}
+        count = data.get('count', 20)
+        cursor = data.get('cursor') or 0
+        if not user_manager:
+            return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
+
+        result = run_async(user_manager.get_collected_videos(count, cursor))
+        if isinstance(result, dict):
+            if result.get('_need_verify'):
+                return jsonify(_verify_error_response(result, '获取收藏视频失败，请完成验证后重试'))
+            if result.get('_need_login'):
+                return jsonify(_login_error_response(result))
+            if 'data' in result:
+                videos = result.get('data') or []
+                return jsonify({
+                    'success': True,
+                    'data': videos,
+                    'count': len(videos),
+                    'cursor': result.get('cursor') or 0,
+                    'has_more': bool(result.get('has_more')),
+                })
+            return jsonify({
+                'success': False,
+                'message': _api_message(result, '获取收藏视频失败，请检查 Cookie 或稍后重试'),
+            })
+        return jsonify({'success': False, 'message': '获取收藏视频失败'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取收藏视频失败: {str(e)}'}), 500
+
+@app.route('/api/get_collected_mixes', methods=['POST'])
+def get_collected_mixes_api():
+    """获取收藏合集列表"""
+    try:
+        data = request.json or {}
+        count = data.get('count', 20)
+        cursor = data.get('cursor') or 0
+        if not user_manager:
+            return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
+
+        result = run_async(user_manager.get_collected_mixes(count, cursor))
+        if isinstance(result, dict):
+            if result.get('_need_verify'):
+                return jsonify(_verify_error_response(result, '获取收藏合集失败，请完成验证后重试'))
+            if result.get('_need_login'):
+                return jsonify(_login_error_response(result))
+            if 'data' in result:
+                mixes = result.get('data') or []
+                return jsonify({
+                    'success': True,
+                    'data': mixes,
+                    'count': len(mixes),
+                    'cursor': result.get('cursor') or 0,
+                    'has_more': bool(result.get('has_more')),
+                })
+            return jsonify({
+                'success': False,
+                'message': _api_message(result, '获取收藏合集失败，请检查 Cookie 或稍后重试'),
+            })
+        return jsonify({'success': False, 'message': '获取收藏合集失败'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取收藏合集失败: {str(e)}'}), 500
+
+@app.route('/api/get_mix_videos', methods=['POST'])
+def get_mix_videos_api():
+    """获取收藏合集内的视频列表"""
+    try:
+        data = request.json or {}
+        series_id = (data.get('series_id') or data.get('seriesId') or '').strip()
+        count = data.get('count', 20)
+        cursor = data.get('cursor') or 0
+        if not series_id:
+            return jsonify({'success': False, 'message': '合集ID不能为空'}), 400
+        if not user_manager:
+            return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
+
+        result = run_async(user_manager.get_mix_videos(series_id, count, cursor))
+        if isinstance(result, dict):
+            if result.get('_need_verify'):
+                return jsonify(_verify_error_response(result, '获取合集视频失败，请完成验证后重试'))
+            if result.get('_need_login'):
+                return jsonify(_login_error_response(result))
+            if 'data' in result:
+                videos = result.get('data') or []
+                return jsonify({
+                    'success': True,
+                    'data': videos,
+                    'count': len(videos),
+                    'cursor': result.get('cursor') or 0,
+                    'has_more': bool(result.get('has_more')),
+                })
+            return jsonify({
+                'success': False,
+                'message': _api_message(result, '获取合集视频失败，请检查 Cookie 或稍后重试'),
+            })
+        return jsonify({'success': False, 'message': '获取合集视频失败'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取合集视频失败: {str(e)}'}), 500
 
 @app.route('/api/user_videos', methods=['POST'])
 def get_user_videos():

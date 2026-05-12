@@ -188,3 +188,13 @@ code, kbd, pre {
   outline: none !important;
   box-shadow: none !important;
 }
+
+.completion-input,
+.completion-input:focus,
+.completion-input:focus-visible,
+.completion-option,
+.completion-option:focus,
+.completion-option:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}

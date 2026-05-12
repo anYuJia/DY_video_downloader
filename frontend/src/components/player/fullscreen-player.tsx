@@ -36,6 +36,7 @@ import {
 interface FullscreenPlayerProps {
   videos: VideoInfo[];
   initialIndex?: number;
+  initialMediaIndex?: number;
   open: boolean;
   onClose: () => void;
   onDownload?: (video: VideoInfo) => void;
@@ -83,6 +84,7 @@ function playerMediaProxyUrl(url: string | null | undefined, mediaType: "video" 
 export function FullscreenPlayer({
   videos,
   initialIndex = 0,
+  initialMediaIndex = 0,
   open,
   onClose,
   onDownload,
@@ -152,6 +154,7 @@ export function FullscreenPlayer({
     : "empty";
   const progressPct = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
   const hasMultipleMedia = mediaItems.length > 1;
+  const initialVideoKey = videos[initialIndex]?.aweme_id || "";
   const authorAvatar =
     currentVideo?.author?.avatar_thumb || currentVideo?.author?.avatar_medium || "";
   const authorName =
@@ -568,18 +571,23 @@ export function FullscreenPlayer({
     }, 0);
 
     const safeIndex = Math.min(Math.max(initialIndex, 0), Math.max(videos.length - 1, 0));
+    const initialMediaCount = collectVideoMedia(videos[safeIndex]).length;
+    const safeMediaIndex = Math.min(
+      Math.max(initialMediaIndex, 0),
+      Math.max(initialMediaCount - 1, 0)
+    );
     desiredPlayingRef.current = true;
     mediaSwitchingRef.current = false;
     setMediaTransitionDirection(0);
     setCurrentIndex(safeIndex);
-    setMediaIndex(0);
+    setMediaIndex(safeMediaIndex);
     setCurrentTime(0);
     setDuration(0);
     progressSampleRef.current = 0;
     setPlaying(false);
     setReloadKey((value) => value + 1);
     return () => window.clearTimeout(focusTimer);
-  }, [initialIndex, open, videos.length]);
+  }, [initialIndex, initialMediaIndex, initialVideoKey, open]);
 
   useEffect(() => {
     setLiked(false);
