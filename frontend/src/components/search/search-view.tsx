@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, ChevronLeft, ChevronRight, Clock3, Loader2, Search, Trash2, Users } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
+import { ArrowUpRight, ChevronLeft, ChevronRight, Clock3, Loader2, Search, ShieldCheck, Trash2, Users, X } from "lucide-react";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { CompletionInput, type CompletionInputOption } from "@/components/ui/completion-input";
+import { useAlertStore } from "@/stores/app-store";
 import { useSearchStore } from "@/stores/search-store";
 import {
   clearRecentSearchUsers,
@@ -20,7 +22,7 @@ import { UserAvatar } from "./user-detail";
 const HISTORY_PAGE_SIZE = 8;
 const SEARCH_COMPLETION_LIMIT = 6;
 
-interface SearchCompletion {
+interface SearchCompletion extends CompletionInputOption {
   key: string;
   label: string;
   subtitle: string;
@@ -33,14 +35,16 @@ export function SearchView() {
   const searching = useSearchStore((s) => s.searching);
   const users = useSearchStore((s) => s.users);
   const error = useSearchStore((s) => s.error);
+  const pendingVerifySearch = useSearchStore((s) => s.pendingVerifySearch);
   const search = useSearchStore((s) => s.search);
+  const resumeVerifySearch = useSearchStore((s) => s.resumeVerifySearch);
+  const dismissVerifySearch = useSearchStore((s) => s.dismissVerifySearch);
   const openUser = useSearchStore((s) => s.openUser);
+  const showAlert = useAlertStore((s) => s.showAlert);
   const [inputValue, setInputValue] = useState(query);
   const [history, setHistory] = useState<RecentSearchUser[]>([]);
   const [recentKeywords, setRecentKeywords] = useState<RecentSearch[]>([]);
   const [historyPage, setHistoryPage] = useState(1);
-  const [inputFocused, setInputFocused] = useState(false);
-  const [activeCompletionIndex, setActiveCompletionIndex] = useState(-1);
 
   const totalHistoryPages = Math.max(1, Math.ceil(history.length / HISTORY_PAGE_SIZE));
   const safeHistoryPage = Math.min(historyPage, totalHistoryPages);
@@ -68,9 +72,15 @@ export function SearchView() {
     const keyword = inputValue.trim();
     if (!keyword || searching) return;
     setRecentKeywords(saveRecentSearch(keyword));
-    setInputFocused(false);
-    setActiveCompletionIndex(-1);
     await search(keyword);
+    syncHistory();
+  };
+
+  const handleResumeVerifySearch = async () => {
+    if (!pendingVerifySearch || searching) return;
+    setInputValue(pendingVerifySearch.keyword);
+    setRecentKeywords(saveRecentSearch(pendingVerifySearch.keyword));
+    await resumeVerifySearch();
     syncHistory();
   };
 
@@ -84,9 +94,18 @@ export function SearchView() {
   };
 
   const handleClearHistory = () => {
-    clearRecentSearchUsers();
-    setHistory([]);
-    setHistoryPage(1);
+    showAlert({
+      title: "清空历史搜索？",
+      variant: "warning",
+      description: "会删除搜索用户页面中的全部历史用户记录，但不会影响已下载文件。",
+      actionLabel: "全部删除",
+      cancelLabel: "取消",
+      onAction: () => {
+        clearRecentSearchUsers();
+        setHistory([]);
+        setHistoryPage(1);
+      },
+    });
   };
 
   const completions = useMemo(() => {
@@ -124,20 +143,7 @@ export function SearchView() {
     }).slice(0, SEARCH_COMPLETION_LIMIT);
   }, [history, inputValue, recentKeywords]);
 
-  const showCompletions = inputFocused && inputValue.trim().length > 0 && completions.length > 0;
-  const completionListId = "search-user-completions";
-  const activeCompletionId =
-    showCompletions && activeCompletionIndex >= 0 && activeCompletionIndex < completions.length
-      ? `${completionListId}-${activeCompletionIndex}`
-      : undefined;
-
-  useEffect(() => {
-    setActiveCompletionIndex((current) => (current >= completions.length ? -1 : current));
-  }, [completions.length]);
-
   const handleCompletion = async (completion: SearchCompletion) => {
-    setInputFocused(false);
-    setActiveCompletionIndex(-1);
     setInputValue(completion.label);
 
     if (completion.user) {
@@ -162,138 +168,52 @@ export function SearchView() {
         </div>
 
         <div className="flex items-start gap-2">
-          <div className="relative min-w-0 flex-1">
-            <div
-              className={cn(
-                "flex h-12 items-center gap-3 rounded-[16px] bg-white/[0.045] px-4 shadow-[0_10px_30px_rgba(0,0,0,0.12)] transition-[background-color,box-shadow]",
-                inputFocused && "bg-white/[0.07] shadow-[0_18px_42px_rgba(0,0,0,0.18)]",
-                inputValue.trim() && "bg-accent/[0.07]"
-              )}
-            >
+          <CompletionInput
+            value={inputValue}
+            onValueChange={setInputValue}
+            options={completions}
+            listId="search-user-completions"
+            placeholder="输入用户名、抖音号或 UID"
+            optionActiveClassName="bg-accent/10"
+            valueActiveClassName="bg-accent/[0.07]"
+            onSubmit={() => void handleSearch()}
+            onSelect={(completion) => void handleCompletion(completion)}
+            onFocusInput={syncHistory}
+            leading={({ hasValue }) => (
               <div className={cn(
                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.06] text-text-muted transition-[background-color,color]",
-                inputValue.trim() && "bg-accent/15 text-accent"
+                hasValue && "bg-accent/15 text-accent"
               )}>
                 <Search className="h-4 w-4" />
               </div>
-              <input
-                value={inputValue}
-                onChange={(event) => {
-                  setInputValue(event.target.value);
-                  setInputFocused(true);
-                  setActiveCompletionIndex(-1);
-                }}
-                onFocus={() => {
-                  setInputFocused(true);
-                  setActiveCompletionIndex(-1);
-                  syncHistory();
-                }}
-                onBlur={() => window.setTimeout(() => {
-                  setInputFocused(false);
-                  setActiveCompletionIndex(-1);
-                }, 120)}
-                onKeyDown={(event) => {
-                  if (event.nativeEvent.isComposing) return;
-                  if (showCompletions && event.key === "ArrowDown") {
-                    event.preventDefault();
-                    setActiveCompletionIndex((current) =>
-                      current < 0 ? 0 : (current + 1) % completions.length
-                    );
-                    return;
-                  }
-                  if (showCompletions && event.key === "ArrowUp") {
-                    event.preventDefault();
-                    setActiveCompletionIndex((current) =>
-                      current < 0 ? completions.length - 1 : (current - 1 + completions.length) % completions.length
-                    );
-                    return;
-                  }
-                  if (showCompletions && event.key === "Escape") {
-                    event.preventDefault();
-                    setInputFocused(false);
-                    setActiveCompletionIndex(-1);
-                    return;
-                  }
-                  if (event.key === "Enter") {
-                    if (showCompletions && activeCompletionIndex >= 0 && completions[activeCompletionIndex]) {
-                      event.preventDefault();
-                      void handleCompletion(completions[activeCompletionIndex]);
-                      return;
-                    }
-                    void handleSearch();
-                  }
-                }}
-                placeholder="输入用户名、抖音号或 UID"
-                role="combobox"
-                aria-autocomplete="list"
-                aria-expanded={showCompletions}
-                aria-controls={showCompletions ? completionListId : undefined}
-                aria-activedescendant={activeCompletionId}
-                autoComplete="off"
-                spellCheck={false}
-                className="completion-input min-w-0 flex-1 bg-transparent text-[0.95rem] font-medium text-text outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0 placeholder:text-text-muted/60"
-              />
-            </div>
-
-            <AnimatePresence initial={false}>
-              {showCompletions && (
-                <motion.div
-                  initial={{ opacity: 0, y: -4, scale: 0.99 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -4, scale: 0.99 }}
-                  transition={{ type: "spring", duration: 0.22, bounce: 0 }}
-                  className="absolute left-0 right-0 top-[calc(100%+8px)] z-40 overflow-hidden rounded-[16px] bg-surface-solid/98 shadow-[0_24px_68px_rgba(0,0,0,0.32),0_0_0_1px_var(--color-border)] backdrop-blur-xl"
-                  id={completionListId}
-                  role="listbox"
-                  onMouseDown={(event) => event.preventDefault()}
-                >
-                  <div className="py-1.5">
-                    {completions.map((completion, index) => {
-                      const active = index === activeCompletionIndex;
-                      return (
-                      <button
-                        id={`${completionListId}-${index}`}
-                        key={completion.key}
-                        type="button"
-                        role="option"
-                        onClick={() => void handleCompletion(completion)}
-                        onMouseEnter={() => setActiveCompletionIndex(index)}
-                        aria-selected={active}
-                        className={cn(
-                          "completion-option group flex w-full items-center gap-3 px-3 py-2.5 text-left outline-none transition-[background-color,color] focus:outline-none focus-visible:outline-none focus-visible:ring-0",
-                          active ? "bg-accent/10" : "hover:bg-surface-raised"
-                        )}
-                      >
-                        {completion.user ? (
-                          <UserAvatar user={completion.user} className="h-9 w-9 shadow-[0_6px_18px_rgba(0,0,0,0.18)]" />
-                        ) : (
-                          <div className={cn(
-                            "flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-white/[0.05] text-text-muted group-hover:bg-accent/10 group-hover:text-accent",
-                            active && "bg-accent/10 text-accent"
-                          )}>
-                            <Clock3 className="h-4 w-4" />
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-[0.84rem] font-semibold text-text">
-                            {completion.label}
-                          </div>
-                          <div className="truncate text-[0.68rem] text-text-muted">
-                            {completion.subtitle}
-                          </div>
-                        </div>
-                        <ArrowUpRight className={cn(
-                          "h-3.5 w-3.5 shrink-0 text-text-muted opacity-0 transition-[opacity,color,transform] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-accent group-hover:opacity-100",
-                          active && "translate-x-0.5 -translate-y-0.5 text-accent opacity-100"
-                        )} />
-                      </button>
-                    );
-                    })}
+            )}
+            renderOption={(completion, { active }) => (
+              <>
+                {completion.user ? (
+                  <UserAvatar user={completion.user} className="h-9 w-9 shadow-[0_6px_18px_rgba(0,0,0,0.18)]" />
+                ) : (
+                  <div className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-white/[0.05] text-text-muted group-hover:bg-accent/10 group-hover:text-accent",
+                    active && "bg-accent/10 text-accent"
+                  )}>
+                    <Clock3 className="h-4 w-4" />
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[0.84rem] font-semibold text-text">
+                    {completion.label}
+                  </div>
+                  <div className="truncate text-[0.68rem] text-text-muted">
+                    {completion.subtitle}
+                  </div>
+                </div>
+                <ArrowUpRight className={cn(
+                  "h-3.5 w-3.5 shrink-0 text-text-muted opacity-0 transition-[opacity,color,transform] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-accent group-hover:opacity-100",
+                  active && "translate-x-0.5 -translate-y-0.5 text-accent opacity-100"
+                )} />
+              </>
+            )}
+          />
 
           <Button onClick={() => void handleSearch()} disabled={searching || !inputValue.trim()} className="h-12 px-5">
             {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
@@ -301,7 +221,42 @@ export function SearchView() {
           </Button>
         </div>
 
-        {error && (
+        {pendingVerifySearch && (
+          <div className="mt-3 flex flex-col gap-3 rounded-[16px] bg-warning-soft px-3.5 py-3 text-warning shadow-[inset_0_0_0_1px_rgba(245,158,11,0.22)] sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-warning/15">
+                <ShieldCheck className="h-4.5 w-4.5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[0.82rem] font-semibold text-text">完成验证后继续搜索</div>
+                <div className="mt-0.5 truncate text-[0.74rem] text-text-secondary">
+                  {pendingVerifySearch.message}，将继续搜索“{pendingVerifySearch.keyword}”
+                </div>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2 sm:justify-end">
+              <Button
+                size="sm"
+                variant="success-outline"
+                disabled={searching}
+                onClick={() => void handleResumeVerifySearch()}
+              >
+                {searching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                已完成验证
+              </Button>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label="关闭验证提示"
+                onClick={dismissVerifySearch}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {error && !pendingVerifySearch && (
           <div className="mt-3 rounded-[12px] border border-danger/20 bg-danger-soft px-3 py-2 text-[0.78rem] text-danger">
             {error}
           </div>

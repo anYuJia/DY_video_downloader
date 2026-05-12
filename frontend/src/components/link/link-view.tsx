@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   AlertCircle,
   ArrowUpRight,
@@ -18,10 +18,12 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { CompletionInput, type CompletionInputOption } from "@/components/ui/completion-input";
 import { VideoCard } from "@/components/search/video-card";
 import { VideoDetailModal } from "@/components/modals/video-detail";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import { useDownloads } from "@/hooks/use-downloads";
+import { useAlertStore } from "@/stores/app-store";
 import { useLinkStore } from "@/stores/link-store";
 import { useSearchStore } from "@/stores/search-store";
 import {
@@ -37,6 +39,8 @@ import { cn, formatNumber } from "@/lib/utils";
 const HISTORY_PAGE_SIZE = 8;
 const LINK_COMPLETION_LIMIT = 6;
 
+type LinkCompletion = RecentParsedLink & CompletionInputOption;
+
 export function LinkView() {
   const link = useLinkStore((s) => s.link);
   const parsing = useLinkStore((s) => s.parsing);
@@ -45,13 +49,12 @@ export function LinkView() {
   const error = useLinkStore((s) => s.error);
   const parse = useLinkStore((s) => s.parse);
   const clear = useLinkStore((s) => s.clear);
+  const showAlert = useAlertStore((s) => s.showAlert);
   const openUser = useSearchStore((s) => s.openUser);
   const { downloadVideo, downloadBatch } = useDownloads();
   const [inputValue, setInputValue] = useState(link);
   const [history, setHistory] = useState<RecentParsedLink[]>([]);
   const [historyPage, setHistoryPage] = useState(1);
-  const [inputFocused, setInputFocused] = useState(false);
-  const [activeCompletionIndex, setActiveCompletionIndex] = useState(-1);
   const [detailVideo, setDetailVideo] = useState<VideoInfo | null>(null);
   const [playerIndex, setPlayerIndex] = useState<number | null>(null);
   const [authorLoadingId, setAuthorLoadingId] = useState<string | null>(null);
@@ -81,7 +84,7 @@ export function LinkView() {
     }
   }, [historyPage, totalHistoryPages]);
 
-  const completions = useMemo(() => {
+  const completions = useMemo<LinkCompletion[]>(() => {
     const keyword = inputValue.trim().toLowerCase();
     if (!keyword) return [];
     return history
@@ -89,31 +92,18 @@ export function LinkView() {
       .slice(0, LINK_COMPLETION_LIMIT);
   }, [history, inputValue]);
 
-  const showCompletions = inputFocused && inputValue.trim().length > 0 && completions.length > 0;
   const hasResult = videos.length > 0 || Boolean(user);
-  const completionListId = "parse-link-completions";
-  const activeCompletionId =
-    showCompletions && activeCompletionIndex >= 0 && activeCompletionIndex < completions.length
-      ? `${completionListId}-${activeCompletionIndex}`
-      : undefined;
-
-  useEffect(() => {
-    setActiveCompletionIndex((current) => (current >= completions.length ? -1 : current));
-  }, [completions.length]);
 
   const handleParse = async (value = inputValue) => {
     const target = value.trim();
     if (!target || parsing) return;
     setInputValue(target);
-    setInputFocused(false);
-    setActiveCompletionIndex(-1);
     await parse(target);
     syncHistory();
   };
 
   const handleClearInput = () => {
     setInputValue("");
-    setActiveCompletionIndex(-1);
     clear();
   };
 
@@ -122,9 +112,18 @@ export function LinkView() {
   };
 
   const handleClearHistory = () => {
-    clearRecentParsedLinks();
-    setHistory([]);
-    setHistoryPage(1);
+    showAlert({
+      title: "清空最近解析？",
+      variant: "warning",
+      description: "会删除解析链接页面中的全部历史记录，不会删除下载文件。",
+      actionLabel: "全部删除",
+      cancelLabel: "取消",
+      onAction: () => {
+        clearRecentParsedLinks();
+        setHistory([]);
+        setHistoryPage(1);
+      },
+    });
   };
 
   const openPlayer = (video: VideoInfo) => {
@@ -163,138 +162,53 @@ export function LinkView() {
           </div>
 
           <div className="flex items-start gap-2">
-            <div className="relative min-w-0 flex-1">
-              <div
-                className={cn(
-                  "flex h-12 items-center gap-3 rounded-[16px] bg-white/[0.045] px-4 shadow-[0_10px_30px_rgba(0,0,0,0.12)] transition-[background-color,box-shadow]",
-                  inputFocused && "bg-white/[0.07] shadow-[0_18px_42px_rgba(0,0,0,0.18)]",
-                  inputValue.trim() && "bg-info/[0.07]"
-                )}
-              >
+            <CompletionInput
+              autoFocus
+              value={inputValue}
+              onValueChange={setInputValue}
+              options={completions}
+              listId="parse-link-completions"
+              placeholder="粘贴抖音分享文案、短链接或完整视频 URL"
+              optionActiveClassName="bg-info/10"
+              valueActiveClassName="bg-info/[0.07]"
+              onSubmit={() => void handleParse()}
+              onSelect={(entry) => void handleParse(entry.link)}
+              onFocusInput={syncHistory}
+              leading={({ hasValue }) => (
                 <div
                   className={cn(
                     "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.06] text-text-muted transition-[background-color,color]",
-                    inputValue.trim() && "bg-info/15 text-info"
+                    hasValue && "bg-info/15 text-info"
                   )}
                 >
                   <Link2 className="h-4 w-4" />
                 </div>
-                <input
-                  autoFocus
-                  value={inputValue}
-                  onChange={(event) => {
-                    setInputValue(event.target.value);
-                    setInputFocused(true);
-                    setActiveCompletionIndex(-1);
-                  }}
-                  onFocus={() => {
-                    setInputFocused(true);
-                    setActiveCompletionIndex(-1);
-                    syncHistory();
-                  }}
-                  onBlur={() => window.setTimeout(() => {
-                    setInputFocused(false);
-                    setActiveCompletionIndex(-1);
-                  }, 120)}
-                  onKeyDown={(event) => {
-                    if (event.nativeEvent.isComposing) return;
-                    if (showCompletions && event.key === "ArrowDown") {
-                      event.preventDefault();
-                      setActiveCompletionIndex((current) =>
-                        current < 0 ? 0 : (current + 1) % completions.length
-                      );
-                      return;
-                    }
-                    if (showCompletions && event.key === "ArrowUp") {
-                      event.preventDefault();
-                      setActiveCompletionIndex((current) =>
-                        current < 0 ? completions.length - 1 : (current - 1 + completions.length) % completions.length
-                      );
-                      return;
-                    }
-                    if (showCompletions && event.key === "Escape") {
-                      event.preventDefault();
-                      setInputFocused(false);
-                      setActiveCompletionIndex(-1);
-                      return;
-                    }
-                    if (event.key === "Enter") {
-                      if (showCompletions && activeCompletionIndex >= 0 && completions[activeCompletionIndex]) {
-                        event.preventDefault();
-                        void handleParse(completions[activeCompletionIndex].link);
-                        return;
-                      }
-                      void handleParse();
-                    }
-                  }}
-                  placeholder="粘贴抖音分享文案、短链接或完整视频 URL"
-                  role="combobox"
-                  aria-autocomplete="list"
-                  aria-expanded={showCompletions}
-                  aria-controls={showCompletions ? completionListId : undefined}
-                  aria-activedescendant={activeCompletionId}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="completion-input min-w-0 flex-1 bg-transparent text-[0.95rem] font-medium text-text outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0 placeholder:text-text-muted/60"
-                />
-                {inputValue && (
-                  <button
-                    type="button"
-                    onClick={handleClearInput}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-text-muted transition-[background-color,color] hover:bg-surface-raised hover:text-text"
-                    title="清空"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-
-              <AnimatePresence initial={false}>
-                {showCompletions && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -4, scale: 0.99 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -4, scale: 0.99 }}
-                    transition={{ type: "spring", duration: 0.22, bounce: 0 }}
-                    className="absolute left-0 right-0 top-[calc(100%+8px)] z-40 overflow-hidden rounded-[16px] bg-surface-solid/98 shadow-[0_24px_68px_rgba(0,0,0,0.32),0_0_0_1px_var(--color-border)] backdrop-blur-xl"
-                    id={completionListId}
-                    role="listbox"
-                    onMouseDown={(event) => event.preventDefault()}
-                  >
-                    <div className="py-1.5">
-                      {completions.map((entry, index) => {
-                        const active = index === activeCompletionIndex;
-                        return (
-                        <button
-                          id={`${completionListId}-${index}`}
-                          key={entry.key}
-                          type="button"
-                          role="option"
-                          onClick={() => void handleParse(entry.link)}
-                          onMouseEnter={() => setActiveCompletionIndex(index)}
-                          aria-selected={active}
-                          className={cn(
-                            "completion-option group flex w-full items-center gap-3 px-3 py-2.5 text-left outline-none transition-[background-color,color] focus:outline-none focus-visible:outline-none focus-visible:ring-0",
-                            active ? "bg-info/10" : "hover:bg-surface-raised"
-                          )}
-                        >
-                          <RecentLinkThumb entry={entry} className="h-9 w-9 rounded-[11px]" />
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-[0.84rem] font-semibold text-text">{entry.title}</div>
-                            <div className="truncate text-[0.68rem] text-text-muted">{entry.subtitle || entry.link}</div>
-                          </div>
-                          <ArrowUpRight className={cn(
-                            "h-3.5 w-3.5 shrink-0 text-text-muted opacity-0 transition-[opacity,color,transform] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-info group-hover:opacity-100",
-                            active && "translate-x-0.5 -translate-y-0.5 text-info opacity-100"
-                          )} />
-                        </button>
-                      );
-                      })}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+              )}
+              trailing={inputValue ? (
+                <button
+                  type="button"
+                  onClick={handleClearInput}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-text-muted transition-[background-color,color] hover:bg-surface-raised hover:text-text"
+                  title="清空"
+                  aria-label="清空"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+              renderOption={(entry, { active }) => (
+                <>
+                  <RecentLinkThumb entry={entry} className="h-9 w-9 rounded-[11px]" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[0.84rem] font-semibold text-text">{entry.title}</div>
+                    <div className="truncate text-[0.68rem] text-text-muted">{entry.subtitle || entry.link}</div>
+                  </div>
+                  <ArrowUpRight className={cn(
+                    "h-3.5 w-3.5 shrink-0 text-text-muted opacity-0 transition-[opacity,color,transform] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-info group-hover:opacity-100",
+                    active && "translate-x-0.5 -translate-y-0.5 text-info opacity-100"
+                  )} />
+                </>
+              )}
+            />
 
             <Button onClick={() => void handleParse()} disabled={parsing || !inputValue.trim()} className="h-12 px-5">
               {parsing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}

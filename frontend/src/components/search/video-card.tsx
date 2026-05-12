@@ -70,7 +70,7 @@ export function VideoCard({
       }}
       tabIndex={0}
     >
-      <VideoCover video={video} className='h-[280px]' showPlayOverlay={false} />
+      <VideoCover video={video} className='h-[280px]' showPlayOverlay={false} allowVideoFallback />
 
       {/* Body */}
       <div className='flex h-[120px] flex-col p-3'>

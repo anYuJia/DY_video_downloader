@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster, useToast } from "@/components/ui/toast";
 import { AppShell } from "@/components/layout/app-shell";
-import { GlobalAlert, GlobalLoader } from "@/components/layout/global-feedback";
+import { GlobalAlert, GlobalLoader, GlobalVerifyRecovery } from "@/components/layout/global-feedback";
 import { useAlertStore, useAppStore, useLoaderStore, useLogStore } from "@/stores/app-store";
 import { useSocket } from "@/lib/socket";
 import { useKeyboard } from "@/hooks/use-keyboard";
@@ -180,6 +180,7 @@ export default function App() {
     <TooltipProvider delayDuration={300}>
       <AppShell />
       <GlobalAlert />
+      <GlobalVerifyRecovery />
       <GlobalLoader />
       <Toaster />
     </TooltipProvider>

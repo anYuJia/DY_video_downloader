@@ -3,10 +3,10 @@ import {
   getErrorMessage,
   getLikedAuthors,
   getLikedVideos,
-  openVerifyBrowser,
   type UserInfo,
   type VideoInfo,
 } from "@/lib/tauri";
+import { requestVerifyRecovery } from "@/lib/verify-recovery";
 import {
   loadLikedAuthorsCache,
   loadLikedVideosCache,
@@ -18,12 +18,6 @@ import { useLogStore } from "@/stores/app-store";
 const DEFAULT_COUNT = 20;
 let latestVideosRequestId = 0;
 let latestLoadMoreVideosRequestId = 0;
-
-function openVerifyWindow(verifyUrl: string | undefined, addLog: (message: string, type: "info" | "success" | "warning" | "error") => void) {
-  void openVerifyBrowser(verifyUrl)
-    .then((result) => addLog(result.message, result.success ? "info" : "warning"))
-    .catch(() => addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
-}
 
 const uniqueVideos = (existing: VideoInfo[], incoming: VideoInfo[]) => {
   const seen = new Set(existing.map((video) => video.aweme_id));
@@ -94,7 +88,12 @@ export const useLikedStore = create<LikedStoreState>((set, get) => ({
       if (!result.success) {
         const message = result.message || "获取点赞视频失败";
         if (result.need_verify) {
-          openVerifyWindow(result.verify_url, addLog);
+          requestVerifyRecovery({
+            verifyUrl: result.verify_url,
+            message,
+            title: "点赞视频需要验证",
+            onResume: () => void get().loadVideos(true, count),
+          });
         }
         if (cachedVideos.length > 0) {
           set({
@@ -173,7 +172,12 @@ export const useLikedStore = create<LikedStoreState>((set, get) => ({
       if (!result.success) {
         const message = result.message || "加载更多点赞视频失败";
         if (result.need_verify) {
-          openVerifyWindow(result.verify_url, addLog);
+          requestVerifyRecovery({
+            verifyUrl: result.verify_url,
+            message,
+            title: "点赞视频需要验证",
+            onResume: () => void get().loadMoreVideos(),
+          });
         }
         set({ loadingMoreVideos: false, videosError: message });
         addLog(message, result.need_verify ? "warning" : "error");
@@ -225,7 +229,12 @@ export const useLikedStore = create<LikedStoreState>((set, get) => ({
       if (!result.success) {
         const message = result.message || "获取点赞作者失败";
         if (result.need_verify) {
-          openVerifyWindow(result.verify_url, addLog);
+          requestVerifyRecovery({
+            verifyUrl: result.verify_url,
+            message,
+            title: "点赞作者需要验证",
+            onResume: () => void get().loadAuthors(true, count),
+          });
         }
         if (cachedAuthors.length > 0) {
           set({

@@ -24,10 +24,16 @@ import {
   getErrorMessage,
   getMixVideos,
   mediaProxyUrl,
-  openVerifyBrowser,
   type CollectedMixItem,
   type VideoInfo,
 } from "@/lib/tauri";
+import { requestVerifyRecovery } from "@/lib/verify-recovery";
+import {
+  loadCollectedMixesCache,
+  loadCollectedVideosCache,
+  saveCollectedMixesCache,
+  saveCollectedVideosCache,
+} from "@/lib/collected-cache";
 import { videoAuthorToUserInfo } from "@/lib/video-author";
 import { cn, formatNumber, formatTime } from "@/lib/utils";
 
@@ -58,12 +64,6 @@ function uniqueMixes(existing: CollectedMixItem[], incoming: CollectedMixItem[])
   return next;
 }
 
-function openVerifyWindow(verifyUrl: string | undefined, addLog: (message: string, type: "info" | "success" | "warning" | "error") => void) {
-  void openVerifyBrowser(verifyUrl)
-    .then((result) => addLog(result.message, result.success ? "info" : "warning"))
-    .catch(() => addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
-}
-
 export function CollectedView() {
   const [tab, setTab] = useState<CollectedTab>("videos");
 
@@ -72,7 +72,7 @@ export function CollectedView() {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Star className="h-4 w-4 text-accent" />
-          <h3 className="text-[0.9rem] font-semibold text-text">收藏内容</h3>
+          <h3 className="text-[0.9rem] font-semibold text-text">收藏视频</h3>
         </div>
 
         <div className="flex items-center gap-2 rounded-[14px] border border-border bg-surface p-1">
@@ -112,7 +112,7 @@ function CollectedVideosPanel() {
   const { downloadVideo, downloadBatch } = useDownloads();
   const addLog = useLogStore((s) => s.addLog);
   const openUser = useSearchStore((s) => s.openUser);
-  const [videos, setVideos] = useState<VideoInfo[]>([]);
+  const [videos, setVideos] = useState<VideoInfo[]>(() => loadCollectedVideosCache());
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -137,15 +137,27 @@ function CollectedVideosPanel() {
       const result = await getCollectedVideos(reset ? 0 : cursor, PAGE_SIZE);
       if (!result.success) {
         const message = result.message || "获取收藏视频失败";
-        if (result.need_verify) openVerifyWindow(result.verify_url, addLog);
+        if (result.need_verify) {
+          requestVerifyRecovery({
+            verifyUrl: result.verify_url,
+            message,
+            title: "收藏视频需要验证",
+            onResume: () => void loadVideos(reset),
+          });
+        }
         setError(message);
         setInitialized(true);
+        setHasMore(false);
         addLog(message, result.need_verify ? "warning" : "error");
         return;
       }
 
       const incoming = result.data || [];
-      setVideos((current) => (reset ? incoming : uniqueVideos(current, incoming)));
+      setVideos((current) => {
+        const next = reset ? incoming : uniqueVideos(current, incoming);
+        saveCollectedVideosCache(next);
+        return next;
+      });
       setCursor(result.cursor || 0);
       setHasMore(result.has_more ?? incoming.length > 0);
       setInitialized(true);
@@ -153,6 +165,7 @@ function CollectedVideosPanel() {
       const message = getErrorMessage(err, "获取收藏视频失败");
       setError(message);
       setInitialized(true);
+      setHasMore(false);
       addLog(message, "error");
     } finally {
       setLoading(false);
@@ -219,6 +232,7 @@ function CollectedVideosPanel() {
         <EmptyState title="暂无收藏视频" description="需要登录抖音账号后才能读取收藏列表" />
       ) : (
         <>
+          {error && <InlineWarning message={error} />}
           <motion.div
             className={ORIGINAL_VIDEO_GRID_CLASS}
             initial={false}
@@ -276,7 +290,7 @@ function CollectedVideosPanel() {
 
 function CollectedMixesPanel() {
   const addLog = useLogStore((s) => s.addLog);
-  const [mixes, setMixes] = useState<CollectedMixItem[]>([]);
+  const [mixes, setMixes] = useState<CollectedMixItem[]>(() => loadCollectedMixesCache());
   const [selectedMix, setSelectedMix] = useState<CollectedMixItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -299,14 +313,26 @@ function CollectedMixesPanel() {
       const result = await getCollectedMixes(reset ? 0 : cursor, PAGE_SIZE);
       if (!result.success) {
         const message = result.message || "获取收藏合集失败";
-        if (result.need_verify) openVerifyWindow(result.verify_url, addLog);
+        if (result.need_verify) {
+          requestVerifyRecovery({
+            verifyUrl: result.verify_url,
+            message,
+            title: "收藏合集需要验证",
+            onResume: () => void loadMixes(reset),
+          });
+        }
         setError(message);
         setInitialized(true);
+        setHasMore(false);
         addLog(message, result.need_verify ? "warning" : "error");
         return;
       }
       const incoming = result.data || [];
-      setMixes((current) => (reset ? incoming : uniqueMixes(current, incoming)));
+      setMixes((current) => {
+        const next = reset ? incoming : uniqueMixes(current, incoming);
+        saveCollectedMixesCache(next);
+        return next;
+      });
       setCursor(result.cursor || 0);
       setHasMore(result.has_more ?? incoming.length > 0);
       setInitialized(true);
@@ -314,6 +340,7 @@ function CollectedMixesPanel() {
       const message = getErrorMessage(err, "获取收藏合集失败");
       setError(message);
       setInitialized(true);
+      setHasMore(false);
       addLog(message, "error");
     } finally {
       setLoading(false);
@@ -362,6 +389,7 @@ function CollectedMixesPanel() {
         <EmptyState title="暂无收藏合集" description="收藏合集会显示在这里" />
       ) : (
         <>
+          {error && <InlineWarning message={error} />}
           <div className="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-3">
             {mixes.map((mix) => (
               <MixCard key={mix.mix_id} mix={mix} onOpen={() => setSelectedMix(mix)} />
@@ -404,7 +432,14 @@ function MixVideosPanel({ mix, onBack }: { mix: CollectedMixItem; onBack: () => 
       const result = await getMixVideos(mix.mix_id, reset ? 0 : cursor, PAGE_SIZE);
       if (!result.success) {
         const message = result.message || "获取合集视频失败";
-        if (result.need_verify) openVerifyWindow(result.verify_url, addLog);
+        if (result.need_verify) {
+          requestVerifyRecovery({
+            verifyUrl: result.verify_url,
+            message,
+            title: "合集视频需要验证",
+            onResume: () => void loadVideos(reset),
+          });
+        }
         setError(message);
         setInitialized(true);
         addLog(message, result.need_verify ? "warning" : "error");
@@ -679,6 +714,14 @@ function EmptyState({ title, description }: { title: string; description: string
         前往登录 Cookie
       </Button>
     </motion.div>
+  );
+}
+
+function InlineWarning({ message }: { message: string }) {
+  return (
+    <div className="mb-3 rounded-[12px] border border-warning/20 bg-warning-soft px-3 py-2 text-[0.75rem] text-text-secondary">
+      当前显示的是本地缓存，刷新失败：{message}
+    </div>
   );
 }
 

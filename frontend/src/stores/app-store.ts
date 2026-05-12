@@ -27,6 +27,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   bottomBarExpanded: false,
   toggleBottomBar: () => set((s) => ({ bottomBarExpanded: !s.bottomBarExpanded })),
+  setBottomBarExpanded: (expanded: boolean) => set({ bottomBarExpanded: expanded }),
 
   settingsOpen: false,
   setSettingsOpen: (open: boolean) => set({ settingsOpen: open }),
@@ -74,6 +75,7 @@ export const useAlertStore = create<AlertStore>((set) => ({
 interface LoaderStore {
   isLoading: boolean;
   message: string;
+  startedAt: number;
   showLoader: (message?: string) => void;
   hideLoader: () => void;
 }
@@ -81,8 +83,38 @@ interface LoaderStore {
 export const useLoaderStore = create<LoaderStore>((set) => ({
   isLoading: false,
   message: "",
-  showLoader: (message = "正在处理...") => set({ isLoading: true, message }),
-  hideLoader: () => set({ isLoading: false, message: "" }),
+  startedAt: 0,
+  showLoader: (message = "正在处理...") => set({ isLoading: true, message, startedAt: Date.now() }),
+  hideLoader: () => set({ isLoading: false, message: "", startedAt: 0 }),
+}));
+
+// ── Verify Recovery Store ──
+
+export interface VerifyRecoveryConfig {
+  title?: string;
+  message: string;
+  actionLabel?: string;
+  onResume: () => void;
+}
+
+interface VerifyRecoveryStore {
+  isOpen: boolean;
+  config: VerifyRecoveryConfig | null;
+  showRecovery: (config: VerifyRecoveryConfig) => void;
+  resume: () => void;
+  dismiss: () => void;
+}
+
+export const useVerifyRecoveryStore = create<VerifyRecoveryStore>((set, get) => ({
+  isOpen: false,
+  config: null,
+  showRecovery: (config) => set({ isOpen: true, config }),
+  resume: () => {
+    const action = get().config?.onResume;
+    set({ isOpen: false, config: null });
+    action?.();
+  },
+  dismiss: () => set({ isOpen: false, config: null }),
 }));
 
 // ── Download Store ──
@@ -109,6 +141,16 @@ const countActiveTasks = (tasks: Record<string, DownloadTask>) =>
     (t) => t.status === "downloading" || t.status === "pending"
   ).length;
 
+const deriveTaskProgress = (task: DownloadTask, patch: Partial<DownloadTask>) => {
+  if (!task.isBatch || !task.fileTotal || task.fileTotal <= 0 || task.fileIndex === undefined) {
+    return task.progress;
+  }
+  if (patch.progress !== undefined && !(patch.progress === 0 && task.fileIndex > 0)) {
+    return task.progress;
+  }
+  return Math.max(0, Math.min(100, (task.fileIndex / task.fileTotal) * 100));
+};
+
 export const useDownloadStore = create<DownloadStore>((set) => ({
   tasks: {},
   activeCount: 0,
@@ -118,7 +160,8 @@ export const useDownloadStore = create<DownloadStore>((set) => ({
       const definedPatch = Object.fromEntries(
         Object.entries(task).filter(([, value]) => value !== undefined && value !== "")
       ) as Partial<DownloadTask> & { id: string };
-      const updated = { ...existing, ...definedPatch };
+      const merged = { ...existing, ...definedPatch };
+      const updated = { ...merged, progress: deriveTaskProgress(merged, definedPatch) };
       const newTasks = { ...s.tasks, [task.id]: updated };
       return { tasks: newTasks, activeCount: countActiveTasks(newTasks) };
     }),

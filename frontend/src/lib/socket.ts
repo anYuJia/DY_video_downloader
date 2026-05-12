@@ -137,6 +137,38 @@ function toPercent(value: unknown) {
   return Math.max(0, Math.min(100, n));
 }
 
+function computeBatchProgress(d: DownloadProgressPayload, existing?: DownloadTask) {
+  const hasBatchCounters =
+    d.overall_progress !== undefined ||
+    d.current_downloaded !== undefined ||
+    d.total_videos !== undefined ||
+    d.processed !== undefined;
+  const explicitOverall = d.overall_progress;
+  const explicitNumber = toFiniteNumber(explicitOverall);
+  if (explicitNumber !== undefined) {
+    return toPercent(explicitNumber);
+  }
+
+  const total = toFiniteNumber(d.total_videos ?? d.total ?? existing?.fileTotal ?? existing?.mediaCount);
+  const processed = toFiniteNumber(
+    d.processed ?? d.current_downloaded ?? d.completed ?? existing?.fileIndex ?? existing?.completedCount
+  );
+  if (total !== undefined && total > 0 && processed !== undefined) {
+    const fileProgress = toFiniteNumber(d.file_progress);
+    const currentWeight =
+      d.status !== "completed" && d.status !== "failed" && fileProgress !== undefined
+        ? toPercent(fileProgress) / 100
+        : 0;
+    return toPercent(((processed + currentWeight) / total) * 100);
+  }
+
+  if (hasBatchCounters && d.progress !== undefined) {
+    return toPercent(d.progress);
+  }
+
+  return existing?.progress;
+}
+
 function normalizeSpeedBps(payload: { speed_bps?: number; speed_mbps?: number }) {
   const speedBps = toFiniteNumber(payload.speed_bps);
   if (speedBps !== undefined) return speedBps;
@@ -243,8 +275,9 @@ export function useSocket() {
             if (existing?.status === "paused" && nextStatus === "downloading") {
               patch.status = "paused";
             }
-            if (hasBatchProgress && d.overall_progress !== undefined) {
-              patch.progress = toPercent(d.overall_progress);
+            const batchProgress = computeBatchProgress(d, existing);
+            if (batchProgress !== undefined) {
+              patch.progress = batchProgress;
             }
             const totalVideos = toFiniteNumber(d.total_videos ?? d.total ?? existing?.fileTotal);
             if (totalVideos !== undefined) {
@@ -256,6 +289,7 @@ export function useSocket() {
             );
             if (currentDownloaded !== undefined) {
               patch.fileIndex = currentDownloaded;
+              patch.completedCount = currentDownloaded;
             }
             if (d.message) {
               patch.currentName = d.message;

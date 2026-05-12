@@ -878,6 +878,22 @@ function mapHistoryItem(value: unknown): HistoryItem | null {
   };
 }
 
+function toFiniteNumber(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function normalizeProgress(value: unknown, processed?: number, total?: number, currentProgress?: unknown) {
+  const explicit = toFiniteNumber(value);
+  if (explicit !== undefined) return Math.max(0, Math.min(100, explicit));
+  const current = toFiniteNumber(currentProgress);
+  if (total !== undefined && total > 0 && processed !== undefined) {
+    const currentWeight = current !== undefined ? Math.max(0, Math.min(100, current)) / 100 : 0;
+    return Math.max(0, Math.min(100, ((processed + currentWeight) / total) * 100));
+  }
+  return current !== undefined ? Math.max(0, Math.min(100, current)) : 0;
+}
+
 function normalizeBrowserTask(value: unknown) {
   if (!value || typeof value !== "object") return null;
   const task = value as Record<string, unknown>;
@@ -892,23 +908,25 @@ function normalizeBrowserTask(value: unknown) {
       : status === "cancelled" || status === "canceled" ? "cancelled"
       : status === "error" || status === "failed" ? "error"
       : "pending";
+  const total = toFiniteNumber(task.total_videos ?? task.file_total ?? task.fileTotal ?? task.total_files);
+  const processed = toFiniteNumber(task.processed ?? task.current_downloaded ?? task.file_index ?? task.fileIndex ?? task.completed_files);
 
   return {
     id,
     filename: String(task.filename || task.display_name || task.desc || id).trim(),
-    progress: Number(task.progress ?? task.overall_progress ?? 0) || 0,
+    progress: normalizeProgress(task.overall_progress, processed, total, task.progress),
     speed: Number(task.speed ?? task.speed_bps ?? 0) || 0,
     status: mappedStatus,
-    isBatch: Boolean(task.isBatch ?? task.total_videos ?? task.fileTotal ?? false),
+    isBatch: Boolean(task.isBatch ?? task.total_videos ?? task.fileTotal ?? task.total_files ?? false),
     awemeId: String(task.aweme_id || task.awemeId || "").trim() || undefined,
     currentAwemeId: String(task.current_aweme_id || task.currentAwemeId || "").trim() || undefined,
     currentName: String(task.current_name || task.currentName || "").trim() || undefined,
     savePath: String(task.save_path || task.savePath || "").trim() || undefined,
     filePath: String(task.file_path || task.filePath || "").trim() || undefined,
     mediaType: String(task.media_type || task.mediaType || "").trim() || undefined,
-    mediaCount: Number(task.media_count ?? task.mediaCount ?? 0) || undefined,
-    fileIndex: Number(task.file_index ?? task.fileIndex ?? 0) || undefined,
-    fileTotal: Number(task.file_total ?? task.fileTotal ?? 0) || undefined,
+    mediaCount: toFiniteNumber(task.media_count ?? task.mediaCount ?? total),
+    fileIndex: processed,
+    fileTotal: total,
     fileProgress: Number(task.file_progress ?? task.fileProgress ?? 0) || undefined,
     completedCount: Number(task.completed_count ?? task.completedCount ?? 0) || undefined,
     skippedCount: Number(task.skipped_count ?? task.skippedCount ?? 0) || undefined,
@@ -926,16 +944,18 @@ function normalizeBrowserDownloadProgress(payload: Record<string, unknown>) {
   const currentVideo = payload.current_video && typeof payload.current_video === "object"
     ? (payload.current_video as Record<string, unknown>)
     : {};
+  const total = toFiniteNumber(payload.total_videos ?? payload.total);
+  const processed = toFiniteNumber(payload.processed ?? payload.current_downloaded ?? payload.completed);
 
   return {
     task_id: String(payload.task_id || ""),
-    progress: Number(payload.overall_progress ?? payload.progress ?? currentVideo.progress ?? 0) || 0,
-    overall_progress: Number(payload.overall_progress ?? payload.progress ?? 0) || undefined,
+    progress: normalizeProgress(payload.overall_progress, processed, total, payload.progress ?? currentVideo.progress),
+    overall_progress: normalizeProgress(payload.overall_progress, processed, total, payload.progress ?? currentVideo.progress),
     completed: Number(payload.current_downloaded ?? payload.completed ?? 0) || 0,
-    current_downloaded: Number(payload.current_downloaded ?? payload.processed ?? payload.completed ?? 0) || undefined,
+    current_downloaded: processed,
     total: Number(payload.total_videos ?? payload.total ?? 0) || 0,
-    total_videos: Number(payload.total_videos ?? payload.total ?? 0) || undefined,
-    processed: Number(payload.processed ?? payload.current_downloaded ?? payload.completed ?? 0) || undefined,
+    total_videos: total,
+    processed,
     skipped: Number(payload.skipped ?? 0) || undefined,
     failed: Number(payload.failed ?? 0) || undefined,
     status: String(payload.status || "downloading"),
@@ -953,15 +973,17 @@ function normalizeBrowserDownloadProgress(payload: Record<string, unknown>) {
 }
 
 function normalizeDownloadInfoPayload(payload: Record<string, unknown>) {
+  const total = toFiniteNumber(payload.total_videos);
+  const processed = toFiniteNumber(payload.processed ?? payload.current_downloaded);
   return {
     task_id: String(payload.task_id || ""),
-    progress: Number(payload.overall_progress ?? 0) || 0,
-    overall_progress: Number(payload.overall_progress ?? 0) || undefined,
+    progress: normalizeProgress(payload.overall_progress, processed, total),
+    overall_progress: normalizeProgress(payload.overall_progress, processed, total),
     completed: Number(payload.current_downloaded ?? 0) || 0,
-    current_downloaded: Number(payload.current_downloaded ?? payload.processed ?? 0) || undefined,
+    current_downloaded: processed,
     total: Number(payload.total_videos ?? 0) || 0,
-    total_videos: Number(payload.total_videos ?? 0) || undefined,
-    processed: Number(payload.processed ?? payload.current_downloaded ?? 0) || undefined,
+    total_videos: total,
+    processed,
     skipped: Number(payload.skipped ?? 0) || undefined,
     failed: Number(payload.failed ?? 0) || undefined,
     status: "downloading",

@@ -6,7 +6,7 @@
 
 # DY Video Downloader
 
-A desktop-grade Douyin Web downloader and local archive manager with a native window and local Web UI for searching creators, parsing share links, downloading media in bulk, and managing download history.
+A desktop-grade Douyin Web downloader and local archive manager with a native window and local Web UI for searching creators, parsing share links, browsing recommended / collected / liked content, downloading media in bulk, and managing local works.
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-2ea44f.svg?style=flat-square)](LICENSE)
@@ -29,10 +29,13 @@ It is suitable for personal backup, media organization, and research into Web-si
 
 | Capability | Description |
 |:---|:---|
-| User search | Locate creators by nickname, Douyin ID, or profile URL |
-| Batch download | Fetch a creator's works and queue videos, image posts, and some Live Photo assets |
-| Single-item parsing | Paste a share link, inspect item details, and download one work directly |
-| Download history | View, open, locate, move, or delete downloaded files from the UI |
+| User search | Dedicated search page with search history, input completion, pagination, per-item deletion, and clear-all |
+| User profile | Search results, player author names, and other entry points open the same profile page while preserving context across navigation |
+| Batch download | Fetch creator works and queue user works, collected works, liked works, videos, image posts, and some Live Photo assets |
+| Single-item parsing | Dedicated link parsing page with history completion, keyboard up/down selection, work details, and direct download |
+| Download quality | Highest quality, compatibility-first, and smallest-size strategies for single-item and batch downloads |
+| Local management | File mode and work mode, full-library search, playback, folder locating, and local file deletion |
+| Player | Author-name navigation, debounced mouse-wheel switching, and local work playback |
 | Real-time progress | Push task state, logs, speed, and progress through Socket.IO |
 | Task control | Pause, resume, and cancel long-running queues |
 | Cookie helpers | Browser login, browser Cookie import, and temporary Cookie generation |
@@ -45,7 +48,7 @@ It is suitable for personal backup, media organization, and research into Web-si
 </p>
 
 <p align="center">
-  <img src="img/get_user.png" alt="User selection">
+  <img src="img/get_user.png" alt="User search">
 </p>
 
 <p align="center">
@@ -128,9 +131,9 @@ Current supported methods:
 
 1. Start the application and configure Cookie and download directory in Settings.
 2. Set Cookie through browser login, browser Cookie import, or manual paste.
-3. Search a target user by nickname, Douyin ID, or profile URL.
-4. Start download tasks from the work list, single-item detail, liked videos, or liked authors.
-5. Monitor progress in the bottom task panel and manage files in "My Downloads".
+3. Search a target user from the user search page, or open a single work from the link parsing page.
+4. Start download tasks from user works, single-item detail, recommended videos, collected videos, liked videos, or liked authors.
+5. Monitor progress in the bottom task panel and manage local content in "My Downloads" with file mode or work mode.
 
 ## Configuration
 
@@ -191,6 +194,10 @@ Douyin Web Cookies expire and can also be affected by account state, platform ri
 ### What if downloads are slow or fail
 
 Speed depends on network conditions, resource availability, and platform responses. Try another network, reduce concurrent tasks, refresh the Cookie, or retry later.
+
+### Why does changing download quality sometimes produce the same file size
+
+Some works only expose one downloadable media URL, or multiple transcoded URLs can be very close in size. The quality strategy selects from the available candidates, but whether distinct qualities exist depends on what the platform API returns.
 
 ### Why are already-downloaded works skipped
 

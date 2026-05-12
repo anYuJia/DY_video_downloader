@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Clock, Film, Heart, MessageCircle, Play, Share2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatDuration, formatNumber } from "@/lib/utils";
@@ -33,6 +33,7 @@ export function VideoCover({
 }: VideoCoverProps) {
   const cover = getVideoCover(video);
   const coverUrl = useMemo(() => (cover ? mediaProxyUrl(cover, "image") : ""), [cover]);
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const [coverLoaded, setCoverLoaded] = useState(false);
   const [coverFailed, setCoverFailed] = useState(false);
   const mediaItems = useMemo(() => collectVideoMedia(video), [video]);
@@ -47,23 +48,50 @@ export function VideoCover({
     setCoverFailed(false);
   }, [coverUrl]);
 
+  const handleImageNode = useCallback((node: HTMLImageElement | null) => {
+    imageRef.current = node;
+    if (!node || !coverUrl) return;
+    if (node.complete) {
+      if (node.naturalWidth > 0) {
+        setCoverLoaded(true);
+        setCoverFailed(false);
+      } else {
+        setCoverFailed(true);
+      }
+    }
+  }, [coverUrl]);
+
+  useEffect(() => {
+    const image = imageRef.current;
+    if (!coverUrl || !image) return;
+    if (image.complete) {
+      if (image.naturalWidth > 0) {
+        setCoverLoaded(true);
+        setCoverFailed(false);
+      } else {
+        setCoverFailed(true);
+      }
+    }
+  }, [coverUrl]);
+
   return (
     <div className={cn("relative isolate overflow-hidden bg-surface", className)}>
       {coverUrl && !coverFailed ? (
         <>
           <div
             className={cn(
-              "absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(254,44,85,0.12),transparent_34%),linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02))] transition-opacity duration-200",
+              "pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_50%_30%,rgba(254,44,85,0.12),transparent_34%),linear-gradient(135deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02))] transition-opacity duration-200",
               coverLoaded ? "opacity-0" : "opacity-100"
             )}
           />
           <img
+            ref={handleImageNode}
             key={coverUrl}
             src={coverUrl}
             alt={video.desc}
             className={cn(
-              "h-full w-full object-cover transition-[opacity,transform] duration-[var(--duration-base)] group-hover:scale-[1.025]",
-              coverLoaded ? "opacity-100" : "opacity-0",
+              "relative h-full w-full object-cover transition-[opacity,transform] duration-[var(--duration-base)] group-hover:scale-[1.025]",
+              coverLoaded ? "opacity-100" : "opacity-95",
               imageClassName
             )}
             loading="lazy"

@@ -109,6 +109,7 @@ export function FullscreenPlayer({
   const [bgmPlaying, setBgmPlaying] = useState(false);
   const [videoOverrides, setVideoOverrides] = useState<Record<string, VideoInfo>>({});
   const [mediaTransitionDirection, setMediaTransitionDirection] = useState(0);
+  const [navigationNotice, setNavigationNotice] = useState("");
   const playerRootRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const bgmRef = useRef<HTMLAudioElement>(null);
@@ -126,6 +127,7 @@ export function FullscreenPlayer({
   const loadStatusTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const loadTimeoutTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const bufferingTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const navigationNoticeTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const autoRetryCountRef = useRef(0);
   const refreshingDetailRef = useRef(false);
   const refreshedDetailIdsRef = useRef(new Set<string>());
@@ -235,19 +237,37 @@ export function FullscreenPlayer({
     setReloadKey((value) => value + 1);
   }, [videos.length]);
 
+  const showNavigationNotice = useCallback((message: string) => {
+    setNavigationNotice(message);
+    if (navigationNoticeTimerRef.current) {
+      window.clearTimeout(navigationNoticeTimerRef.current);
+    }
+    navigationNoticeTimerRef.current = window.setTimeout(() => {
+      setNavigationNotice("");
+      navigationNoticeTimerRef.current = null;
+    }, 1400);
+  }, []);
+
   const playNextVideo = useCallback(() => {
     if (currentIndex < videos.length - 1) {
       goToVideo(currentIndex + 1);
       return;
     }
-    onLoadMore?.();
-  }, [currentIndex, goToVideo, onLoadMore, videos.length]);
+    if (onLoadMore) {
+      showNavigationNotice("正在加载更多视频...");
+      onLoadMore();
+      return;
+    }
+    showNavigationNotice("已经是最后一个视频");
+  }, [currentIndex, goToVideo, onLoadMore, showNavigationNotice, videos.length]);
 
   const playPrevVideo = useCallback(() => {
     if (currentIndex > 0) {
       goToVideo(currentIndex - 1);
+      return;
     }
-  }, [currentIndex, goToVideo]);
+    showNavigationNotice("已经是第一个视频");
+  }, [currentIndex, goToVideo, showNavigationNotice]);
 
   const releaseMediaSwitchSoon = useCallback(() => {
     if (mediaSwitchReleaseRef.current) {
@@ -602,6 +622,9 @@ export function FullscreenPlayer({
       }
       if (wheelResetTimerRef.current) {
         window.clearTimeout(wheelResetTimerRef.current);
+      }
+      if (navigationNoticeTimerRef.current) {
+        window.clearTimeout(navigationNoticeTimerRef.current);
       }
       clearLoadTimers();
       stopVideoProgressLoop();
@@ -1069,6 +1092,20 @@ export function FullscreenPlayer({
                 </div>
               </div>
             )}
+
+            <AnimatePresence initial={false}>
+              {navigationNotice && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 6, scale: 0.98 }}
+                  transition={{ duration: 0.16 }}
+                  className="pointer-events-none absolute left-1/2 top-[44%] z-20 -translate-x-1/2 rounded-full bg-black/58 px-4 py-2 text-[0.82rem] font-semibold text-white shadow-[0_12px_32px_rgba(0,0,0,0.35)] backdrop-blur-md"
+                >
+                  {navigationNotice}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           <div

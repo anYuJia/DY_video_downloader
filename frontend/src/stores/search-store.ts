@@ -10,6 +10,7 @@ import {
 import { useAlertStore, useAppStore, useLogStore } from "@/stores/app-store";
 import { useToastStore } from "@/components/ui/toast";
 import { saveRecentSearchUser } from "@/lib/recent-searches";
+import { requestVerifyRecovery } from "@/lib/verify-recovery";
 
 const PAGE_SIZE = 18;
 
@@ -36,6 +37,12 @@ let latestUserRequestId = 0;
 let latestVideoRequestId = 0;
 let latestLoadMoreRequestId = 0;
 
+interface PendingVerifySearch {
+  keyword: string;
+  message: string;
+  verifyUrl?: string;
+}
+
 interface SearchStoreState {
   query: string;
   searching: boolean;
@@ -48,7 +55,10 @@ interface SearchStoreState {
   cursor: number;
   hasMore: boolean;
   error: string | null;
+  pendingVerifySearch: PendingVerifySearch | null;
   search: (keyword: string) => Promise<void>;
+  resumeVerifySearch: () => Promise<void>;
+  dismissVerifySearch: () => void;
   selectUser: (user: UserInfo) => Promise<void>;
   openUser: (user: UserInfo, options?: { loadVideos?: boolean }) => Promise<void>;
   loadVideos: () => Promise<void>;
@@ -68,6 +78,7 @@ const initialState = {
   cursor: 0,
   hasMore: false,
   error: null as string | null,
+  pendingVerifySearch: null as PendingVerifySearch | null,
 };
 
 function mergeUserInfo(base: UserInfo, incoming: UserInfo): UserInfo {
@@ -186,6 +197,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       cursor: 0,
       hasMore: false,
       error: null,
+      pendingVerifySearch: null,
     });
 
     addLog(`搜索用户: ${query}`, "info");
@@ -220,15 +232,26 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       if (result.need_verify) {
         openVerifyWindow(result.verify_url, addLog);
         const message = result.message || "需要完成抖音验证";
-        set({ searching: false, error: message });
+        set({
+          searching: false,
+          error: message,
+          pendingVerifySearch: {
+            keyword: query,
+            message,
+            verifyUrl: result.verify_url,
+          },
+        });
         addLog(message, "warning");
-        toast(message, "warning", "需要验证");
+        toast(message, "warning", "需要验证", {
+          label: "已完成验证",
+          onClick: () => void get().resumeVerifySearch(),
+        });
         return;
       }
 
       if (!result.success) {
         const message = formatSearchErrorMessage(result.message);
-        set({ searching: false, error: message });
+        set({ searching: false, error: message, pendingVerifySearch: null });
         addLog(message, "error");
         
         if (checkQuotaError(message)) {
@@ -249,6 +272,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
           cursor: 0,
           hasMore: false,
           error: null,
+          pendingVerifySearch: null,
         });
         useAppStore.getState().setView("user");
         addLog(`已匹配用户: ${result.user.nickname}`, "success");
@@ -267,6 +291,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
         cursor: 0,
         hasMore: false,
         error: users.length > 0 ? null : "未找到用户",
+        pendingVerifySearch: null,
       });
       const msg = `找到 ${users.length} 个候选用户`;
       addLog(msg, users.length > 0 ? "success" : "warning");
@@ -276,7 +301,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       useToastStore.getState().dismiss(loadingToastId);
       if (requestId !== latestSearchRequestId) return;
       const message = formatSearchErrorMessage(error instanceof Error ? error.message : undefined);
-      set({ searching: false, error: message });
+      set({ searching: false, error: message, pendingVerifySearch: null });
       addLog(message, "error");
       
       if (checkQuotaError(message)) {
@@ -285,6 +310,16 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
         toast(message, "error", "搜索异常");
       }
     }
+  },
+
+  resumeVerifySearch: async () => {
+    const pending = get().pendingVerifySearch;
+    if (!pending || get().searching) return;
+    await get().search(pending.keyword);
+  },
+
+  dismissVerifySearch: () => {
+    set({ pendingVerifySearch: null, error: null });
   },
 
   selectUser: async (user) => {
@@ -314,11 +349,15 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       if (requestId !== latestUserRequestId) return;
 
       if (detail.need_verify) {
-        openVerifyWindow(detail.verify_url, addLog);
         const message = detail.message || "需要完成抖音验证";
+        requestVerifyRecovery({
+          verifyUrl: detail.verify_url,
+          message,
+          title: "用户详情需要验证",
+          onResume: () => void get().selectUser(user),
+        });
         set({ loadingUser: false, error: message, currentUser: user });
         addLog(message, "warning");
-        toast(message, "warning", "需要验证");
         return;
       }
 
@@ -392,11 +431,15 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       if (requestId !== latestVideoRequestId || get().currentUser?.sec_uid !== secUid) return;
 
       if (result.need_verify) {
-        openVerifyWindow(result.verify_url, addLog);
         const message = result.message || "需要完成抖音验证";
+        requestVerifyRecovery({
+          verifyUrl: result.verify_url,
+          message,
+          title: "作品列表需要验证",
+          onResume: () => void get().loadVideos(),
+        });
         set({ loadingVideos: false, error: message });
         addLog(message, "warning");
-        toast(message, "warning", "需要验证");
         return;
       }
 
@@ -455,8 +498,13 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       if (requestId !== latestLoadMoreRequestId || get().currentUser?.sec_uid !== secUid) return;
 
       if (result.need_verify) {
-        openVerifyWindow(result.verify_url, addLog);
         const message = result.message || "需要完成抖音验证";
+        requestVerifyRecovery({
+          verifyUrl: result.verify_url,
+          message,
+          title: "加载更多作品需要验证",
+          onResume: () => void get().loadMore(),
+        });
         set({ loadingMore: false, error: message });
         addLog(message, "warning");
         return;

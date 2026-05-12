@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useDownloadStore, useLogStore } from "@/stores/app-store";
+import { useAlertStore, useDownloadStore, useLogStore } from "@/stores/app-store";
 import { TaskCard } from "./task-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,6 +69,7 @@ export function DownloadsView() {
   const tasks = useDownloadStore((s) => s.tasks);
   const clearCompleted = useDownloadStore((s) => s.clearCompleted);
   const addLog = useLogStore((s) => s.addLog);
+  const showAlert = useAlertStore((s) => s.showAlert);
   const {
     cancelDownload,
     pauseTask,
@@ -86,6 +87,7 @@ export function DownloadsView() {
   } = useHistory();
 
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [typeFilter, setTypeFilter] = useState("all");
   const [sortBy, setSortBy] = useState("date_desc");
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
@@ -97,6 +99,7 @@ export function DownloadsView() {
   const [displayMode, setDisplayMode] = useState<DownloadDisplayMode>("file");
   const [workDiskFiles, setWorkDiskFiles] = useState<HistoryItem[]>([]);
   const [workDiskLoading, setWorkDiskLoading] = useState(false);
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [playerState, setPlayerState] = useState<DownloadPlayerState>(null);
   const [filePage, setFilePage] = useState(1);
   const [filePageSize, setFilePageSize] = useState<number>(24);
@@ -115,7 +118,7 @@ export function DownloadsView() {
         offset: (filePage - 1) * filePageSize,
         limit: filePageSize,
         forceRefresh,
-        query: searchQuery.trim() || undefined,
+        query: deferredSearchQuery.trim() || undefined,
         mediaType: typeFilter,
         sortBy,
       });
@@ -131,7 +134,7 @@ export function DownloadsView() {
         setDiskLoading(false);
       }
     }
-  }, [addLog, filePage, filePageSize, searchQuery, sortBy, typeFilter]);
+  }, [addLog, deferredSearchQuery, filePage, filePageSize, sortBy, typeFilter]);
 
   useEffect(() => {
     void loadDiskFiles();
@@ -144,7 +147,7 @@ export function DownloadsView() {
       const page = await listDownloadFilesPage({
         offset: 0,
         forceRefresh,
-        query: searchQuery.trim() || undefined,
+        query: deferredSearchQuery.trim() || undefined,
         mediaType: typeFilter,
         sortBy,
       });
@@ -159,7 +162,7 @@ export function DownloadsView() {
         setWorkDiskLoading(false);
       }
     }
-  }, [addLog, searchQuery, sortBy, typeFilter]);
+  }, [addLog, deferredSearchQuery, sortBy, typeFilter]);
 
   useEffect(() => {
     if (displayMode !== "work") return;
@@ -189,7 +192,7 @@ export function DownloadsView() {
     startTime?: number;
     finishedTime?: number;
   }) => {
-    const query = searchQuery.trim().toLowerCase();
+    const query = deferredSearchQuery.trim().toLowerCase();
     if (query) {
       const matched = [task.filename, task.awemeId, task.savePath, task.filePath]
         .filter(Boolean)
@@ -200,7 +203,7 @@ export function DownloadsView() {
       return false;
     }
     return true;
-  }, [searchQuery, typeFilter]);
+  }, [deferredSearchQuery, typeFilter]);
 
   const tasksList = useMemo(() => {
     const sorted = Object.values(tasks)
@@ -255,13 +258,14 @@ export function DownloadsView() {
       : paginatedHistoryList.length > 0 && pageSelectedCount === paginatedHistoryList.length;
   const selectedCount = displayMode === "work" ? selectedWorks.size : selectedFiles.size;
   const localListLoading = historyLoading || diskLoading || (displayMode === "work" && workDiskLoading);
+  const deletingFiles = deletingIds.size > 0;
 
   useEffect(() => {
     setFilePage(1);
     setSelectionMode(false);
     setSelectedFiles(new Set());
     setSelectedWorks(new Set());
-  }, [displayMode, searchQuery, sortBy, typeFilter, filePageSize]);
+  }, [deferredSearchQuery, displayMode, sortBy, typeFilter, filePageSize]);
 
   useEffect(() => {
     if (filePage > totalFilePages) {
@@ -362,7 +366,7 @@ export function DownloadsView() {
       try {
         const page = await listDownloadFilesPage({
           offset: 0,
-          query: searchQuery.trim() || undefined,
+          query: deferredSearchQuery.trim() || undefined,
           mediaType: typeFilter,
           sortBy,
         });
@@ -374,7 +378,7 @@ export function DownloadsView() {
     }
 
     openDownloadPlayer(group?.items?.length ? group.items : [item], item);
-  }, [diskFiles, historyItems, openDownloadPlayer, searchQuery, sortBy, typeFilter, workDiskFiles]);
+  }, [deferredSearchQuery, diskFiles, historyItems, openDownloadPlayer, sortBy, typeFilter, workDiskFiles]);
 
   const handlePlayWorkGroup = useCallback((group: DownloadWorkGroup) => {
     openDownloadPlayer(group.items, group.items[0]);
@@ -396,48 +400,73 @@ export function DownloadsView() {
     }
   }, [handleRevealHistory]);
 
-  const handleDeleteItems = useCallback(async (items: HistoryItem[]) => {
+  const handleDeleteItems = useCallback((items: HistoryItem[]) => {
     const targets = getPlayableDownloadItems(items).filter((item) => item.path);
     if (targets.length === 0) {
       addLog("没有可删除的本地文件", "warning");
       return;
     }
+    const targetIds = new Set(targets.map(getDownloadDeleteKey));
 
-    try {
-      for (const item of targets) {
-        await deleteFile(item.path);
-        try {
-          await deleteHistoryItem(item.aweme_id || item.id);
-        } catch {
-          // The disk scan is the source of truth; stale history cleanup is best-effort.
-        }
-      }
-      const deletedIds = new Set(targets.map((item) => item.id));
-      setSelectedFiles((current) => {
-        const next = new Set([...current].filter((id) => !deletedIds.has(id)));
-        return next;
-      });
-      setSelectedWorks(new Set());
-      setSelectionMode(false);
-      void loadHistory();
-      void loadDiskFiles();
-      if (displayMode === "work") {
-        void loadWorkDiskFiles();
-      }
-      addLog(targets.length > 1 ? `已删除 ${targets.length} 个文件` : "已删除文件", "info");
-    } catch (error) {
-      addLog(error instanceof Error ? error.message : "删除失败", "error");
-    }
-  }, [addLog, deleteHistoryItem, displayMode, loadDiskFiles, loadHistory, loadWorkDiskFiles]);
+    showAlert({
+      title: targets.length > 1 ? `删除 ${targets.length} 个文件？` : "删除这个文件？",
+      variant: "danger",
+      description: "文件会从本地下载目录中删除，操作完成后会同步刷新下载列表。",
+      actionLabel: "删除文件",
+      cancelLabel: "取消",
+      onAction: () => {
+        void (async () => {
+          setDeletingIds((current) => new Set([...current, ...targetIds]));
+          try {
+            for (const item of targets) {
+              await deleteFile(item.path);
+              try {
+                await deleteHistoryItem(item.aweme_id || item.id);
+              } catch {
+                // The disk scan is the source of truth; stale history cleanup is best-effort.
+              }
+            }
+            const deletedIds = new Set(targets.map((item) => item.id));
+            setSelectedFiles((current) => {
+              const next = new Set([...current].filter((id) => !deletedIds.has(id)));
+              return next;
+            });
+            setSelectedWorks(new Set());
+            setSelectionMode(false);
+            void loadHistory();
+            void loadDiskFiles();
+            if (displayMode === "work") {
+              void loadWorkDiskFiles();
+            }
+            addLog(targets.length > 1 ? `已删除 ${targets.length} 个文件` : "已删除文件", "info");
+          } catch (error) {
+            addLog(error instanceof Error ? error.message : "删除失败", "error");
+          } finally {
+            setDeletingIds((current) => {
+              const next = new Set(current);
+              targetIds.forEach((id) => next.delete(id));
+              return next;
+            });
+          }
+        })();
+      },
+    });
+  }, [addLog, deleteHistoryItem, displayMode, loadDiskFiles, loadHistory, loadWorkDiskFiles, showAlert]);
 
   const handleDeleteSelected = useCallback(() => {
+    if (deletingFiles) return;
     const targets = displayMode === "work"
       ? paginatedWorkGroups
           .filter((group) => selectedWorks.has(group.id))
           .flatMap((group) => group.items)
       : paginatedHistoryList.filter((item) => selectedFiles.has(item.id));
-    void handleDeleteItems(targets);
-  }, [displayMode, handleDeleteItems, paginatedHistoryList, paginatedWorkGroups, selectedFiles, selectedWorks]);
+    handleDeleteItems(targets);
+  }, [deletingFiles, displayMode, handleDeleteItems, paginatedHistoryList, paginatedWorkGroups, selectedFiles, selectedWorks]);
+
+  const requestDeleteItems = useCallback((items: HistoryItem[]) => {
+    if (deletingFiles) return;
+    handleDeleteItems(items);
+  }, [deletingFiles, handleDeleteItems]);
 
   return (
     <div>
@@ -644,7 +673,7 @@ export function DownloadsView() {
               </span>
             )}
             {totalFileItems > 0 && (
-              <Button variant={selectionMode ? "default" : "outline"} size="sm" onClick={toggleSelectionMode}>
+              <Button variant={selectionMode ? "default" : "outline"} size="sm" onClick={toggleSelectionMode} disabled={deletingFiles}>
                 {selectionMode ? (
                   <Square className="h-3.5 w-3.5" />
                 ) : (
@@ -690,9 +719,9 @@ export function DownloadsView() {
             {selectedCount > 0 && (
               <>
                 <Badge variant="default">{selectedCount} 已选</Badge>
-                <Button variant="danger-outline" size="sm" onClick={handleDeleteSelected}>
+                <Button variant="danger-outline" size="sm" onClick={handleDeleteSelected} disabled={deletingFiles}>
                   <Trash2 className="h-3.5 w-3.5" />
-                  删除文件
+                  {deletingFiles ? "删除中" : "删除文件"}
                 </Button>
               </>
             )}
@@ -728,7 +757,8 @@ export function DownloadsView() {
                     }}
                     onPlay={() => handlePlayWorkGroup(group)}
                     onReveal={() => handleRevealWorkGroup(group)}
-                    onDeleteFile={() => void handleDeleteItems(group.items)}
+                    deleting={group.items.some((item) => deletingIds.has(getDownloadDeleteKey(item)))}
+                    onDeleteFile={() => requestDeleteItems(group.items)}
                   />
                 ))}
               </div>
@@ -754,7 +784,8 @@ export function DownloadsView() {
                     }}
                     onOpen={() => void handlePlayHistory(item)}
                     onReveal={() => void handleRevealHistory(item)}
-                    onDeleteFile={() => void handleDeleteItems([item])}
+                    deleting={deletingIds.has(getDownloadDeleteKey(item))}
+                    onDeleteFile={() => requestDeleteItems([item])}
                   />
                 ))}
               </div>
@@ -825,11 +856,13 @@ function HistoryFileCard({
   onReveal,
   onDeleteFile,
   allowVideoPreview,
+  deleting,
 }: {
   item: HistoryItem;
   selected: boolean;
   selectionMode: boolean;
   allowVideoPreview: boolean;
+  deleting: boolean;
   onToggle: () => void;
   onOpen: () => void;
   onReveal: () => void;
@@ -912,9 +945,9 @@ function HistoryFileCard({
           <FolderOpen className="h-3.5 w-3.5" />
           定位
         </Button>
-        <Button variant="danger-outline" size="sm" onClick={onDeleteFile} className="min-w-0 gap-1 px-1.5 text-[0.72rem] sm:gap-1.5 sm:px-2 sm:text-[0.75rem]">
+        <Button variant="danger-outline" size="sm" onClick={onDeleteFile} disabled={deleting} className="min-w-0 gap-1 px-1.5 text-[0.72rem] sm:gap-1.5 sm:px-2 sm:text-[0.75rem]">
           <Trash2 className="h-3.5 w-3.5" />
-          删除文件
+          {deleting ? "删除中" : "删除文件"}
         </Button>
       </div>
     </div>
@@ -930,11 +963,13 @@ function DownloadWorkCard({
   onReveal,
   onDeleteFile,
   allowVideoPreview,
+  deleting,
 }: {
   group: DownloadWorkGroup;
   selected: boolean;
   selectionMode: boolean;
   allowVideoPreview: boolean;
+  deleting: boolean;
   onToggle: () => void;
   onPlay: () => void;
   onReveal: () => void;
@@ -1018,9 +1053,9 @@ function DownloadWorkCard({
           <FolderOpen className="h-3.5 w-3.5" />
           定位
         </Button>
-        <Button variant="danger-outline" size="sm" onClick={onDeleteFile} className="min-w-0 gap-1 px-1.5 text-[0.72rem] sm:gap-1.5 sm:px-2 sm:text-[0.75rem]">
+        <Button variant="danger-outline" size="sm" onClick={onDeleteFile} disabled={deleting} className="min-w-0 gap-1 px-1.5 text-[0.72rem] sm:gap-1.5 sm:px-2 sm:text-[0.75rem]">
           <Trash2 className="h-3.5 w-3.5" />
-          删除文件
+          {deleting ? "删除中" : "删除文件"}
         </Button>
       </div>
     </div>
@@ -1167,6 +1202,10 @@ function mergeDownloadFileItems(files: HistoryItem[], historyItems: HistoryItem[
       timestamp: history?.timestamp || file.timestamp,
     };
   });
+}
+
+function getDownloadDeleteKey(item: HistoryItem): string {
+  return item.path || item.id || item.aweme_id || item.filename || "";
 }
 
 function buildDownloadWorkGroups(items: HistoryItem[], sortBy: string): DownloadWorkGroup[] {

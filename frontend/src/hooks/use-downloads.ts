@@ -250,19 +250,23 @@ function normalizeBackendTask(value: unknown): (Partial<DownloadTask> & { id: st
   const totalBytes = Number(task.total_size ?? task.totalBytes ?? 0) || 0;
   const startTime = normalizeTimestamp(task.start_time ?? task.create_time ?? task.startTime);
   const finishedTime = normalizeTimestamp(task.end_time ?? task.complete_time ?? task.finishedTime);
+  const totalFiles = toFiniteNumber(task.total_videos ?? task.total_files ?? task.mediaCount);
+  const processed = toFiniteNumber(task.processed ?? task.current_downloaded ?? task.completed_files);
+  const progress = normalizeProgress(task.overall_progress ?? task.progress, processed, totalFiles);
 
   return {
     id,
     awemeId: String(task.aweme_id || task.awemeId || "").trim(),
     ...(title ? { filename: title } : {}),
-    progress: Number(task.progress ?? task.overall_progress ?? 0) || 0,
+    progress,
     speed: 0,
     status: normalizeStatus(task.status),
     savePath: String(task.save_path || task.savePath || "").trim(),
     mediaType: String(task.media_type || task.mediaType || "").trim(),
-    mediaCount: Number(task.total_videos ?? task.total_files ?? task.mediaCount ?? 0) || undefined,
-    fileTotal: Number(task.total_videos ?? task.total_files ?? 0) || undefined,
-    fileIndex: Number(task.processed ?? task.current_downloaded ?? task.completed_files ?? 0) || undefined,
+    mediaCount: totalFiles,
+    fileTotal: totalFiles,
+    fileIndex: processed,
+    completedCount: processed,
     skippedCount: Number(task.skipped ?? task.skipped_count ?? 0) || undefined,
     failedCount: Number(task.failed ?? task.failed_count ?? 0) || undefined,
     downloadedBytes: downloadedBytes || undefined,
@@ -271,6 +275,20 @@ function normalizeBackendTask(value: unknown): (Partial<DownloadTask> & { id: st
     finishedTime,
     errorMessage: String(task.error_msg || "").trim() || undefined,
   };
+}
+
+function toFiniteNumber(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function normalizeProgress(value: unknown, processed?: number, total?: number) {
+  const explicit = toFiniteNumber(value);
+  if (explicit !== undefined) return Math.max(0, Math.min(100, explicit));
+  if (total !== undefined && total > 0 && processed !== undefined) {
+    return Math.max(0, Math.min(100, (processed / total) * 100));
+  }
+  return 0;
 }
 
 function normalizeTimestamp(value: unknown) {
