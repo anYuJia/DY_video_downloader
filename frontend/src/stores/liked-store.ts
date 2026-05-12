@@ -16,17 +16,40 @@ import {
 import { useLogStore } from "@/stores/app-store";
 
 const DEFAULT_COUNT = 20;
+let latestVideosRequestId = 0;
+let latestLoadMoreVideosRequestId = 0;
+
+function openVerifyWindow(verifyUrl: string | undefined, addLog: (message: string, type: "info" | "success" | "warning" | "error") => void) {
+  void openVerifyBrowser(verifyUrl)
+    .then((result) => addLog(result.message, result.success ? "info" : "warning"))
+    .catch(() => addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
+}
+
+const uniqueVideos = (existing: VideoInfo[], incoming: VideoInfo[]) => {
+  const seen = new Set(existing.map((video) => video.aweme_id));
+  const next = [...existing];
+  for (const video of incoming) {
+    if (!video?.aweme_id || seen.has(video.aweme_id)) continue;
+    seen.add(video.aweme_id);
+    next.push(video);
+  }
+  return next;
+};
 
 interface LikedStoreState {
   videos: VideoInfo[];
   authors: UserInfo[];
   loadingVideos: boolean;
+  loadingMoreVideos: boolean;
   loadingAuthors: boolean;
   videosLoaded: boolean;
   authorsLoaded: boolean;
+  videosCursor: number;
+  videosHasMore: boolean;
   videosError: string | null;
   authorsError: string | null;
   loadVideos: (force?: boolean, count?: number) => Promise<void>;
+  loadMoreVideos: () => Promise<void>;
   loadAuthors: (force?: boolean, count?: number) => Promise<void>;
 }
 
@@ -34,40 +57,52 @@ export const useLikedStore = create<LikedStoreState>((set, get) => ({
   videos: [],
   authors: [],
   loadingVideos: false,
+  loadingMoreVideos: false,
   loadingAuthors: false,
   videosLoaded: false,
   authorsLoaded: false,
+  videosCursor: 0,
+  videosHasMore: true,
   videosError: null,
   authorsError: null,
 
   loadVideos: async (force = false, count = DEFAULT_COUNT) => {
     const state = get();
-    if (state.loadingVideos) return;
+    if (state.loadingVideos || state.loadingMoreVideos) return;
     if (!force && state.videosLoaded && state.videos.length > 0) return;
 
     const addLog = useLogStore.getState().addLog;
     const cachedVideos = loadLikedVideosCache();
+    const requestId = ++latestVideosRequestId;
+    latestLoadMoreVideosRequestId += 1;
     set({
       loadingVideos: true,
+      loadingMoreVideos: false,
       videosError: null,
-      ...(state.videos.length > 0 ? {} : cachedVideos.length > 0 ? { videos: cachedVideos } : { videos: [] }),
+      ...(state.videos.length > 0
+        ? {}
+        : cachedVideos.length > 0
+          ? { videos: cachedVideos, videosCursor: 0, videosHasMore: true }
+          : { videos: [], videosCursor: 0, videosHasMore: true }),
     });
     addLog("加载点赞视频...", "info");
 
     try {
-      const result = await getLikedVideos(count);
+      const result = await getLikedVideos(count, "", 0);
+      if (requestId !== latestVideosRequestId) return;
+
       if (!result.success) {
         const message = result.message || "获取点赞视频失败";
         if (result.need_verify) {
-          void openVerifyBrowser(result.verify_url)
-            .then((verifyResult) => addLog(verifyResult.message, verifyResult.success ? "info" : "warning"))
-            .catch(() => addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
+          openVerifyWindow(result.verify_url, addLog);
         }
         if (cachedVideos.length > 0) {
           set({
             videos: cachedVideos,
             loadingVideos: false,
             videosLoaded: true,
+            videosCursor: 0,
+            videosHasMore: false,
             videosError: null,
           });
           addLog(`点赞视频请求失败，已回退到本地缓存（${cachedVideos.length} 条）`, "warning");
@@ -76,6 +111,7 @@ export const useLikedStore = create<LikedStoreState>((set, get) => ({
         set({
           loadingVideos: false,
           videosLoaded: true,
+          videosHasMore: false,
           videosError: message,
         });
         addLog(message, result.need_verify ? "warning" : "error");
@@ -87,16 +123,23 @@ export const useLikedStore = create<LikedStoreState>((set, get) => ({
       set({
         videos,
         loadingVideos: false,
+        loadingMoreVideos: false,
         videosLoaded: true,
+        videosCursor: result.cursor || 0,
+        videosHasMore: result.has_more ?? videos.length > 0,
         videosError: null,
       });
       addLog(`已加载 ${videos.length} 个点赞视频`, "success");
     } catch (error) {
+      if (requestId !== latestVideosRequestId) return;
+
       if (cachedVideos.length > 0) {
         set({
           videos: cachedVideos,
           loadingVideos: false,
           videosLoaded: true,
+          videosCursor: 0,
+          videosHasMore: false,
           videosError: null,
         });
         addLog(`点赞视频请求异常，已回退到本地缓存（${cachedVideos.length} 条）`, "warning");
@@ -107,8 +150,58 @@ export const useLikedStore = create<LikedStoreState>((set, get) => ({
       set({
         loadingVideos: false,
         videosLoaded: true,
+        videosHasMore: false,
         videosError: message,
       });
+      addLog(message, "error");
+    }
+  },
+
+  loadMoreVideos: async () => {
+    const state = get();
+    if (state.loadingVideos || state.loadingMoreVideos || !state.videosHasMore) return;
+
+    const addLog = useLogStore.getState().addLog;
+    const requestId = ++latestLoadMoreVideosRequestId;
+    const cursor = state.videosCursor;
+    set({ loadingMoreVideos: true, videosError: null });
+
+    try {
+      const result = await getLikedVideos(DEFAULT_COUNT, "", cursor);
+      if (requestId !== latestLoadMoreVideosRequestId) return;
+
+      if (!result.success) {
+        const message = result.message || "加载更多点赞视频失败";
+        if (result.need_verify) {
+          openVerifyWindow(result.verify_url, addLog);
+        }
+        set({ loadingMoreVideos: false, videosError: message });
+        addLog(message, result.need_verify ? "warning" : "error");
+        return;
+      }
+
+      const incoming = result.data || [];
+      const currentVideos = get().videos;
+      const nextVideos = uniqueVideos(currentVideos, incoming);
+      const addedCount = nextVideos.length - currentVideos.length;
+      saveLikedVideosCache(nextVideos);
+
+      set((current) => ({
+        loadingMoreVideos: false,
+        videos: nextVideos,
+        videosLoaded: true,
+        videosCursor: result.cursor || current.videosCursor,
+        videosHasMore: addedCount > 0 && (result.has_more ?? incoming.length > 0),
+        videosError: null,
+      }));
+
+      if (addedCount > 0) {
+        addLog(`已继续加载 ${addedCount} 个点赞视频`, "success");
+      }
+    } catch (error) {
+      if (requestId !== latestLoadMoreVideosRequestId) return;
+      const message = getErrorMessage(error, "加载更多点赞视频失败");
+      set({ loadingMoreVideos: false, videosError: message });
       addLog(message, "error");
     }
   },
@@ -132,9 +225,7 @@ export const useLikedStore = create<LikedStoreState>((set, get) => ({
       if (!result.success) {
         const message = result.message || "获取点赞作者失败";
         if (result.need_verify) {
-          void openVerifyBrowser(result.verify_url)
-            .then((verifyResult) => addLog(verifyResult.message, verifyResult.success ? "info" : "warning"))
-            .catch(() => addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
+          openVerifyWindow(result.verify_url, addLog);
         }
         if (cachedAuthors.length > 0) {
           set({

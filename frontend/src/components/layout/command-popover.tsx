@@ -55,8 +55,8 @@ const iconSwitchTransition = {
 
 export function CommandPopover() {
   const setCommandOpen = useAppStore((s) => s.setCommandOpen);
+  const setView = useAppStore((s) => s.setView);
   const commandMode = useAppStore((s) => s.commandMode);
-  const setCommandMode = useAppStore((s) => s.setCommandMode);
   const addLog = useLogStore((s) => s.addLog);
   const [value, setValue] = useState("");
   const [recents, setRecents] = useState<RecentSearch[]>([]);
@@ -184,9 +184,13 @@ export function CommandPopover() {
                   layout
                   whileTap={{ scale: 0.96 }}
                   onClick={() => {
-                    setCommandMode(mode);
-                    setValue("");
-                    setTimeout(() => inputRef.current?.focus(), 30);
+                    if (mode === "search") {
+                      setView("search");
+                      setCommandOpen(false);
+                      return;
+                    }
+                    setView("link");
+                    setCommandOpen(false);
                   }}
                   className={cn(
                     "relative flex items-center gap-2 px-3.5 py-2 rounded-[10px] text-[0.78rem] font-semibold cursor-pointer transition-[color,background-color,box-shadow] duration-200",

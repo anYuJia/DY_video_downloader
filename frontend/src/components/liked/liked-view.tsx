@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Download,
@@ -32,18 +32,19 @@ export function LikedView() {
   const videos = useLikedStore((s) => s.videos);
   const authors = useLikedStore((s) => s.authors);
   const loadingVideos = useLikedStore((s) => s.loadingVideos);
+  const loadingMoreVideos = useLikedStore((s) => s.loadingMoreVideos);
   const loadingAuthors = useLikedStore((s) => s.loadingAuthors);
+  const videosHasMore = useLikedStore((s) => s.videosHasMore);
   const videosError = useLikedStore((s) => s.videosError);
   const authorsError = useLikedStore((s) => s.authorsError);
   const loadVideos = useLikedStore((s) => s.loadVideos);
+  const loadMoreVideos = useLikedStore((s) => s.loadMoreVideos);
   const loadAuthors = useLikedStore((s) => s.loadAuthors);
   const { downloadVideo, downloadBatch } = useDownloads();
   const [detailVideo, setDetailVideo] = useState<VideoInfo | null>(null);
   const [playerIndex, setPlayerIndex] = useState<number | null>(null);
   const [authorLoadingId, setAuthorLoadingId] = useState<string | null>(null);
-  const setView = useAppStore((s) => s.setView);
-  const selectUser = useSearchStore((s) => s.selectUser);
-  const searchLoadVideos = useSearchStore((s) => s.loadVideos);
+  const openUser = useSearchStore((s) => s.openUser);
 
   const openPlayer = (video: VideoInfo) => {
     const index = videos.findIndex((item) => item.aweme_id === video.aweme_id);
@@ -55,9 +56,7 @@ export function LikedView() {
     if (!userInfo || authorLoadingId) return;
     setAuthorLoadingId(video.aweme_id);
     try {
-      setView("search");
-      await selectUser(userInfo);
-      await searchLoadVideos();
+      await openUser(userInfo);
     } finally {
       setAuthorLoadingId(null);
     }
@@ -116,8 +115,11 @@ export function LikedView() {
           <LikedVideosPanel
             videos={videos}
             loading={loadingVideos}
+            loadingMore={loadingMoreVideos}
+            hasMore={videosHasMore}
             error={videosError}
             onRefresh={() => void loadVideos(true)}
+            onLoadMore={() => void loadMoreVideos()}
             onSelect={openPlayer}
             onDetail={setDetailVideo}
             onDownload={(video) => void downloadVideo(video)}
@@ -141,6 +143,7 @@ export function LikedView() {
         open={playerIndex !== null}
         onClose={() => setPlayerIndex(null)}
         onDownload={(video) => void downloadVideo(video)}
+        onLoadMore={videosHasMore && !loadingMoreVideos ? () => void loadMoreVideos() : undefined}
         onShowDetail={(video) => {
           setPlayerIndex(null);
           setDetailVideo(video);
@@ -166,8 +169,11 @@ export function LikedView() {
 function LikedVideosPanel({
   videos,
   loading,
+  loadingMore,
+  hasMore,
   error,
   onRefresh,
+  onLoadMore,
   onSelect,
   onDetail,
   onDownload,
@@ -177,8 +183,11 @@ function LikedVideosPanel({
 }: {
   videos: VideoInfo[];
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
   error: string | null;
   onRefresh: () => void;
+  onLoadMore: () => void;
   onSelect: (video: VideoInfo) => void;
   onDetail: (video: VideoInfo) => void;
   onDownload: (video: VideoInfo) => void;
@@ -186,10 +195,35 @@ function LikedVideosPanel({
   authorLoadingId: string | null;
   onDownloadAll: () => void;
 }) {
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!hasMore || loading || loadingMore || videos.length === 0) return;
+
+    const node = loadMoreRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onLoadMore();
+        }
+      },
+      {
+        root: null,
+        rootMargin: "520px 0px",
+        threshold: 0.01,
+      }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, loading, loadingMore, onLoadMore, videos.length]);
+
   return (
     <div>
       <div className="flex items-center justify-end gap-2 mb-4">
-        <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading}>
+        <Button variant="outline" size="sm" onClick={onRefresh} disabled={loading || loadingMore}>
           {loading ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
           ) : (
@@ -210,26 +244,52 @@ function LikedVideosPanel({
       ) : videos.length === 0 ? (
         <EmptyState title="暂无点赞视频" description="需要登录抖音账号后才能读取点赞视频列表" />
       ) : (
-        <motion.div
-          className={ORIGINAL_VIDEO_GRID_CLASS}
-          initial={false}
-          animate="show"
-          variants={{ hidden: {}, show: { transition: { staggerChildren: 0.04 } } }}
-        >
-          {videos.map((video, index) => (
-            <VideoCard
-              key={video.aweme_id}
-              video={video}
-              index={index}
-              animate={false}
-              onSelect={onSelect}
-              onDetail={onDetail}
-              onDownload={onDownload}
-              onAuthor={onAuthor}
-              authorLoading={authorLoadingId === video.aweme_id}
-            />
-          ))}
-        </motion.div>
+        <>
+          <motion.div
+            className={ORIGINAL_VIDEO_GRID_CLASS}
+            initial={false}
+            animate="show"
+            variants={{ hidden: {}, show: { transition: { staggerChildren: 0.04 } } }}
+          >
+            {videos.map((video, index) => (
+              <VideoCard
+                key={video.aweme_id}
+                video={video}
+                index={index}
+                animate={false}
+                onSelect={onSelect}
+                onDetail={onDetail}
+                onDownload={onDownload}
+                onAuthor={onAuthor}
+                authorLoading={authorLoadingId === video.aweme_id}
+              />
+            ))}
+          </motion.div>
+
+          <div ref={loadMoreRef} className="h-px w-full" aria-hidden="true" />
+
+          {hasMore ? (
+            <div className="flex justify-center mt-6">
+              <Button
+                variant="outline"
+                onClick={onLoadMore}
+                disabled={loadingMore}
+                className="gap-2"
+              >
+                {loadingMore ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+                {loadingMore ? "正在加载更多..." : "继续下滑自动加载"}
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-6 text-center text-[0.76rem] text-text-muted">
+              已加载全部点赞视频
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -246,11 +306,9 @@ function LikedAuthorsPanel({
   error: string | null;
   onRefresh: () => void;
 }) {
-  const setView = useAppStore((s) => s.setView);
   const addLog = useLogStore((s) => s.addLog);
   const updateTask = useDownloadStore((s) => s.updateTask);
-  const selectUser = useSearchStore((s) => s.selectUser);
-  const loadVideos = useSearchStore((s) => s.loadVideos);
+  const openUser = useSearchStore((s) => s.openUser);
   const [busyAuthorId, setBusyAuthorId] = useState<string | null>(null);
   const [downloadAuthorId, setDownloadAuthorId] = useState<string | null>(null);
   const [downloadingAllAuthors, setDownloadingAllAuthors] = useState(false);
@@ -259,9 +317,7 @@ function LikedAuthorsPanel({
     if (busyAuthorId || downloadingAllAuthors) return;
     setBusyAuthorId(author.sec_uid);
     try {
-      await selectUser(author);
-      setView("search");
-      await loadVideos();
+      await openUser(author);
     } finally {
       setBusyAuthorId(null);
     }

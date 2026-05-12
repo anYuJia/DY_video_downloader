@@ -4,10 +4,11 @@ import {
   Search,
   Link2,
   Sparkles,
-  FolderOpen,
+  Heart,
   ArrowUpRight,
   Command,
 } from "lucide-react";
+import type { ViewType } from "@/types";
 import { cn } from "@/lib/utils";
 import { AmbientBackground } from "./ambient-background";
 import { QuickStats } from "./quick-stats";
@@ -19,8 +20,7 @@ interface Shortcut {
   gradient: string;
   iconColor: string;
   glowColor: string;
-  view?: string;
-  command?: "search" | "link";
+  view?: ViewType;
   kbd?: string;
 }
 
@@ -32,17 +32,17 @@ const shortcuts: Shortcut[] = [
     gradient: "from-accent/20 via-accent/5 to-transparent",
     iconColor: "text-accent",
     glowColor: "shadow-[0_0_20px_rgba(254,44,85,0.15)]",
-    command: "search",
+    view: "search",
     kbd: "⌘K",
   },
   {
     icon: Link2,
-    label: "粘贴链接",
+    label: "解析链接",
     desc: "解析分享链接，一键下载视频",
     gradient: "from-info/20 via-info/5 to-transparent",
     iconColor: "text-info",
     glowColor: "shadow-[0_0_20px_rgba(124,92,252,0.15)]",
-    command: "link",
+    view: "link",
     kbd: "⌘L",
   },
   {
@@ -55,13 +55,13 @@ const shortcuts: Shortcut[] = [
     view: "recommended",
   },
   {
-    icon: FolderOpen,
-    label: "我的下载",
-    desc: "管理已下载的视频和图片",
-    gradient: "from-success/20 via-success/5 to-transparent",
-    iconColor: "text-success",
-    glowColor: "shadow-[0_0_20px_rgba(0,214,143,0.15)]",
-    view: "downloads",
+    icon: Heart,
+    label: "收藏视频",
+    desc: "查看账号收藏的视频内容",
+    gradient: "from-rose-500/20 via-rose-500/5 to-transparent",
+    iconColor: "text-rose-400",
+    glowColor: "shadow-[0_0_20px_rgba(244,63,94,0.15)]",
+    view: "collected",
     kbd: "⌘4",
   },
 ];
@@ -82,15 +82,10 @@ const item = {
 
 export function Hero() {
   const setView = useAppStore((s) => s.setView);
-  const setCommandOpen = useAppStore((s) => s.setCommandOpen);
-  const setCommandMode = useAppStore((s) => s.setCommandMode);
 
   const handleShortcut = (s: Shortcut) => {
-    if (s.command) {
-      setCommandMode(s.command);
-      setCommandOpen(true);
-    } else if (s.view) {
-      setView(s.view as "recommended" | "downloads");
+    if (s.view) {
+      setView(s.view);
     }
   };
 
@@ -229,7 +224,7 @@ export function Hero() {
           <kbd className="text-[0.58rem] font-mono px-1.5 py-0.5 rounded bg-surface border border-border">
             K
           </kbd>
-          <span className="text-[0.65rem] ml-1">快速打开命令面板</span>
+          <span className="text-[0.65rem] ml-1">打开搜索用户</span>
         </motion.div>
       </motion.div>
     </div>

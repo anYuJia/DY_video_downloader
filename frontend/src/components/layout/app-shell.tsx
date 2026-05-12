@@ -4,6 +4,7 @@ import { Sidebar } from "./sidebar";
 import { BottomBar } from "./bottom-bar";
 import { CommandPopover } from "./command-popover";
 import { Hero } from "@/components/home/hero";
+import { SearchView } from "@/components/search/search-view";
 import { VideoGrid } from "@/components/search/video-grid";
 import { UserDetail } from "@/components/search/user-detail";
 import { LinkView } from "@/components/link/link-view";
@@ -11,6 +12,7 @@ import { RecommendedFeed } from "@/components/recommended/feed";
 import { DownloadsView } from "@/components/downloads/downloads-view";
 import { SettingsView } from "@/components/settings/settings-view";
 import { LikedView } from "@/components/liked/liked-view";
+import { CollectedView } from "@/components/collected/collected-view";
 import { AnimatePresence, motion } from "framer-motion";
 import { easeConfig } from "@/lib/utils";
 
@@ -69,6 +71,12 @@ function renderView(view: string) {
     case "search":
       return (
         <motion.div key="search" {...variants} transition={transition} className="p-6">
+          <SearchView />
+        </motion.div>
+      );
+    case "user":
+      return (
+        <motion.div key="user" {...variants} transition={transition} className="p-6">
           <UserDetail />
           <VideoGrid />
         </motion.div>
@@ -95,6 +103,12 @@ function renderView(view: string) {
       return (
         <motion.div key="liked" {...variants} transition={transition} className="p-6">
           <LikedView />
+        </motion.div>
+      );
+    case "collected":
+      return (
+        <motion.div key="collected" {...variants} transition={transition} className="p-6">
+          <CollectedView />
         </motion.div>
       );
     case "settings":

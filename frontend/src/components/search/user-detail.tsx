@@ -10,7 +10,7 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useDownloadStore, useLogStore } from "@/stores/app-store";
+import { useAppStore, useDownloadStore, useLogStore } from "@/stores/app-store";
 import { useSearchStore } from "@/stores/search-store";
 import { downloadUserVideos, mediaProxyUrl, type UserInfo } from "@/lib/tauri";
 import { formatNumber } from "@/lib/utils";
@@ -22,8 +22,9 @@ export function UserDetail() {
   const currentUser = useSearchStore((s) => s.currentUser);
   const users = useSearchStore((s) => s.users);
   const error = useSearchStore((s) => s.error);
-  const selectUser = useSearchStore((s) => s.selectUser);
+  const openUser = useSearchStore((s) => s.openUser);
   const loadVideos = useSearchStore((s) => s.loadVideos);
+  const setView = useAppStore((s) => s.setView);
   const addLog = useLogStore((s) => s.addLog);
   const updateTask = useDownloadStore((s) => s.updateTask);
   const [downloadingAll, setDownloadingAll] = useState(false);
@@ -120,11 +121,11 @@ export function UserDetail() {
           {users.map((user, index) => (
             <motion.div
               key={user.sec_uid || `${user.nickname}-${index}`}
-              onClick={() => void selectUser(user)}
+              onClick={() => void openUser(user)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  void selectUser(user);
+                  void openUser(user);
                 }
               }}
               role="button"
@@ -211,13 +212,14 @@ export function UserDetail() {
         </div>
         <div>
           <div className="text-[0.92rem] font-semibold text-text">
-            {query ? `已进入搜索页：${query}` : "准备开始搜索"}
+            还没有选择用户
           </div>
           <div className="text-[0.78rem] text-text-muted mt-1 leading-relaxed">
-            {query
-              ? "当前关键词还没有可展示的结果，可能需要重新搜索或补全 Cookie 登录状态。"
-              : "通过命令面板输入用户名、抖音号或 UID，结果会显示在这里。"}
+            请先在搜索用户页面选择一个用户，或从视频卡片进入作者主页。
           </div>
+          <Button variant="default" size="sm" className="mt-4" onClick={() => setView("search")}>
+            去搜索用户
+          </Button>
         </div>
       </div>
     </motion.div>
@@ -296,7 +298,7 @@ export function UserDetailCard({ user, busy, onDownloadAll, onViewVideos }: User
   );
 }
 
-function UserAvatar({ user, className }: { user: UserInfo; className?: string }) {
+export function UserAvatar({ user, className }: { user: UserInfo; className?: string }) {
   const avatarCandidates = useMemo(() => {
     const rawUrls = [
       user.avatar_larger,

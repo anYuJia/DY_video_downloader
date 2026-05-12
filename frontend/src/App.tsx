@@ -9,6 +9,27 @@ import { useKeyboard } from "@/hooks/use-keyboard";
 import { checkUpdate, getConfig, initClient, verifyCookie } from "@/lib/tauri";
 import { useRecommendedStore } from "@/stores/recommended-store";
 
+const BOOTSTRAP_STEP_TIMEOUT_MS = 8_000;
+const BOOTSTRAP_NETWORK_TIMEOUT_MS = 6_000;
+const BOOTSTRAP_COOKIE_TIMEOUT_MS = 10_000;
+
+function withBootstrapTimeout<T>(
+  promise: Promise<T>,
+  label: string,
+  timeoutMs = BOOTSTRAP_STEP_TIMEOUT_MS
+): Promise<T> {
+  let timer: number | null = null;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error(`${label}超时`)), timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== null) {
+      window.clearTimeout(timer);
+    }
+  });
+}
+
 export default function App() {
   const setCookieLoggedIn = useAppStore((s) => s.setCookieLoggedIn);
   const { toast } = useToast();
@@ -50,7 +71,7 @@ export default function App() {
     const bootstrap = async () => {
       showLoader("正在初始化引擎...");
       try {
-        await initClient();
+        await withBootstrapTimeout(initClient(), "初始化客户端");
       } catch (error) {
         if (!disposed) {
           useLogStore
@@ -61,7 +82,12 @@ export default function App() {
 
       // Check for updates with a professional Alert Dialog
       try {
-        const update = await checkUpdate();
+        showLoader("正在检查更新...");
+        const update = await withBootstrapTimeout(
+          checkUpdate(),
+          "检查更新",
+          BOOTSTRAP_NETWORK_TIMEOUT_MS
+        );
         if (!disposed && update.has_update) {
           showAlert({
             title: "发现新版本",
@@ -88,7 +114,8 @@ export default function App() {
       }
 
       try {
-        const config = await getConfig();
+        showLoader("正在读取配置...");
+        const config = await withBootstrapTimeout(getConfig(), "读取配置");
         if (disposed) {
           hideLoader();
           return;
@@ -96,7 +123,12 @@ export default function App() {
 
         if (config.cookie_set) {
           try {
-            const status = await verifyCookie();
+            showLoader("正在校验登录状态...");
+            const status = await withBootstrapTimeout(
+              verifyCookie(),
+              "Cookie 校验",
+              BOOTSTRAP_COOKIE_TIMEOUT_MS
+            );
             if (disposed) {
               hideLoader();
               return;
@@ -153,4 +185,3 @@ export default function App() {
     </TooltipProvider>
   );
 }
-

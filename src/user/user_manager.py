@@ -552,7 +552,11 @@ class DouyinUserManager:
             url_pattern = r'https?://[^\s<>"]+|www\.[^\s<>"]+'
             match = re.search(url_pattern, share_link)
             if match:
-                share_link = match.group()
+                share_link = re.split(r'[，。！？；、,!;]', match.group(), maxsplit=1)[0].strip().rstrip('，。！？；、,.!;')
+            else:
+                share_link = re.split(r'[，。！？；、,!;]', share_link.strip(), maxsplit=1)[0].strip().rstrip('，。！？；、,.!;')
+            if share_link.startswith('www.'):
+                share_link = f'https://{share_link}'
             # 如果是短链接，需要先获取重定向后的真实链接
             if 'v.douyin.com' in share_link:
                 try:
@@ -782,12 +786,12 @@ class DouyinUserManager:
     # 点赞接口不需要签名
     _FAVORITE_HEADERS = {'Referer': 'https://www.douyin.com/'}
 
-    async def get_liked_videos(self, count=20):
+    async def get_liked_videos(self, count=20, cursor=0, include_pagination=False):
         """获取点赞视频列表，直接从favorite API提取完整数据"""
         try:
             params = {
                 "count": count,
-                "max_cursor": 0
+                "max_cursor": cursor
             }
 
             resp, succ = await self.api.common_request('/aweme/v1/web/aweme/favorite/', params,
@@ -802,7 +806,15 @@ class DouyinUserManager:
                 }
 
             posts = resp.get('aweme_list', [])
+            next_cursor = resp.get('max_cursor') or resp.get('cursor') or resp.get('min_cursor') or 0
+            has_more = resp.get('has_more') in (1, True, '1', 'true', 'True')
             if not posts:
+                if include_pagination:
+                    return {
+                        'data': [],
+                        'cursor': next_cursor,
+                        'has_more': bool(has_more),
+                    }
                 return []
 
             video_list = []
@@ -835,6 +847,12 @@ class DouyinUserManager:
                     }
                 })
 
+            if include_pagination:
+                return {
+                    'data': video_list,
+                    'cursor': next_cursor,
+                    'has_more': bool(has_more),
+                }
             return video_list
         except Exception as e:
             if self.debug_mode:
@@ -842,6 +860,186 @@ class DouyinUserManager:
             else:
                 print(f"\033[91m获取点赞视频时出错: {e}\033[0m")
             return []
+
+    def _build_collection_video_item(self, post):
+        aweme_id = post.get('aweme_id')
+        if not aweme_id:
+            return None
+        media_type, media_urls = self.get_media_info(post)
+        cover_url = ""
+        if post.get('video') and post['video'].get('cover'):
+            cover_url = post['video']['cover'].get('url_list', [''])[0]
+        elif post.get('images'):
+            cover_url = post['images'][0].get('url_list', [''])[-1]
+        author = post.get('author', {}) or {}
+        return {
+            'aweme_id': aweme_id,
+            'desc': post.get('desc', ''),
+            'create_time': post.get('create_time', 0),
+            'digg_count': post.get('statistics', {}).get('digg_count', 0),
+            'comment_count': post.get('statistics', {}).get('comment_count', 0),
+            'share_count': post.get('statistics', {}).get('share_count', 0),
+            'cover_url': cover_url,
+            'media_type': media_type,
+            'raw_media_type': media_type,
+            'media_urls': media_urls,
+            'bgm_url': self._extract_bgm_url(post),
+            'author': {
+                'nickname': author.get('nickname', ''),
+                'sec_uid': author.get('sec_uid', ''),
+                'avatar_thumb': author.get('avatar_thumb', {}).get('url_list', [''])[0] if author.get('avatar_thumb') else ''
+            }
+        }
+
+    @staticmethod
+    def _response_has_more(resp):
+        return resp.get('has_more') in (1, True, '1', 'true', 'True')
+
+    @staticmethod
+    def _response_cursor(resp):
+        return resp.get('cursor') or resp.get('max_cursor') or resp.get('min_cursor') or 0
+
+    async def get_collected_videos(self, count=20, cursor=0):
+        """获取收藏视频列表"""
+        try:
+            params = {
+                'count': count,
+                'cursor': cursor,
+            }
+            headers = {
+                'Referer': 'https://www.douyin.com/user/self?from_tab_name=main&showTab=favorite_collection',
+                'Origin': 'https://www.douyin.com',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            }
+            resp, succ = await self.api.common_request(
+                '/aweme/v1/web/aweme/listcollection/',
+                params,
+                headers,
+                method='POST',
+            )
+            if isinstance(resp, dict) and (resp.get('_need_verify') or resp.get('_need_login')):
+                return resp
+            if not succ:
+                return {
+                    '_error': True,
+                    'message': (resp or {}).get('message') or (resp or {}).get('status_msg') or '获取收藏视频失败，请检查 Cookie 或稍后重试',
+                }
+
+            videos = [
+                item for item in (self._build_collection_video_item(post) for post in resp.get('aweme_list', []))
+                if item
+            ]
+            return {
+                'data': videos,
+                'cursor': self._response_cursor(resp),
+                'has_more': self._response_has_more(resp),
+            }
+        except Exception as e:
+            if self.debug_mode:
+                print(f"\033[91m[UserManager] 获取收藏视频时出错: {e}\033[0m")
+            return {'_error': True, 'message': f'获取收藏视频失败: {e}'}
+
+    async def get_collected_mixes(self, count=20, cursor=0):
+        """获取收藏合集列表"""
+        try:
+            params = {
+                'count': count,
+                'cursor': cursor,
+            }
+            headers = {
+                'Referer': 'https://www.douyin.com/user/self?from_tab_name=main&showTab=favorite_collection',
+            }
+            resp, succ = await self.api.common_request(
+                '/aweme/v1/web/mix/listcollection/',
+                params,
+                headers,
+            )
+            if isinstance(resp, dict) and (resp.get('_need_verify') or resp.get('_need_login')):
+                return resp
+            if not succ:
+                return {
+                    '_error': True,
+                    'message': (resp or {}).get('message') or (resp or {}).get('status_msg') or '获取收藏合集失败，请检查 Cookie 或稍后重试',
+                }
+
+            mixes = []
+            for item in resp.get('mix_infos', []) or []:
+                mix_id = item.get('mix_id')
+                if not mix_id:
+                    continue
+                author = item.get('author', {}) or {}
+                statis = item.get('statis', {}) or {}
+                cover_url = ''
+                if item.get('cover_url'):
+                    cover_url = item['cover_url'].get('url_list', [''])[0]
+                mixes.append({
+                    'mix_id': mix_id,
+                    'mix_name': item.get('mix_name', ''),
+                    'desc': item.get('desc', ''),
+                    'cover_url': cover_url,
+                    'author': {
+                        'nickname': author.get('nickname', ''),
+                        'sec_uid': author.get('sec_uid', ''),
+                        'avatar_thumb': author.get('avatar_thumb', {}).get('url_list', [''])[0] if author.get('avatar_thumb') else '',
+                    },
+                    'statis': {
+                        'collect_vv': statis.get('collect_vv', 0),
+                        'play_vv': statis.get('play_vv', 0),
+                        'updated_to_episode': statis.get('updated_to_episode', 0),
+                    },
+                    'create_time': item.get('create_time', 0),
+                    'update_time': item.get('update_time', 0),
+                    'mix_type': item.get('mix_type', 0),
+                })
+
+            return {
+                'data': mixes,
+                'cursor': self._response_cursor(resp),
+                'has_more': self._response_has_more(resp),
+            }
+        except Exception as e:
+            if self.debug_mode:
+                print(f"\033[91m[UserManager] 获取收藏合集时出错: {e}\033[0m")
+            return {'_error': True, 'message': f'获取收藏合集失败: {e}'}
+
+    async def get_mix_videos(self, series_id, count=20, cursor=0):
+        """获取收藏合集内的视频列表"""
+        try:
+            params = {
+                'series_id': series_id,
+                'pull_type': 2,
+                'cursor': cursor,
+                'count': count,
+            }
+            headers = {
+                'Referer': 'https://www.douyin.com/user/self?from_tab_name=main&showTab=favorite_collection',
+            }
+            resp, succ = await self.api.common_request(
+                '/aweme/v1/web/series/aweme/',
+                params,
+                headers,
+            )
+            if isinstance(resp, dict) and (resp.get('_need_verify') or resp.get('_need_login')):
+                return resp
+            if not succ:
+                return {
+                    '_error': True,
+                    'message': (resp or {}).get('message') or (resp or {}).get('status_msg') or '获取合集视频失败，请检查 Cookie 或稍后重试',
+                }
+
+            videos = [
+                item for item in (self._build_collection_video_item(post) for post in resp.get('aweme_list', []))
+                if item
+            ]
+            return {
+                'data': videos,
+                'cursor': self._response_cursor(resp),
+                'has_more': self._response_has_more(resp),
+            }
+        except Exception as e:
+            if self.debug_mode:
+                print(f"\033[91m[UserManager] 获取合集视频时出错: {e}\033[0m")
+            return {'_error': True, 'message': f'获取合集视频失败: {e}'}
 
     async def download_liked_videos(self, count=20):
         """下载点赞视频"""

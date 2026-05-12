@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { getErrorMessage, parseLink, type UserInfo, type VideoInfo } from "@/lib/tauri";
 import { useAppStore, useLogStore } from "@/stores/app-store";
 import { useToastStore } from "@/components/ui/toast";
+import { saveRecentParsedLink } from "@/lib/recent-searches";
 
 interface LinkStoreState {
   link: string;
@@ -51,6 +52,8 @@ export const useLinkStore = create<LinkStoreState>((set) => ({
         : result.video
           ? [result.video]
           : [];
+
+      saveRecentParsedLink(link, { videos, user: result.user || null });
 
       set({
         parsing: false,

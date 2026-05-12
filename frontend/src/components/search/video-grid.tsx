@@ -17,7 +17,7 @@ export function VideoGrid() {
   const loadingVideos = useSearchStore((s) => s.loadingVideos);
   const loadingMore = useSearchStore((s) => s.loadingMore);
   const hasMore = useSearchStore((s) => s.hasMore);
-  const selectUser = useSearchStore((s) => s.selectUser);
+  const openUser = useSearchStore((s) => s.openUser);
   const loadVideos = useSearchStore((s) => s.loadVideos);
   const loadMore = useSearchStore((s) => s.loadMore);
   const { downloadVideo, downloadBatch } = useDownloads();
@@ -42,8 +42,7 @@ export function VideoGrid() {
     if (!userInfo || authorLoadingId) return;
     setAuthorLoadingId(video.aweme_id);
     try {
-      await selectUser(userInfo);
-      await loadVideos();
+      await openUser(userInfo);
     } finally {
       setAuthorLoadingId(null);
     }

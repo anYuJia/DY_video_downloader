@@ -9,6 +9,7 @@ import {
 } from "@/lib/tauri";
 import { useAlertStore, useAppStore, useLogStore } from "@/stores/app-store";
 import { useToastStore } from "@/components/ui/toast";
+import { saveRecentSearchUser } from "@/lib/recent-searches";
 
 const PAGE_SIZE = 18;
 
@@ -49,6 +50,7 @@ interface SearchStoreState {
   error: string | null;
   search: (keyword: string) => Promise<void>;
   selectUser: (user: UserInfo) => Promise<void>;
+  openUser: (user: UserInfo, options?: { loadVideos?: boolean }) => Promise<void>;
   loadVideos: () => Promise<void>;
   loadMore: () => Promise<void>;
   clear: () => void;
@@ -201,6 +203,9 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
               batch.map(async (user) => {
                 const detail = await getUserDetail(user.sec_uid, user.nickname);
                 if (requestId !== latestSearchRequestId || !detail.success || !detail.user) return;
+                if (get().currentUser && isSameUser(get().currentUser!, user)) {
+                  saveRecentSearchUser(mergeUserInfo(user, detail.user));
+                }
                 set((current) => mergeDetailedUserIntoSearchState(current, user, detail.user!));
               })
             );
@@ -235,6 +240,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       }
 
       if (result.type === "single" && result.user) {
+        saveRecentSearchUser(result.user);
         set({
           searching: false,
           users: [],
@@ -244,9 +250,11 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
           hasMore: false,
           error: null,
         });
+        useAppStore.getState().setView("user");
         addLog(`已匹配用户: ${result.user.nickname}`, "success");
         toast(`已找到用户: ${result.user.nickname}`, "success");
         enrichSearchUserStats([result.user]);
+        void get().loadVideos();
         return;
       }
 
@@ -281,6 +289,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
 
   selectUser: async (user) => {
     const requestId = ++latestUserRequestId;
+    latestSearchRequestId += 1;
     latestVideoRequestId += 1;
     latestLoadMoreRequestId += 1;
     const addLog = useLogStore.getState().addLog;
@@ -295,6 +304,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       hasMore: false,
       error: null,
     });
+    saveRecentSearchUser(user);
     addLog(`加载用户详情: ${user.nickname}`, "info");
     const loadingToastId = toast(`正在加载 ${user.nickname} 的详情`, "loading");
 
@@ -326,6 +336,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       }
 
       const mergedUser = mergeUserInfo(user, detail.user);
+      saveRecentSearchUser(mergedUser);
       set({
         loadingUser: false,
         currentUser: mergedUser,
@@ -344,6 +355,15 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       } else {
         toast(message, "error", "加载异常");
       }
+    }
+  },
+
+  openUser: async (user, options = {}) => {
+    const selection = get().selectUser(user);
+    useAppStore.getState().setView("user");
+    await selection;
+    if (options.loadVideos !== false) {
+      await get().loadVideos();
     }
   },
 

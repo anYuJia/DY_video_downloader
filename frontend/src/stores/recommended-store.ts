@@ -20,15 +20,26 @@ interface RecommendedStoreState {
 }
 
 const uniqueVideos = (existing: VideoInfo[], incoming: VideoInfo[]) => {
-  const seen = new Set(existing.map((video) => video.aweme_id));
+  const seen = new Set(existing.map(getRecommendedVideoKey).filter(Boolean));
   const next = [...existing];
   for (const video of incoming) {
-    if (!video?.aweme_id || seen.has(video.aweme_id)) continue;
-    seen.add(video.aweme_id);
+    const key = getRecommendedVideoKey(video);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
     next.push(video);
   }
   return next;
 };
+
+function getRecommendedVideoKey(video: VideoInfo | null | undefined): string {
+  if (!video) return "";
+  return [
+    video.aweme_id,
+    video.video?.play_addr,
+    video.media_urls?.[0]?.url,
+    `${video.author?.sec_uid || video.author?.uid || ""}:${video.desc || ""}:${video.create_time || ""}`,
+  ].map((value) => String(value || "").trim()).find(Boolean) || "";
+}
 
 export const useRecommendedStore = create<RecommendedStoreState>((set, get) => ({
   videos: [],
@@ -78,7 +89,7 @@ export const useRecommendedStore = create<RecommendedStoreState>((set, get) => (
         return;
       }
 
-      const videos = result.videos || [];
+      const videos = uniqueVideos([], result.videos || []);
       set({
         videos,
         loading: false,
