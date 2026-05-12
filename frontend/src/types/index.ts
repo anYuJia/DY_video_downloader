@@ -17,6 +17,7 @@ export interface AppState {
   toggleSidebar: () => void;
   bottomBarExpanded: boolean;
   toggleBottomBar: () => void;
+  setBottomBarExpanded: (expanded: boolean) => void;
   settingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
   commandOpen: boolean;

@@ -3,6 +3,7 @@ import { getErrorMessage, parseLink, type UserInfo, type VideoInfo } from "@/lib
 import { useAppStore, useLogStore } from "@/stores/app-store";
 import { useToastStore } from "@/components/ui/toast";
 import { saveRecentParsedLink } from "@/lib/recent-searches";
+import { requestVerifyRecovery } from "@/lib/verify-recovery";
 
 interface LinkStoreState {
   link: string;
@@ -41,9 +42,17 @@ export const useLinkStore = create<LinkStoreState>((set) => ({
       
       if (!result.success) {
         const message = result.message || "链接解析失败";
+        if (result.need_verify) {
+          requestVerifyRecovery({
+            verifyUrl: result.verify_url,
+            message,
+            title: "解析链接需要验证",
+            onResume: () => void useLinkStore.getState().parse(link),
+          });
+        }
         set({ parsing: false, error: message });
-        addLog(message, "error");
-        toast(message, "error", "解析失败");
+        addLog(message, result.need_verify ? "warning" : "error");
+        if (!result.need_verify) toast(message, "error", "解析失败");
         return;
       }
 

@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { getRecommended, openVerifyBrowser, type VideoInfo } from "@/lib/tauri";
+import { getRecommended, type VideoInfo } from "@/lib/tauri";
+import { requestVerifyRecovery } from "@/lib/verify-recovery";
 import { useLogStore } from "@/stores/app-store";
 
 const PAGE_SIZE = 20;
@@ -20,25 +21,26 @@ interface RecommendedStoreState {
 }
 
 const uniqueVideos = (existing: VideoInfo[], incoming: VideoInfo[]) => {
-  const seen = new Set(existing.map(getRecommendedVideoKey).filter(Boolean));
+  const seen = new Set(existing.flatMap(getRecommendedVideoKeys).filter(Boolean));
   const next = [...existing];
   for (const video of incoming) {
-    const key = getRecommendedVideoKey(video);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
+    const keys = getRecommendedVideoKeys(video);
+    if (keys.length === 0 || keys.some((key) => seen.has(key))) continue;
+    keys.forEach((key) => seen.add(key));
     next.push(video);
   }
   return next;
 };
 
-function getRecommendedVideoKey(video: VideoInfo | null | undefined): string {
-  if (!video) return "";
-  return [
+function getRecommendedVideoKeys(video: VideoInfo | null | undefined): string[] {
+  if (!video) return [];
+  return Array.from(new Set([
     video.aweme_id,
     video.video?.play_addr,
+    video.video?.download_addr,
     video.media_urls?.[0]?.url,
     `${video.author?.sec_uid || video.author?.uid || ""}:${video.desc || ""}:${video.create_time || ""}`,
-  ].map((value) => String(value || "").trim()).find(Boolean) || "";
+  ].map((value) => String(value || "").trim()).filter(Boolean)));
 }
 
 export const useRecommendedStore = create<RecommendedStoreState>((set, get) => ({
@@ -75,9 +77,12 @@ export const useRecommendedStore = create<RecommendedStoreState>((set, get) => (
       if (!result.success) {
         const message = result.message || "加载推荐视频失败";
         if (result.need_verify) {
-          void openVerifyBrowser(result.verify_url)
-            .then((verifyResult) => addLog(verifyResult.message, verifyResult.success ? "info" : "warning"))
-            .catch(() => addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
+          requestVerifyRecovery({
+            verifyUrl: result.verify_url,
+            message,
+            title: "推荐视频需要验证",
+            onResume: () => void get().loadFeed(count, true),
+          });
         }
         set((current) => ({
           loading: false,
@@ -127,9 +132,12 @@ export const useRecommendedStore = create<RecommendedStoreState>((set, get) => (
 
       if (!result.success) {
         if (result.need_verify) {
-          void openVerifyBrowser(result.verify_url)
-            .then((verifyResult) => useLogStore.getState().addLog(verifyResult.message, verifyResult.success ? "info" : "warning"))
-            .catch(() => useLogStore.getState().addLog("无法打开应用内验证窗口，请用桌面模式启动后重试", "warning"));
+          requestVerifyRecovery({
+            verifyUrl: result.verify_url,
+            message: result.message || "加载更多推荐视频失败",
+            title: "推荐视频需要验证",
+            onResume: () => void get().loadMore(),
+          });
         }
         set({ loadingMore: false, error: result.message || "加载更多失败" });
         return;

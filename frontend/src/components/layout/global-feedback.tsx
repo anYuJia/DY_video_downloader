@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { AlertCircle, CheckCircle2, Info, Loader2, TriangleAlert } from "lucide-react";
+import { AlertCircle, ArrowDown, CheckCircle2, Info, Loader2, ShieldCheck, TriangleAlert, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { useAlertStore, useLoaderStore } from "@/stores/app-store";
+import { useAlertStore, useAppStore, useLoaderStore, useVerifyRecoveryStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
 
 const variantIcons = {
@@ -94,7 +94,8 @@ export function GlobalAlert() {
 }
 
 export function GlobalLoader() {
-  const { isLoading, message } = useLoaderStore();
+  const { isLoading, message, startedAt } = useLoaderStore();
+  const setBottomBarExpanded = useAppStore((s) => s.setBottomBarExpanded);
 
   return (
     <AnimatePresence>
@@ -106,35 +107,78 @@ export function GlobalLoader() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-background/40 backdrop-blur-[32px]"
+          className="fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-background/50 backdrop-blur-[14px]"
         >
           <motion.div
-            initial={{ scale: 0.8, opacity: 0, y: 10 }}
+            initial={{ scale: 0.96, opacity: 0, y: 8 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 350, damping: 25 }}
-            className="relative flex flex-col items-center rounded-[20px] bg-surface-solid/85 px-8 py-7 shadow-[0_28px_80px_rgba(0,0,0,0.38),0_0_0_1px_var(--color-border)]"
+            exit={{ scale: 0.98, opacity: 0, y: 4 }}
+            transition={{ duration: 0.18, ease: [0.2, 0, 0, 1] }}
+            className="relative flex w-[min(360px,calc(100vw-32px))] flex-col items-center rounded-[18px] bg-surface-solid px-6 py-5 text-center shadow-[0_28px_70px_rgba(0,0,0,0.35),0_0_0_1px_var(--color-border)]"
           >
-            <div className="relative mb-8 h-20 w-20">
-              {/* Complex multilayer spinner */}
-              <div className="absolute inset-0 rounded-full border-[3px] border-white/5" />
-              <div className="absolute inset-0 rounded-full border-[3px] border-transparent border-t-accent animate-[loader-spin-custom_1.5s_linear_infinite]" />
-              <div className="absolute inset-2 rounded-full border-[2px] border-transparent border-b-info opacity-60 animate-[loader-spin-custom_2s_linear_infinite_reverse]" />
-              
-              {/* Inner glowing pulse */}
-              <div className="absolute inset-0 m-auto h-2 w-2 rounded-full bg-accent shadow-[0_0_15px_var(--color-accent)] animate-pulse" />
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-[14px] bg-accent-soft text-accent">
+              <Loader2 className="h-5 w-5 animate-spin" />
             </div>
-            
-            <h2 className="text-[1.2rem] font-black text-text tracking-tight mb-2">
+            <h2 className="text-[1rem] font-bold text-text">
               {message || "正在处理"}
             </h2>
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface border border-border">
-              <span className="flex h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-              <span className="text-[0.72rem] font-bold text-text-muted uppercase tracking-widest">
-                请稍候
-              </span>
-            </div>
+            <p className="mt-1 text-[0.78rem] leading-relaxed text-text-muted">
+              {startedAt > 0 ? "正在准备本地服务和登录状态。长时间无响应时可查看底部日志。" : "正在处理当前操作。"}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-4"
+              onClick={() => setBottomBarExpanded(true)}
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+              查看日志
+            </Button>
           </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+export function GlobalVerifyRecovery() {
+  const { isOpen, config, resume, dismiss } = useVerifyRecoveryStore();
+
+  return (
+    <AnimatePresence initial={false}>
+      {isOpen && config && (
+        <motion.div
+          role="status"
+          aria-live="polite"
+          initial={{ opacity: 0, y: -12, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -8, scale: 0.98 }}
+          transition={{ duration: 0.18, ease: [0.2, 0, 0, 1] }}
+          className="fixed left-1/2 top-4 z-[8600] flex w-[min(520px,calc(100vw-32px))] -translate-x-1/2 items-center gap-3 rounded-[16px] bg-surface-solid px-3.5 py-3 shadow-[0_18px_50px_rgba(0,0,0,0.28),0_0_0_1px_var(--color-border)]"
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-warning-soft text-warning">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[0.86rem] font-semibold text-text">
+              {config.title || "需要验证"}
+            </div>
+            <div className="truncate text-[0.74rem] text-text-muted">
+              {config.message}
+            </div>
+          </div>
+          <Button size="sm" variant="success-outline" onClick={resume}>
+            <ShieldCheck className="h-3.5 w-3.5" />
+            {config.actionLabel || "已完成验证"}
+          </Button>
+          <button
+            type="button"
+            aria-label="关闭验证提示"
+            onClick={dismiss}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] text-text-muted transition-[background-color,color,transform] hover:bg-surface-raised hover:text-text active:scale-[0.96]"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </motion.div>
       )}
     </AnimatePresence>
