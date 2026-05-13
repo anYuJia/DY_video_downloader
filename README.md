@@ -23,6 +23,8 @@
 
 DY Video Downloader 将抖音 Web 接口访问、Cookie 获取、批量下载、任务调度和本地归档整合到一个可视化桌面应用中。后端基于 Flask + Socket.IO，桌面外壳使用 pywebview，既支持直接下载发行版，也支持源码运行。
 
+如果你更在意性能，可以前往 [douyin-downloader-rust](https://github.com/anYuJia/douyin-downloader-rust) 使用 Rust 重构版。两个版本的功能几乎一模一样，只是底层架构不同。
+
 适合个人内容备份、素材整理和 Web 端下载流程研究。不建议也不支持商业采集、批量爬取或任何违反平台规则的用途。
 
 ## 核心能力
