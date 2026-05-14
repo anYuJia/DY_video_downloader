@@ -10,11 +10,49 @@ import json
 import sys
 import random
 import string
+import threading
 
 # Configure a session with retry/SSL resilience
-_api_session = requests.Session()
 _retry = urllib3.util.retry.Retry(total=3, backoff_factor=0.5, status_forcelist=[502, 503, 504])
-_api_session.mount('https://', requests.adapters.HTTPAdapter(max_retries=_retry))
+_thread_local = threading.local()
+
+
+def _create_api_session():
+    session = requests.Session()
+    session.mount('https://', requests.adapters.HTTPAdapter(max_retries=_retry))
+    return session
+
+
+def _get_api_session():
+    session = getattr(_thread_local, 'api_session', None)
+    if session is None:
+        session = _create_api_session()
+        _thread_local.api_session = session
+    return session
+
+
+def _api_get(*args, **kwargs):
+    return _get_api_session().get(*args, **kwargs)
+
+
+def _api_post(*args, **kwargs):
+    return _get_api_session().post(*args, **kwargs)
+
+
+def _redact_headers(headers: dict) -> dict:
+    redacted = dict(headers or {})
+    for key in list(redacted.keys()):
+        if key.lower() in ('cookie', 'authorization'):
+            redacted[key] = '<redacted>'
+    return redacted
+
+
+def _redact_params(params: dict) -> dict:
+    redacted = dict(params or {})
+    for key in ('msToken', 'a_bogus', 'verifyFp', 'fp', 'webid', 'uifid'):
+        if key in redacted:
+            redacted[key] = '<redacted>'
+    return redacted
 
 
 
@@ -107,7 +145,7 @@ class DouyinAPI:
             h['sec-fetch-mode'] = 'navigate'
             h['accept'] = 'text/html,application/xhtml+xml'
 
-            response = await asyncio.to_thread(_api_session.get, url, headers=h, timeout=10)
+            response = await asyncio.to_thread(_api_get, url, headers=h, timeout=10)
             if self.debug_mode:
                 print(f"\033[93m[API] _get_webid 响应状态: {response.status_code}, 内容长度: {len(response.text)}\033[0m")
             if response.status_code != 200 or not response.text:
@@ -359,31 +397,57 @@ class DouyinAPI:
             call_name = 'sign_datail'
             if 'reply' in uri:
                 call_name = 'sign_reply'
-            a_bogus = self.douyin_sign.call(call_name, query, headers["User-Agent"])
+            sign_engine = self.douyin_sign
+            if sign_engine is None:
+                return {
+                    'status_code': -1,
+                    'status_msg': '签名引擎初始化失败',
+                    'message': '签名引擎初始化失败，请确认 PyExecJS 和 Node.js 可用后重试',
+                }, False
+            try:
+                a_bogus = sign_engine.call(call_name, query, headers["User-Agent"])
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"\033[91m[API] 生成 a_bogus 失败: {e}\033[0m")
+                return {
+                    'status_code': -1,
+                    'status_msg': '签名生成失败',
+                    'message': f'签名生成失败: {e}',
+                }, False
             params["a_bogus"] = a_bogus
 
         if self.debug_mode:
             print(f'\033[94m[API] 请求URL: {url}\033[0m')
             print(f'\033[94m[API] 请求方法: {method}\033[0m')
-            print(f'\033[94m[API] 请求参数: {params}\033[0m')
+            print(f'\033[94m[API] 请求参数: {_redact_params(params)}\033[0m')
+            print(f'\033[94m[API] 请求头: {_redact_headers(headers)}\033[0m')
 
-        # 根据方法选择 GET 或 POST
-        if method.upper() == 'POST':
-            response = await asyncio.to_thread(
-                _api_session.post,
-                url,
-                data=params,
-                headers=headers,
-                timeout=(10, 30),
-            )
-        else:
-            response = await asyncio.to_thread(
-                _api_session.get,
-                url,
-                params=params,
-                headers=headers,
-                timeout=(10, 30),
-            )
+        try:
+            # 根据方法选择 GET 或 POST
+            if method.upper() == 'POST':
+                response = await asyncio.to_thread(
+                    _api_post,
+                    url,
+                    data=params,
+                    headers=headers,
+                    timeout=(10, 30),
+                )
+            else:
+                response = await asyncio.to_thread(
+                    _api_get,
+                    url,
+                    params=params,
+                    headers=headers,
+                    timeout=(10, 30),
+                )
+        except requests.RequestException as e:
+            if self.debug_mode:
+                print(f'\033[91m[API] 网络请求异常: {e}\033[0m')
+            return {
+                'status_code': -1,
+                'status_msg': '网络请求失败',
+                'message': f'网络请求失败: {e}',
+            }, False
         if self.debug_mode:
             print(f'[DEBUG] response.status_code={response.status_code}, len(response.content)={len(response.content)}, len(response.text)={len(response.text)}')
             sys.stderr.write(f'*** [API] 普通请求响应：status={response.status_code}, content_len={len(response.content)} ***\n')
@@ -691,7 +755,6 @@ class DouyinAPI:
                 cookie_str = '; '.join(cookies)
                 if self.debug_mode:
                     print(f"\033[92m[API] HTTP 方式获取到 {len(cookies)} 个 Cookie\033[0m")
-                    print(f"\033[94m[API] Cookie: {cookie_str[:100]}...\033[0m")
                 return cookie_str
 
             if self.debug_mode:

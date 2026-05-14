@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Toaster, useToast } from "@/components/ui/toast";
+import { Toaster } from "@/components/ui/toast";
 import { AppShell } from "@/components/layout/app-shell";
 import { GlobalAlert, GlobalLoader, GlobalVerifyRecovery } from "@/components/layout/global-feedback";
 import { useAlertStore, useAppStore, useLoaderStore, useLogStore } from "@/stores/app-store";
@@ -32,7 +32,6 @@ function withBootstrapTimeout<T>(
 
 export default function App() {
   const setCookieLoggedIn = useAppStore((s) => s.setCookieLoggedIn);
-  const { toast } = useToast();
   const showAlert = useAlertStore((s) => s.showAlert);
   const { showLoader, hideLoader } = useLoaderStore();
   const lastCookieInvalidLogAt = useRef(0);
@@ -68,21 +67,8 @@ export default function App() {
     let disposed = false;
     let prefetchTimer: number | null = null;
 
-    const bootstrap = async () => {
-      showLoader("正在初始化引擎...");
+    const checkForUpdatesInBackground = async () => {
       try {
-        await withBootstrapTimeout(initClient(), "初始化客户端");
-      } catch (error) {
-        if (!disposed) {
-          useLogStore
-            .getState()
-            .addLog(error instanceof Error ? error.message : "初始化客户端失败", "error");
-        }
-      }
-
-      // Check for updates with a professional Alert Dialog
-      try {
-        showLoader("正在检查更新...");
         const update = await withBootstrapTimeout(
           checkUpdate(),
           "检查更新",
@@ -110,7 +96,20 @@ export default function App() {
           });
         }
       } catch {
-        // Silent fail for update check
+        // Silent fail for update check.
+      }
+    };
+
+    const bootstrap = async () => {
+      showLoader("正在初始化引擎...");
+      try {
+        await withBootstrapTimeout(initClient(), "初始化客户端");
+      } catch (error) {
+        if (!disposed) {
+          useLogStore
+            .getState()
+            .addLog(error instanceof Error ? error.message : "初始化客户端失败", "error");
+        }
       }
 
       try {
@@ -160,6 +159,7 @@ export default function App() {
         }
       } finally {
         hideLoader();
+        void checkForUpdatesInBackground();
       }
     };
 
@@ -171,7 +171,7 @@ export default function App() {
         window.clearTimeout(prefetchTimer);
       }
     };
-  }, [setCookieLoggedIn, toast, showAlert, showLoader, hideLoader]);
+  }, [setCookieLoggedIn, showAlert, showLoader, hideLoader]);
 
   useSocket();
   useKeyboard();

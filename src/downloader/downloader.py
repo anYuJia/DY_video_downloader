@@ -6,6 +6,7 @@ import threading
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from urllib.parse import urlparse
 from typing import List
 
 from src.config.config import Config
@@ -15,11 +16,32 @@ from src.utils.download_history_index import (
     upsert_download_history_entries,
 )
 
-# 带重试的 requests session
-_session = requests.Session()
+# 带重试的 requests session。Session 本身不跨线程共享，避免批量下载并发时互相污染连接状态。
 _retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
-_session.mount('https://', HTTPAdapter(max_retries=_retry))
-_session.mount('http://', HTTPAdapter(max_retries=_retry))
+_thread_local = threading.local()
+
+
+def _create_session():
+    session = requests.Session()
+    session.mount('https://', HTTPAdapter(max_retries=_retry))
+    session.mount('http://', HTTPAdapter(max_retries=_retry))
+    return session
+
+
+def _get_session():
+    session = getattr(_thread_local, 'session', None)
+    if session is None:
+        session = _create_session()
+        _thread_local.session = session
+    return session
+
+
+def _redact_headers(headers: dict) -> dict:
+    redacted = dict(headers)
+    for key in list(redacted.keys()):
+        if key.lower() in ('cookie', 'authorization'):
+            redacted[key] = '<redacted>'
+    return redacted
 
 class DouyinDownloader:
     """抖音下载器类"""
@@ -46,7 +68,7 @@ class DouyinDownloader:
     def _get_record_path(self, user_dir: str) -> str:
         """获取用户下载记录文件路径"""
         # 在用户目录下创建记录文件
-        user_path = os.path.join(self.download_dir, user_dir)
+        user_path = os.path.join(self.download_dir, self._sanitize_path_segment(user_dir, '未知作者'))
         if self.debug_mode:
             print(f"\033[93m[Downloader] 创建用户目录: {user_path}\033[0m")
         os.makedirs(user_path, exist_ok=True)
@@ -64,7 +86,8 @@ class DouyinDownloader:
                     if self.debug_mode:
                         print(f"\033[93m[Downloader] 加载下载记录: {record_path}\033[0m")
                     with open(record_path, 'r', encoding='utf-8') as f:
-                        records = set(json.load(f))
+                        raw_records = json.load(f)
+                        records = set(raw_records if isinstance(raw_records, list) else [])
                         if self.debug_mode:
                             print(f"\033[93m[Downloader] 已下载记录数: {len(records)}\033[0m")
                         return records
@@ -85,7 +108,8 @@ class DouyinDownloader:
                 downloaded = set()
                 if os.path.exists(record_path):
                     with open(record_path, 'r', encoding='utf-8') as f:
-                        downloaded = set(json.load(f))
+                        raw_records = json.load(f)
+                        downloaded = set(raw_records if isinstance(raw_records, list) else [])
 
                 downloaded.add(aweme_id)
 
@@ -93,12 +117,19 @@ class DouyinDownloader:
                     print(f"\033[93m[Downloader] 添加下载记录: {aweme_id}\033[0m")
                     print(f"\033[93m[Downloader] 当前记录总数: {len(downloaded)}\033[0m")
 
-                with open(record_path, 'w', encoding='utf-8') as f:
-                    json.dump(list(downloaded), f)
+                temp_path = f"{record_path}.tmp"
+                with open(temp_path, 'w', encoding='utf-8') as f:
+                    json.dump(sorted(downloaded), f, ensure_ascii=False)
+                    f.write('\n')
+                os.replace(temp_path, record_path)
 
             if self.debug_mode:
                 print(f"\033[92m[Downloader] 保存下载记录成功: {record_path}\033[0m")
         except Exception as e:
+            try:
+                os.remove(f"{record_path}.tmp")
+            except Exception:
+                pass
             if self.debug_mode:
                 print(f"\033[91m[Downloader] 保存下载记录失败: {str(e)}\033[0m")
             else:
@@ -123,7 +154,7 @@ class DouyinDownloader:
             print(f"\033[93m[Downloader] 无Cookie可用于下载请求\033[0m")
             
         if self.debug_mode:
-            print(f"\033[93m[Downloader] 下载请求头: {headers}\033[0m")
+            print(f"\033[93m[Downloader] 下载请求头: {_redact_headers(headers)}\033[0m")
             
         return headers
 
@@ -140,6 +171,69 @@ class DouyinDownloader:
                 return int(total)
 
         return 0
+
+    def _extension_for_media(self, file_type: str, url: str, response=None) -> str:
+        """Infer a suitable file extension from media type, response headers, and URL."""
+        content_type = ''
+        if response is not None:
+            content_type = (response.headers.get('Content-Type') or '').split(';', 1)[0].strip().lower()
+
+        content_type_extensions = {
+            'image/jpeg': 'jpg',
+            'image/jpg': 'jpg',
+            'image/png': 'png',
+            'image/webp': 'webp',
+            'image/gif': 'gif',
+            'image/avif': 'avif',
+            'image/heic': 'heic',
+            'image/heif': 'heif',
+            'video/mp4': 'mp4',
+            'video/quicktime': 'mov',
+            'video/webm': 'webm',
+            'audio/mpeg': 'mp3',
+            'audio/mp4': 'm4a',
+            'audio/aac': 'aac',
+            'audio/wav': 'wav',
+            'audio/ogg': 'ogg',
+        }
+        if content_type in content_type_extensions:
+            return content_type_extensions[content_type]
+
+        try:
+            suffix = os.path.splitext(urlparse(url).path)[1].lower().lstrip('.')
+        except Exception:
+            suffix = ''
+
+        allowed_extensions = {
+            'mp4', 'mov', 'm4v', 'webm',
+            'jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'heic', 'heif',
+            'mp3', 'm4a', 'aac', 'wav', 'ogg',
+        }
+        if suffix in allowed_extensions:
+            return 'jpg' if suffix == 'jpeg' else suffix
+
+        if file_type in ('video', 'live_photo'):
+            return 'mp4'
+        if file_type == 'audio':
+            return 'mp3'
+        return 'jpg'
+
+    def _unique_filepath(self, directory: str, filename: str, extension: str) -> str:
+        """Return a non-existing path without overwriting previous downloads."""
+        filename = self._sanitize_filename(filename)
+        safe_extension = extension.lower().lstrip('.') or 'bin'
+        candidate = os.path.join(directory, f"{filename}.{safe_extension}")
+        if not os.path.exists(candidate):
+            return candidate
+
+        timestamp = int(time.time())
+        counter = 1
+        while True:
+            suffix = f"{timestamp}" if counter == 1 else f"{timestamp}_{counter}"
+            candidate = os.path.join(directory, f"{filename}_{suffix}.{safe_extension}")
+            if not os.path.exists(candidate):
+                return candidate
+            counter += 1
 
     def _emit_download_progress(self, socketio, task_id, progress_callback=None, **payload):
         """同时兼容旧 download_progress 事件和新的批量当前作品回调。"""
@@ -161,6 +255,16 @@ class DouyinDownloader:
             return
         while pause_event.is_set() and not (cancel_event and cancel_event.is_set()):
             time.sleep(0.2)
+
+    def _split_download_name(self, name: str) -> tuple[str, str]:
+        raw_user_dir, separator, raw_filename = str(name or '').partition('/')
+        if not separator:
+            raw_filename = raw_user_dir
+            raw_user_dir = '未知作者'
+        return (
+            self._sanitize_path_segment(raw_user_dir, '未知作者'),
+            self._sanitize_filename(raw_filename, '未命名作品'),
+        )
         
     def download_media_group(self, urls: List[dict], name: str, aweme_id: str = None, socketio=None, task_id=None, cancel_event=None, progress_callback=None, pause_event=None) -> bool:
         """下载一组媒体文件（图片、视频或Live Photo）
@@ -187,8 +291,7 @@ class DouyinDownloader:
                 print(f"\033[93m媒体组下载被取消（开始前）：{name}\033[0m")
                 return False
 
-            user_dir, filename = name.split('/', 1)
-            filename = self._sanitize_filename(filename)
+            user_dir, filename = self._split_download_name(name)
 
             if self.debug_mode:
                 print(f"\033[93m[Downloader] 用户目录: {user_dir}, 文件名: {filename}\033[0m")
@@ -205,6 +308,7 @@ class DouyinDownloader:
             downloaded_files = []  # 记录已下载的文件，用于取消时清理
 
             for i, url_info in enumerate(urls):
+                response = None
                 # 检查取消信号
                 if cancel_event and cancel_event.is_set():
                     print(f"\033[93m媒体组下载被取消（下载中），清理已下载文件：{name}\033[0m")
@@ -275,7 +379,7 @@ class DouyinDownloader:
                         )
                         
                     headers = self._get_download_headers()
-                    response = _session.get(url, headers=headers, stream=True, timeout=(10, 120))
+                    response = _get_session().get(url, headers=headers, stream=True, timeout=(10, 120))
                     response.raise_for_status()
                     response_size = self._get_response_size(response)
                     
@@ -293,21 +397,9 @@ class DouyinDownloader:
                     user_path = os.path.join(self.download_dir, user_dir)
                     os.makedirs(user_path, exist_ok=True)
                     
-                    # 根据文件类型确定扩展名
-                    if file_type == 'video' or file_type == 'live_photo':
-                        extension = "mp4"
-                    else:  # image
-                        extension = "jpg"
-
-                    filepath = os.path.join(user_path, f"{filename_with_index}.{extension}")
-
-                    # 如果文件已存在，添加时间戳避免覆盖
-                    if os.path.exists(filepath):
-                        timestamp = int(time.time())
-                        filename_with_index = f"{filename_with_index}_{timestamp}"
-                        filepath = os.path.join(user_path, f"{filename_with_index}.{extension}")
-                        if self.debug_mode:
-                            print(f"\033[93m[Downloader] 文件已存在，使用新名称: {filepath}\033[0m")
+                    extension = self._extension_for_media(file_type, url, response)
+                    filepath = self._unique_filepath(user_path, filename_with_index, extension)
+                    filename_with_index = os.path.splitext(os.path.basename(filepath))[0]
 
                     if self.debug_mode:
                         print(f"\033[93m[Downloader] 保存文件路径: {filepath}\033[0m")
@@ -439,6 +531,9 @@ class DouyinDownloader:
                             'message': f'❌ 第 {i+1}/{len(urls)} 个文件下载失败: {str(e)}',
                             'timestamp': datetime.now().strftime('%H:%M:%S')
                         })
+                finally:
+                    if response is not None:
+                        response.close()
 
             # 只有当提供了aweme_id且所有文件都下载成功时才记录
             if success and aweme_id:
@@ -471,9 +566,9 @@ class DouyinDownloader:
         Returns:
             bool: 下载是否成功
         """
+        response = None
         try:
-            user_dir, filename = name.split('/', 1)
-            filename = self._sanitize_filename(filename)
+            user_dir, filename = self._split_download_name(name)
 
             # 检查是否已下载
             if aweme_id in self._load_download_record(user_dir):
@@ -488,14 +583,14 @@ class DouyinDownloader:
                 return False
 
             headers = self._get_download_headers()
-            response = _session.get(url, headers=headers, stream=True, timeout=(10, 120))
+            response = _get_session().get(url, headers=headers, stream=True, timeout=(10, 120))
             response.raise_for_status()
             response_size = self._get_response_size(response)
             file_started_at = time.monotonic()
 
             user_path = os.path.join(self.download_dir, user_dir)
             os.makedirs(user_path, exist_ok=True)
-            filepath = os.path.join(user_path, f"{filename}.mp4")
+            filepath = self._unique_filepath(user_path, filename, self._extension_for_media('video', url, response))
 
             if self.debug_mode:
                 print(f"\033[93m[Downloader] 开始下载视频: {filepath}\033[0m")
@@ -573,7 +668,7 @@ class DouyinDownloader:
                 print(f"\033[92m[Downloader] 视频下载完成: {filepath}, 大小: {file_size/1024:.2f} KB\033[0m")
                 
             upsert_download_history_entries([filepath])
-            print(f"\033[93m下载视频成功：{user_dir}/{filename}.mp4\033[0m")
+            print(f"\033[93m下载视频成功：{user_dir}/{os.path.basename(filepath)}\033[0m")
             elapsed = max(time.monotonic() - file_started_at, 0.001)
             final_size = os.path.getsize(filepath) if os.path.exists(filepath) else response_size
             self._emit_download_progress(
@@ -602,15 +697,19 @@ class DouyinDownloader:
                 print(f"\033[91m[Downloader] 下载视频失败: {str(e)}\033[0m")
             print(f"\033[91m下载视频失败：{str(e)}\033[0m")
             return False
+        finally:
+            if response is not None:
+                response.close()
 
     def download_image(self, url: str, name: str, aweme_id: str, is_live: bool = False) -> bool:
         """下载图片或Live Photo
         Returns:
             bool: 下载是否成功
         """
+        response = None
         try:
             # 分离用户名和文件名
-            user_dir, filename = name.split('/', 1)
+            user_dir, filename = self._split_download_name(name)
             
             # 检查是否已下载
             if aweme_id in self._load_download_record(user_dir):
@@ -620,16 +719,15 @@ class DouyinDownloader:
                 return True  # 已下载视为成功
                 
             headers = self._get_download_headers()
-            response = _session.get(url, headers=headers, stream=True, timeout=(10, 120))
+            response = _get_session().get(url, headers=headers, stream=True, timeout=(10, 120))
             response.raise_for_status()
             
-            filename = self._sanitize_filename(filename)
             user_path = os.path.join(self.download_dir, user_dir)
             os.makedirs(user_path, exist_ok=True)
             
-            # 根据是否是Live Photo决定扩展名
-            extension = "mp4" if is_live else "jpg"
-            filepath = os.path.join(user_path, f"{filename}.{extension}")
+            file_type_key = 'live_photo' if is_live else 'image'
+            extension = self._extension_for_media(file_type_key, url, response)
+            filepath = self._unique_filepath(user_path, filename, extension)
             
             if self.debug_mode:
                 file_type = "Live Photo" if is_live else "图片"
@@ -650,7 +748,8 @@ class DouyinDownloader:
                 print(f"\033[92m[Downloader] {file_type}下载完成: {filepath}, 大小: {file_size/1024:.2f} KB\033[0m")
                 
             file_type = "Live Photo" if is_live else "图片"
-            print(f"\033[93m下载{file_type}成功：{user_dir}/{filename}.{extension}\033[0m")
+            upsert_download_history_entries([filepath])
+            print(f"\033[93m下载{file_type}成功：{user_dir}/{os.path.basename(filepath)}\033[0m")
             
             # 保存下载记录
             self._save_download_record(user_dir, aweme_id)
@@ -662,9 +761,13 @@ class DouyinDownloader:
                 print(f"\033[91m[Downloader] 下载{file_type}失败: {str(e)}\033[0m")
             print(f"\033[91m下载失败：{str(e)}\033[0m")
             return False
+        finally:
+            if response is not None:
+                response.close()
 
     def download_video_direct(self, url: str, filename: str) -> bool:
         """直接通过URL下载视频文件"""
+        response = None
         try:
             if self.debug_mode:
                 print(f"\033[93m[Downloader] 开始直接下载视频: {filename}\033[0m")
@@ -675,7 +778,7 @@ class DouyinDownloader:
             if self.debug_mode:
                 print(f"\033[93m[Downloader] 开始发送视频下载请求\033[0m")
                 
-            response = _session.get(url, headers=headers, stream=True, timeout=(10, 120))
+            response = _get_session().get(url, headers=headers, stream=True, timeout=(10, 120))
             response.raise_for_status()
             
             if self.debug_mode:
@@ -687,7 +790,12 @@ class DouyinDownloader:
             # 创建下载目录
             download_path = os.path.join(self.download_dir, "direct_downloads")
             os.makedirs(download_path, exist_ok=True)
-            filepath = os.path.join(download_path, filename)
+            filename = self._sanitize_filename(os.path.basename(str(filename)))
+            filepath = self._unique_filepath(
+                download_path,
+                os.path.splitext(filename)[0],
+                os.path.splitext(filename)[1].lstrip('.') or self._extension_for_media('video', url, response),
+            )
             
             if self.debug_mode:
                 print(f"\033[93m[Downloader] 保存文件路径: {filepath}\033[0m")
@@ -715,9 +823,13 @@ class DouyinDownloader:
                 print(f"\033[91m[Downloader] 视频URL: {url}\033[0m")
             print(f"\033[91m直接下载视频失败：{str(e)}\033[0m")
             return False
+        finally:
+            if response is not None:
+                response.close()
 
     def download_image_direct(self, url: str, filename: str) -> bool:
         """直接通过URL下载图片文件"""
+        response = None
         try:
             if self.debug_mode:
                 print(f"\033[93m[Downloader] 开始直接下载图片: {filename}\033[0m")
@@ -728,7 +840,7 @@ class DouyinDownloader:
             if self.debug_mode:
                 print(f"\033[93m[Downloader] 开始发送图片下载请求\033[0m")
                 
-            response = _session.get(url, headers=headers, stream=True, timeout=(10, 120))
+            response = _get_session().get(url, headers=headers, stream=True, timeout=(10, 120))
             response.raise_for_status()
             
             if self.debug_mode:
@@ -740,7 +852,12 @@ class DouyinDownloader:
             # 创建下载目录
             download_path = os.path.join(self.download_dir, "direct_downloads")
             os.makedirs(download_path, exist_ok=True)
-            filepath = os.path.join(download_path, filename)
+            filename = self._sanitize_filename(os.path.basename(str(filename)))
+            filepath = self._unique_filepath(
+                download_path,
+                os.path.splitext(filename)[0],
+                os.path.splitext(filename)[1].lstrip('.') or self._extension_for_media('image', url, response),
+            )
             
             if self.debug_mode:
                 print(f"\033[93m[Downloader] 保存文件路径: {filepath}\033[0m")
@@ -768,19 +885,28 @@ class DouyinDownloader:
                 print(f"\033[91m[Downloader] 图片URL: {url}\033[0m")
             print(f"\033[91m直接下载图片失败：{str(e)}\033[0m")
             return False
+        finally:
+            if response is not None:
+                response.close()
 
-    def _sanitize_filename(self, name: str, max_length: int = Config.MAX_FILENAME_LENGTH) -> str:
+    def _sanitize_filename(self, name: str, default: str = '未命名作品', max_length: int = Config.MAX_FILENAME_LENGTH) -> str:
         """清理文件名"""
         if self.debug_mode:
             print(f"\033[93m[Downloader] 清理文件名: {name}\033[0m")
             
         # 移除非法字符
-        sanitized = re.sub(r'[\\/:*?"<>|]', '_', name)
+        sanitized = re.sub(r'[\\/:*?"<>|\x00-\x1f]', '_', str(name or ''))
         # 移除多余空格
-        sanitized = ' '.join(sanitized.split())
-        result = sanitized[:max_length]
+        sanitized = ' '.join(sanitized.split()).strip(' ._')
+        if sanitized in ('', '.', '..'):
+            sanitized = default
+        result = sanitized[:max_length].strip(' ._') or default
         
         if self.debug_mode and result != name:
             print(f"\033[93m[Downloader] 文件名已清理: {result}\033[0m")
             
         return result
+
+    def _sanitize_path_segment(self, name: str, default: str = '未知作者') -> str:
+        """清理单级目录名，避免传入路径片段影响下载根目录。"""
+        return self._sanitize_filename(os.path.basename(str(name or '')), default=default)

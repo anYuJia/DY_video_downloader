@@ -93,18 +93,11 @@ class Config:
     @classmethod
     def load_config(cls):
         """从配置文件或环境变量加载配置"""
-        # 首先尝试从环境变量加载
-        cls.COOKIE = os.environ.get("DOUYIN_COOKIE", cls.COOKIE)
-        cls.BASE_DIR = os.environ.get("DOUYIN_BASE_DIR", cls.BASE_DIR)
-        cls.DOWNLOAD_DIR = cls.BASE_DIR
         cls.HISTORY_DIRS = []
-        cls.DOWNLOAD_QUALITY = os.environ.get("DOUYIN_DOWNLOAD_QUALITY", cls.DOWNLOAD_QUALITY)
-        try:
-            cls.MAX_CONCURRENT = max(1, min(10, int(os.environ.get("DOUYIN_MAX_CONCURRENT", cls.MAX_CONCURRENT))))
-        except Exception:
-            cls.MAX_CONCURRENT = 3
+        cls.DOWNLOAD_DIR = cls.BASE_DIR
+        loaded_from_file = False
 
-        # 然后尝试从配置文件加载
+        # 先读取配置文件，再用环境变量覆盖，方便无界面部署和临时调试。
         if os.path.exists(cls.CONFIG_FILE):
             try:
                 with open(cls.CONFIG_FILE, 'r', encoding='utf-8') as f:
@@ -122,10 +115,33 @@ class Config:
                     if os.path.isdir(legacy_dir) and os.path.abspath(legacy_dir).lower() != os.path.abspath(cls.DOWNLOAD_DIR).lower():
                         cls.HISTORY_DIRS = cls.normalize_history_dirs([*cls.HISTORY_DIRS, legacy_dir])
                     print("\033[92m配置已从配置文件加载\033[0m")
-                    return True
+                    loaded_from_file = True
             except Exception as e:
                 print(f"\033[91m加载配置文件失败: {str(e)}\033[0m")
-        return False
+
+        cls.apply_env_overrides()
+        return loaded_from_file
+
+    @classmethod
+    def apply_env_overrides(cls):
+        """使用环境变量覆盖配置文件值。"""
+        env_cookie = os.environ.get("DOUYIN_COOKIE")
+        env_base_dir = os.environ.get("DOUYIN_BASE_DIR")
+        env_quality = os.environ.get("DOUYIN_DOWNLOAD_QUALITY")
+        env_max_concurrent = os.environ.get("DOUYIN_MAX_CONCURRENT")
+
+        if env_cookie is not None:
+            cls.COOKIE = env_cookie.replace('\n', '').replace('\r', '').strip()
+        if env_base_dir:
+            cls.BASE_DIR = env_base_dir
+            cls.DOWNLOAD_DIR = cls.BASE_DIR
+        if env_quality:
+            cls.DOWNLOAD_QUALITY = str(env_quality or "auto")
+        if env_max_concurrent:
+            try:
+                cls.MAX_CONCURRENT = max(1, min(10, int(env_max_concurrent)))
+            except Exception:
+                pass
     
     @classmethod
     def normalize_history_dirs(cls, history_dirs):
@@ -169,11 +185,20 @@ class Config:
             "max_concurrent": resolved_max_concurrent,
         }
         try:
-            with open(cls.CONFIG_FILE, 'w', encoding='utf-8') as f:
+            config_dir = os.path.dirname(cls.CONFIG_FILE)
+            os.makedirs(config_dir, exist_ok=True)
+            temp_file = f"{cls.CONFIG_FILE}.tmp"
+            with open(temp_file, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, ensure_ascii=False, indent=2)
+                f.write('\n')
+            os.replace(temp_file, cls.CONFIG_FILE)
             print("\033[92m配置已保存到配置文件\033[0m")
             return True
         except Exception as e:
+            try:
+                os.remove(f"{cls.CONFIG_FILE}.tmp")
+            except Exception:
+                pass
             print(f"\033[91m保存配置文件失败: {str(e)}\033[0m")
             return False
     

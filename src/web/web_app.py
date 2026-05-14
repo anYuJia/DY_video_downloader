@@ -54,6 +54,8 @@ COOKIE_MEDIA_HOST_SUFFIXES = (
 )
 MEDIA_PROXY_INITIAL_VIDEO_RANGE = 'bytes=0-1048575'
 MEDIA_PROXY_MAX_RETRIES = 3
+MEDIA_PROXY_REDIRECT_CACHE_MAX_SIZE = 256
+DOWNLOAD_TASK_HISTORY_MAX_SIZE = 200
 LATEST_RELEASE_API_URL = 'https://api.github.com/repos/anYuJia/DY_video_downloader/releases/latest'
 LATEST_RELEASE_PAGE_URL = 'https://github.com/anYuJia/DY_video_downloader/releases/latest'
 MEDIA_PROXY_REDIRECT_CACHE = {}
@@ -115,6 +117,8 @@ downloader = None
 user_manager = None
 download_tasks = {} # 用于存储任务状态和元数据（同步Dict）
 active_tasks = {} # 用于存储活跃的 asyncio.Future 和 asyncio.Event
+
+TERMINAL_TASK_STATUSES = {'completed', 'failed', 'error', 'cancelled', 'canceled'}
 
 
 class ThreadPauseEvent:
@@ -355,6 +359,24 @@ def _request_non_negative_int(name: str) -> int | None:
         return None
 
 
+def _request_json() -> dict:
+    payload = request.get_json(silent=True)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _coerce_int(value, default: int = 0, min_value: int | None = None, max_value: int | None = None) -> int:
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        result = default
+
+    if min_value is not None:
+        result = max(min_value, result)
+    if max_value is not None:
+        result = min(max_value, result)
+    return result
+
+
 def _filter_download_history_items(items: list[dict]) -> tuple[list[dict], int, int, dict | None]:
     query = str(request.args.get('query') or '').strip().lower()
     media_type = str(request.args.get('media_type') or request.args.get('mediaType') or 'all').strip().lower()
@@ -433,6 +455,26 @@ def _unique_destination_path(destination: Path) -> Path:
         candidate = destination.parent / f"{stem}_{counter}{suffix}"
         counter += 1
     return candidate
+
+
+def _cleanup_empty_parent_dirs(path: Path, stop_root: Path) -> None:
+    """Remove empty parent directories without crossing the owning download root."""
+    try:
+        parent = path.parent.resolve()
+        stop_root = stop_root.resolve()
+    except Exception:
+        return
+
+    while parent != stop_root and _is_subpath(parent, stop_root) and parent.exists():
+        try:
+            next(parent.iterdir())
+            break
+        except StopIteration:
+            parent.rmdir()
+            parent = parent.parent
+        except OSError:
+            break
+
 
 def safe_get_url(obj, default=''):
     """安全地从 obj['url_list'] 中获取 URL，避免索引越界"""
@@ -580,6 +622,18 @@ def _resolve_media_redirect_target(current_url: str, location: str) -> str | Non
         return http_requests.compat.urljoin(current_url, location)
     except Exception:
         return None
+
+
+def _remember_media_redirect(cache_key: str | None, target_url: str) -> None:
+    if not cache_key or not target_url:
+        return
+    if cache_key in MEDIA_PROXY_REDIRECT_CACHE:
+        MEDIA_PROXY_REDIRECT_CACHE.pop(cache_key, None)
+    elif len(MEDIA_PROXY_REDIRECT_CACHE) >= MEDIA_PROXY_REDIRECT_CACHE_MAX_SIZE:
+        oldest_key = next(iter(MEDIA_PROXY_REDIRECT_CACHE), None)
+        if oldest_key is not None:
+            MEDIA_PROXY_REDIRECT_CACHE.pop(oldest_key, None)
+    MEDIA_PROXY_REDIRECT_CACHE[cache_key] = target_url
 
 
 def _normalize_version_text(version: str) -> str:
@@ -981,6 +1035,41 @@ class WebDownloadProgress:
             'display_name': self.display_name
         })
 
+
+def _task_sort_timestamp(task: dict) -> float:
+    for key in ('end_time', 'start_time'):
+        value = task.get(key)
+        if isinstance(value, datetime):
+            return value.timestamp()
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def _prune_download_tasks() -> None:
+    overflow = len(download_tasks) - DOWNLOAD_TASK_HISTORY_MAX_SIZE
+    if overflow <= 0:
+        return
+
+    removable = [
+        (task_id, task)
+        for task_id, task in download_tasks.items()
+        if task_id not in active_tasks
+        and str(task.get('status') or '').lower() in TERMINAL_TASK_STATUSES
+    ]
+    removable.sort(key=lambda item: _task_sort_timestamp(item[1]))
+
+    for task_id, _ in removable[:overflow]:
+        download_tasks.pop(task_id, None)
+
+
+def _store_download_task(task_id: str, task: dict) -> None:
+    download_tasks[task_id] = task
+    _prune_download_tasks()
+
+
 def init_app():
     """初始化应用"""
     global api, downloader, user_manager
@@ -1076,7 +1165,7 @@ def set_config():
     """设置配置"""
     global api, downloader, user_manager
     try:
-        data = request.json or {}
+        data = _request_json()
         previous_download_dir = str(get_download_root())
         previous_all_roots = [str(root) for root in get_all_download_roots()]
         
@@ -1088,10 +1177,7 @@ def set_config():
         if 'download_quality' in data:
             Config.DOWNLOAD_QUALITY = str(data.get('download_quality') or 'auto')
         if 'max_concurrent' in data:
-            try:
-                Config.MAX_CONCURRENT = max(1, min(10, int(data.get('max_concurrent') or 3)))
-            except Exception:
-                Config.MAX_CONCURRENT = 3
+            Config.MAX_CONCURRENT = _coerce_int(data.get('max_concurrent'), 3, 1, 10)
 
         move_existing_files = bool(data.get('move_existing_files'))
         history_dirs = list(getattr(Config, 'HISTORY_DIRS', []))
@@ -1424,7 +1510,7 @@ def local_media():
 def open_download_history_file():
     """打开下载文件。"""
     try:
-        data = request.json or {}
+        data = _request_json()
         file_path = _safe_history_path(data.get('path', ''))
         if not file_path.exists() or not file_path.is_file():
             return jsonify({'success': False, 'message': '文件不存在'}), 404
@@ -1446,7 +1532,7 @@ def open_download_history_file():
 def open_download_history_location():
     """打开文件所在目录。"""
     try:
-        data = request.json or {}
+        data = _request_json()
         file_path = _safe_history_path(data.get('path', ''))
         if not file_path.exists():
             return jsonify({'success': False, 'message': '文件不存在'}), 404
@@ -1497,7 +1583,7 @@ def open_download_history_directory():
 def delete_download_history_files():
     """删除下载文件，支持批量。"""
     try:
-        data = request.json or {}
+        data = _request_json()
         raw_paths = data.get('paths') or []
         if not isinstance(raw_paths, list) or not raw_paths:
             return jsonify({'success': False, 'message': '请选择至少一个文件'}), 400
@@ -1516,18 +1602,14 @@ def delete_download_history_files():
                 missing.append(str(file_path))
                 continue
 
+            root = get_root_for_path(file_path)
+            if root is None:
+                missing.append(str(file_path))
+                continue
+
             file_path.unlink()
             deleted.append(str(file_path))
-
-            parent = file_path.parent
-            root = get_download_root()
-            while parent != root and parent.exists():
-                try:
-                    next(parent.iterdir())
-                    break
-                except StopIteration:
-                    parent.rmdir()
-                    parent = parent.parent
+            _cleanup_empty_parent_dirs(file_path, root)
 
         return jsonify({
             'success': True,
@@ -1548,7 +1630,7 @@ def delete_download_history_files():
 def move_selected_download_history_files():
     """将选中的下载文件迁移到新的下载目录。"""
     try:
-        data = request.json or {}
+        data = _request_json()
         raw_paths = data.get('paths') or []
         target_dir_raw = (data.get('target_dir') or '').strip()
 
@@ -1586,15 +1668,7 @@ def move_selected_download_history_files():
             shutil.move(str(file_path), str(destination))
             moved.append(str(destination))
             moved_map[str(file_path)] = str(destination)
-
-            parent = file_path.parent
-            while parent != root and parent.exists():
-                try:
-                    next(parent.iterdir())
-                    break
-                except StopIteration:
-                    parent.rmdir()
-                    parent = parent.parent
+            _cleanup_empty_parent_dirs(file_path, root)
 
         Config.HISTORY_DIRS = Config.normalize_history_dirs([
             *getattr(Config, 'HISTORY_DIRS', []),
@@ -1728,7 +1802,7 @@ def media_proxy():
             break
 
         if cache_key and upstream_url != url:
-            MEDIA_PROXY_REDIRECT_CACHE[cache_key] = upstream_url
+            _remember_media_redirect(cache_key, upstream_url)
 
         logger.info(
             '[media_proxy] 上游响应耗时 %.2fs, status=%s, seeded_range=%s, range="%s", url=%s',
@@ -1816,33 +1890,64 @@ def download_music():
     """代理下载音乐，并显式设置文件名。"""
     url = request.args.get('url', '').strip()
     requested_filename = request.args.get('filename', '').strip()
+    allow_origin, origin_value = _allowed_media_request_origin()
 
+    if not allow_origin:
+        return 'Forbidden', 403
     if not is_allowed_media_url(url):
         return 'Invalid URL', 400
 
+    resp = None
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-            'Referer': 'https://www.douyin.com/',
-            'Accept': '*/*',
-            'Accept-Encoding': 'identity;q=1, *;q=0',
-        }
+        upstream_url = url
+        redirect_hops = 0
+        while True:
+            if not is_allowed_media_url(upstream_url):
+                return 'Invalid URL', 400
 
-        if api and api.cookie and should_forward_douyin_cookie(url):
-            headers['Cookie'] = api.cookie
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+                'Referer': 'https://www.douyin.com/',
+                'Accept': '*/*',
+                'Accept-Encoding': 'identity;q=1, *;q=0',
+            }
 
-        resp = http_requests.get(url, headers=headers, stream=True, timeout=(10, 120))
-        resp.raise_for_status()
+            if api and api.cookie and should_forward_douyin_cookie(upstream_url):
+                headers['Cookie'] = api.cookie
+
+            resp = http_requests.get(
+                upstream_url,
+                headers=headers,
+                stream=True,
+                timeout=(10, 120),
+                allow_redirects=False,
+            )
+
+            if 300 <= resp.status_code < 400:
+                location = resp.headers.get('Location', '')
+                next_url = _resolve_media_redirect_target(resp.url, location)
+                resp.close()
+                resp = None
+
+                if not location or redirect_hops >= 4 or not next_url or not is_allowed_media_url(next_url):
+                    return 'Invalid redirect URL', 400
+
+                redirect_hops += 1
+                upstream_url = next_url
+                continue
+
+            resp.raise_for_status()
+            break
 
         content_type = (resp.headers.get('Content-Type') or 'audio/mpeg').split(';', 1)[0].strip()
         filename = _sanitize_download_filename(requested_filename)
-        extension = _guess_audio_extension(url, content_type)
+        extension = _guess_audio_extension(upstream_url, content_type)
         if not filename.lower().endswith(('.mp3', '.m4a', '.aac', '.wav', '.ogg')):
             filename = f'{filename}{extension}'
 
         resp_headers = {
-            'Content-Type': _guess_audio_content_type(filename or url, content_type),
-            'Access-Control-Allow-Origin': '*',
+            'Content-Type': _guess_audio_content_type(filename or upstream_url, content_type),
+            'Access-Control-Allow-Origin': origin_value or '*',
             'Cache-Control': 'no-store'
         }
 
@@ -1858,13 +1963,25 @@ def download_music():
             resp_headers['Accept-Ranges'] = 'bytes'
 
         def generate():
-            for chunk in resp.iter_content(chunk_size=65536):
-                yield chunk
+            try:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    if chunk:
+                        yield chunk
+            finally:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
 
         return Response(generate(), status=resp.status_code, headers=resp_headers)
 
     except Exception as e:
         logger.error(f"音乐下载代理失败: {e}")
+        if resp is not None:
+            try:
+                resp.close()
+            except Exception:
+                pass
         return f'Download error: {str(e)}', 502
 
 @app.route('/api/verify_page')
@@ -1897,7 +2014,7 @@ def open_verify_browser():
     global _native_verify_window
 
     try:
-        data = request.json or {}
+        data = _request_json()
         target_url = (data.get('target_url') or '').strip() or 'https://www.douyin.com/'
 
         if not is_native_cookie_login_available():
@@ -1943,7 +2060,7 @@ def open_verify_browser():
 def search_user():
     """搜索用户"""
     try:
-        data = request.json
+        data = _request_json()
         keyword = data.get('keyword', '').strip()
         
         if not keyword:
@@ -2012,7 +2129,7 @@ def search_user():
 def get_user_detail():
     """获取用户详情"""
     try:
-        data = request.json
+        data = _request_json()
         sec_uid = data.get('sec_uid', '').strip()
         
         if not sec_uid:
@@ -2058,9 +2175,9 @@ def get_user_detail():
 def get_liked_videos_api():
     """获取点赞视频列表"""
     try:
-        data = request.json
-        count = data.get('count', 20)
-        cursor = data.get('cursor') or data.get('max_cursor') or 0
+        data = _request_json()
+        count = _coerce_int(data.get('count'), 20, 1, 100)
+        cursor = _coerce_int(data.get('cursor') or data.get('max_cursor'), 0, 0)
         if not user_manager:
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
         result = run_async(user_manager.get_liked_videos(count, cursor, include_pagination=True))
@@ -2071,7 +2188,7 @@ def get_liked_videos_api():
                 return jsonify(_login_error_response(result))
             if 'data' in result:
                 videos = result.get('data') or []
-                if not videos and int(cursor or 0) <= 0:
+                if not videos and cursor <= 0:
                     login_status = _verify_native_cookie_login(Config.COOKIE or '')
                     if not login_status.get('success'):
                         return jsonify(_login_error_response(login_status))
@@ -2093,7 +2210,7 @@ def get_liked_videos_api():
                 'message': _api_message(result, '获取点赞视频失败，请检查 Cookie 或稍后重试'),
             })
         videos = result or []
-        if not videos and int(cursor or 0) <= 0:
+        if not videos and cursor <= 0:
             login_status = _verify_native_cookie_login(Config.COOKIE or '')
             if not login_status.get('success'):
                 return jsonify(_login_error_response(login_status))
@@ -2117,8 +2234,8 @@ def get_liked_videos_api():
 def get_liked_authors_api():
     """获取点赞作者列表"""
     try:
-        data = request.json
-        count = data.get('count', 20)
+        data = _request_json()
+        count = _coerce_int(data.get('count'), 20, 1, 100)
 
         if not user_manager:
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
@@ -2158,9 +2275,9 @@ def get_liked_authors_api():
 def get_collected_videos_api():
     """获取收藏视频列表"""
     try:
-        data = request.json or {}
-        count = data.get('count', 20)
-        cursor = data.get('cursor') or 0
+        data = _request_json()
+        count = _coerce_int(data.get('count'), 20, 1, 100)
+        cursor = _coerce_int(data.get('cursor'), 0, 0)
         if not user_manager:
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
 
@@ -2191,9 +2308,9 @@ def get_collected_videos_api():
 def get_collected_mixes_api():
     """获取收藏合集列表"""
     try:
-        data = request.json or {}
-        count = data.get('count', 20)
-        cursor = data.get('cursor') or 0
+        data = _request_json()
+        count = _coerce_int(data.get('count'), 20, 1, 100)
+        cursor = _coerce_int(data.get('cursor'), 0, 0)
         if not user_manager:
             return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
 
@@ -2224,10 +2341,10 @@ def get_collected_mixes_api():
 def get_mix_videos_api():
     """获取收藏合集内的视频列表"""
     try:
-        data = request.json or {}
+        data = _request_json()
         series_id = (data.get('series_id') or data.get('seriesId') or '').strip()
-        count = data.get('count', 20)
-        cursor = data.get('cursor') or 0
+        count = _coerce_int(data.get('count'), 20, 1, 100)
+        cursor = _coerce_int(data.get('cursor'), 0, 0)
         if not series_id:
             return jsonify({'success': False, 'message': '合集ID不能为空'}), 400
         if not user_manager:
@@ -2260,10 +2377,10 @@ def get_mix_videos_api():
 def get_user_videos():
     """获取用户视频列表（支持分页渐进加载）"""
     try:
-        data = request.json
+        data = _request_json()
         sec_uid = data.get('sec_uid', '').strip()
-        cursor = data.get('cursor', 0)  # 分页游标
-        count = data.get('count', 18)   # 每页数量
+        cursor = _coerce_int(data.get('cursor'), 0, 0)  # 分页游标
+        count = _coerce_int(data.get('count'), 18, 1, 100)   # 每页数量
 
         if not sec_uid:
             return jsonify({'success': False, 'message': '用户ID不能为空'}), 400
@@ -2374,7 +2491,7 @@ def get_user_videos():
 def download_single_video():
     """下载单个作品（视频、图集或Live Photo）"""
     try:
-        data = request.json or {}
+        data = _request_json()
         aweme_id = data.get('aweme_id', '').strip()
         video_desc = data.get('desc', '未知作品')
         media_urls = data.get('media_urls', [])
@@ -2587,10 +2704,10 @@ def download_user_video():
     """通过sec_uid下载用户所有视频，支持WebSocket进度反馈"""
     logger.debug("Received download_user_video request")
     try:
-        data = request.json
+        data = _request_json()
         sec_uid = data.get('sec_uid')
         nickname = data.get('nickname', '')  # 前端传来，跳过详情接口
-        aweme_count = int(data.get('aweme_count', 0)) # 获取作品总数
+        aweme_count = _coerce_int(data.get('aweme_count'), 0, 0) # 获取作品总数
 
         if not sec_uid:
             return jsonify({'success': False, 'message': 'sec_uid参数不能为空'}), 400
@@ -2604,6 +2721,21 @@ def download_user_video():
         pause_event = asyncio.Event()  # 暂停事件，默认不暂停
 
         display_name = f'{nickname or "用户"} 全部作品'
+        _store_download_task(task_id, {
+            'status': 'running',
+            'sec_uid': sec_uid,
+            'nickname': nickname,
+            'title': display_name,
+            'filename': display_name,
+            'display_name': display_name,
+            'isBatch': True,
+            'total_videos': aweme_count,
+            'current_downloaded': 0,
+            'processed': 0,
+            'progress': 0,
+            'overall_progress': 0,
+            'start_time': datetime.now()
+        })
         
         # 在全局 Loop 中运行异步下载协程
         async def do_download_task():
@@ -2984,23 +3116,6 @@ def download_user_video():
         # 启动任务
         loop = get_or_create_loop()
         future = asyncio.run_coroutine_threadsafe(do_download_task(), loop)
-        
-        # 记录任务
-        download_tasks[task_id] = {
-            'status': 'running',
-            'sec_uid': sec_uid,
-            'nickname': nickname,
-            'title': display_name,
-            'filename': display_name,
-            'display_name': display_name,
-            'isBatch': True,
-            'total_videos': aweme_count,
-            'current_downloaded': 0,
-            'processed': 0,
-            'progress': 0,
-            'overall_progress': 0,
-            'start_time': datetime.now()
-        }
         active_tasks[task_id] = {
             "future": future,
             "event": cancel_event,
@@ -3021,7 +3136,7 @@ def download_user_video():
 @app.route('/api/cancel_download', methods=['POST'])
 def cancel_download():
     """按任务ID取消下载"""
-    data = request.json
+    data = _request_json()
     task_id = data.get('task_id')
     logger.info(f"Request to cancel task: {task_id}")
     
@@ -3042,7 +3157,7 @@ def cancel_download():
 @app.route('/api/pause_download', methods=['POST'])
 def pause_download():
     """按任务ID暂停下载"""
-    data = request.json
+    data = _request_json()
     task_id = data.get('task_id')
     logger.info(f"Request to pause task: {task_id}")
 
@@ -3067,7 +3182,7 @@ def pause_download():
 @app.route('/api/resume_download', methods=['POST'])
 def resume_download():
     """按任务ID恢复下载"""
-    data = request.json
+    data = _request_json()
     task_id = data.get('task_id')
     logger.info(f"Request to resume task: {task_id}")
 
@@ -3093,8 +3208,8 @@ def resume_download():
 def download_liked():
     """下载点赞视频"""
     try:
-        data = request.json or {}
-        count = int(data.get('count', 20) or 20)
+        data = _request_json()
+        count = _coerce_int(data.get('count'), 20, 1, 100)
         if not Config.COOKIE:
             return jsonify({'success': False, 'message': '下载点赞视频需要设置Cookie'}), 400
         
@@ -3103,11 +3218,11 @@ def download_liked():
         
         # 生成任务ID
         task_id = str(uuid.uuid4())
-        download_tasks[task_id] = {
+        _store_download_task(task_id, {
             'status': 'running',
             'type': 'liked_videos',
             'start_time': datetime.now()
-        }
+        })
         
         # 在全局 Loop 中运行异步下载协程
         async def do_download_liked():
@@ -3147,7 +3262,7 @@ def download_liked():
 def get_video_detail():
     """获取视频详情"""
     try:
-        data = request.json
+        data = _request_json()
         aweme_id = data.get('aweme_id', '').strip()
 
         if not aweme_id:
@@ -3182,7 +3297,7 @@ def get_video_detail():
 def parse_link():
     """解析抖音链接"""
     try:
-        data = request.json
+        data = _request_json()
         link = data.get('link', '').strip()
         
         if not link:
@@ -3270,8 +3385,8 @@ def parse_link():
 def download_liked_authors():
     """下载点赞作者作品"""
     try:
-        data = request.json or {}
-        count = int(data.get('count', 20) or 20)
+        data = _request_json()
+        count = _coerce_int(data.get('count'), 20, 1, 100)
         selected_sec_uids = data.get('selected_sec_uids') or data.get('sec_uids') or []
         if not Config.COOKIE:
             return jsonify({'success': False, 'message': '下载点赞作者作品需要设置Cookie'}), 400
@@ -3281,11 +3396,11 @@ def download_liked_authors():
         
         # 生成任务ID
         task_id = str(uuid.uuid4())
-        download_tasks[task_id] = {
+        _store_download_task(task_id, {
             'status': 'running',
             'type': 'liked_authors',
             'start_time': datetime.now()
-        }
+        })
         
         # 在全局 Loop 中运行异步下载协程
         async def do_download_liked_authors():
@@ -3326,10 +3441,10 @@ def download_liked_authors():
 def get_comments():
     """获取视频评论列表。"""
     try:
-        data = request.json or {}
+        data = _request_json()
         aweme_id = str(data.get('aweme_id') or '').strip()
-        count = int(data.get('count') or 20)
-        cursor = int(data.get('cursor') or 0)
+        count = _coerce_int(data.get('count'), 20, 1, 100)
+        cursor = _coerce_int(data.get('cursor'), 0, 0)
 
         if not aweme_id:
             return jsonify({'success': False, 'message': '视频ID不能为空'}), 400
@@ -3426,6 +3541,7 @@ def verify_cookie():
 @app.route('/api/tasks', methods=['GET'])
 def get_tasks():
     """获取下载任务列表"""
+    _prune_download_tasks()
     normalized_tasks = {}
     for task_id, task in download_tasks.items():
         normalized = dict(task)
@@ -3642,8 +3758,8 @@ def cookie_browser_login():
     if _native_cookie_login_session and _native_cookie_login_session.is_active():
         return jsonify({'success': False, 'message': '登录窗口已在进行中'}), 409
     
-    data = request.json or {}
-    timeout = int(data.get('timeout', 300))
+    data = _request_json()
+    timeout = _coerce_int(data.get('timeout'), 300, 30, 900)
     _ = data.get('browser', 'chrome')
 
     started, reason = _start_native_cookie_login(timeout)
@@ -3850,9 +3966,9 @@ def _build_content_disposition(filename: str, disposition_type: str = 'attachmen
 def get_recommended_feed():
     """获取推荐视频流 - 直接调用 DouyinAPI，不使用子进程"""
     try:
-        data = request.json or {}
-        count = data.get('count', 20)
-        cursor = data.get('cursor', 0)
+        data = _request_json()
+        count = _coerce_int(data.get('count'), 20, 1, 100)
+        cursor = _coerce_int(data.get('cursor'), 0, 0)
 
         # 获取当前配置的 cookie
         cookie = Config.COOKIE if Config.COOKIE else ''
@@ -4002,7 +4118,7 @@ def get_recommended_feed():
 def download_video_by_aweme_id():
     """通过 aweme_id 下载视频"""
     try:
-        data = request.json
+        data = _request_json()
         aweme_id = data.get('aweme_id', '').strip()
 
         if not aweme_id:
