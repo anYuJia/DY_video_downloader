@@ -419,20 +419,20 @@ function UserSearchCard({
         )}
       </div>
 
-      <p className="min-h-[38px] text-[0.76rem] leading-relaxed text-text-secondary line-clamp-2">
-        {user.signature || "这个用户还没有填写简介"}
-      </p>
-
-      <div className="mt-3 grid grid-cols-4 gap-1.5">
+      <div className="mb-3 grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-4">
         {stats.map((stat) => (
-          <div key={stat.label} className={cn("rounded-[10px] bg-background-soft/70 px-2 py-1.5 text-center")}>
-            <div className="truncate text-[0.76rem] font-semibold tabular-nums text-text">
+          <div key={stat.label} className="min-w-0">
+            <div className="truncate text-[0.84rem] font-semibold tabular-nums text-text">
               {formatNumber(stat.value)}
             </div>
-            <div className="mt-0.5 text-[0.62rem] text-text-muted">{stat.label}</div>
+            <div className="mt-0.5 text-[0.65rem] text-text-muted">{stat.label}</div>
           </div>
         ))}
       </div>
+
+      <p className="min-h-[38px] text-[0.76rem] leading-relaxed text-text-secondary line-clamp-2">
+        {user.signature || "这个用户还没有填写简介"}
+      </p>
     </motion.div>
   );
 }

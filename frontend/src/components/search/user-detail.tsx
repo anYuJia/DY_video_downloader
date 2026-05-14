@@ -149,24 +149,25 @@ export function UserDetail() {
                 </div>
               </div>
 
-              <p className="text-[0.75rem] text-text-secondary line-clamp-2 leading-relaxed min-h-[38px]">
-                {user.signature || "这个用户还没有填写简介"}
-              </p>
-
-              <div className="grid grid-cols-3 gap-2 mt-3">
+              <div className="mt-3 mb-3 grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-4">
                 {[
                   { label: "作品", value: user.aweme_count || 0 },
+                  { label: "关注", value: user.following_count || 0 },
                   { label: "粉丝", value: user.follower_count || 0 },
                   { label: "获赞", value: user.total_favorited || 0 },
                 ].map((stat) => (
-                  <div key={stat.label} className="rounded-[12px] bg-white/[0.03] px-2.5 py-2">
-                    <div className="text-[0.8rem] font-semibold text-text tabular-nums">
+                  <div key={stat.label} className="min-w-0">
+                    <div className="truncate text-[0.84rem] font-semibold text-text tabular-nums">
                       {formatNumber(stat.value)}
                     </div>
-                    <div className="text-[0.66rem] text-text-muted mt-0.5">{stat.label}</div>
+                    <div className="mt-0.5 text-[0.65rem] text-text-muted">{stat.label}</div>
                   </div>
                 ))}
               </div>
+
+              <p className="text-[0.75rem] text-text-secondary line-clamp-2 leading-relaxed min-h-[38px]">
+                {user.signature || "这个用户还没有填写简介"}
+              </p>
 
               <div className="mt-3">
                 <Button variant="info-outline" size="sm" className="w-full pointer-events-none">
