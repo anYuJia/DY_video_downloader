@@ -7,7 +7,7 @@ from typing import List, Dict, Optional, Tuple, Union
 
 from src.api.api import DouyinAPI
 from src.config.config import Config
-from src.downloader.downloader import DouyinDownloader
+from src.downloader.downloader import DouyinDownloader, build_download_name
 
 # 移除增强下载器支持
 ENHANCED_DOWNLOADER_AVAILABLE = False
@@ -719,15 +719,8 @@ class DouyinUserManager:
             else:
                 print(f"\033[36m{progress_msg}\033[0m")
             
-            # 处理空描述的情况
-            desc = post.get('desc', '').strip()
-            if not desc:
-                desc = f"无标题_{post['aweme_id']}"  # 使用作品ID作为备用
-            else:
-                desc = desc.split()[0]  # 只取第一个词
-            
-            name = f"{nickname}/{desc}"
             aweme_id = post['aweme_id']
+            name = build_download_name(nickname, post.get('desc', ''), aweme_id, media_type=media_type)
             
             if not urls:
                 error_msg = f"无法获取媒体URL: {post['desc']}"
@@ -1061,9 +1054,7 @@ class DouyinUserManager:
                     return 0
 
                 author_name = (video.get('author') or {}).get('nickname') or 'liked'
-                raw_desc = (video.get('desc') or '').strip()
-                desc = (raw_desc.split()[0] if raw_desc.split() else f'无标题_{aweme_id}')[:30]
-                name = f"{author_name}/{desc}"
+                name = build_download_name(author_name, video.get('desc', ''), aweme_id, media_type=media_type)
 
                 async with semaphore:
                     if media_type == 'video' and len(media_urls) == 1:

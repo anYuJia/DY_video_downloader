@@ -7,7 +7,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from urllib.parse import urlparse
-from typing import List
+from typing import List, Optional
 
 from src.config.config import Config
 from src.api.api import DouyinAPI
@@ -43,6 +43,135 @@ def _redact_headers(headers: dict) -> dict:
             redacted[key] = '<redacted>'
     return redacted
 
+
+def _truncate_filename_text(
+    value: str,
+    default: str,
+    max_length: int,
+    max_bytes: int,
+    protected_suffix: str = '',
+) -> str:
+    text = str(value or '')
+    suffix = str(protected_suffix or '')
+
+    if suffix and text.endswith(suffix):
+        suffix_len = len(suffix)
+        if suffix_len >= max_length:
+            text = suffix[:max_length]
+        else:
+            prefix = text[:-suffix_len][: max(0, max_length - suffix_len)]
+            text = f"{prefix}{suffix}"
+
+        if max_bytes > 0:
+            suffix_bytes = len(suffix.encode('utf-8'))
+            if suffix_bytes >= max_bytes:
+                text = suffix.encode('utf-8')[:max_bytes].decode('utf-8', 'ignore')
+            else:
+                prefix = text[:-suffix_len] if suffix_len else text
+                while prefix and len(f"{prefix}{suffix}".encode('utf-8')) > max_bytes:
+                    prefix = prefix[:-1]
+                text = f"{prefix}{suffix}"
+    else:
+        text = text[:max_length]
+        if max_bytes > 0:
+            while text and len(text.encode('utf-8')) > max_bytes:
+                text = text[:-1]
+
+    text = text.strip(' ._')
+    return text or default
+
+
+def _template_fields(desc: str, aweme_id: str, author: str = '', media_type: str = '') -> dict:
+    normalized_title = ' '.join(str(desc or '').split()).strip()
+    normalized_aweme_id = str(aweme_id or '').strip()
+    normalized_author = ' '.join(str(author or '').split()).strip()
+    now = time.localtime()
+    return {
+        'title': normalized_title,
+        'aweme_id': normalized_aweme_id,
+        'author': normalized_author,
+        'date': time.strftime('%Y%m%d', now),
+        'time': time.strftime('%H%M%S', now),
+        'media_type': str(media_type or '').strip(),
+    }
+
+
+def _render_template(template: str, fields: dict, default_template: str) -> str:
+    template_text = str(template or '').strip() or default_template
+
+    def replace_token(match):
+        return str(fields.get(match.group(1), ''))
+
+    return re.sub(r'\{([a-zA-Z_][a-zA-Z0-9_]*)\}', replace_token, template_text)
+
+
+def _neutralize_path_separators(value: str) -> str:
+    return re.sub(r'[\\/]+', '_', str(value or ''))
+
+
+def build_download_title(
+    desc: str,
+    aweme_id: str,
+    author: str = '',
+    media_type: str = '',
+    template: Optional[str] = None,
+    default_prefix: str = '无标题',
+    max_length: Optional[int] = None,
+    max_bytes: Optional[int] = None,
+) -> str:
+    fields = _template_fields(desc, aweme_id, author=author, media_type=media_type)
+    normalized_desc = fields['title']
+    normalized_aweme_id = fields['aweme_id']
+    fallback = f'{default_prefix}_{normalized_aweme_id}' if normalized_aweme_id else default_prefix
+    base = _render_template(
+        template if template is not None else getattr(Config, 'FILENAME_TEMPLATE', '{title}_{aweme_id}'),
+        {**fields, 'title': normalized_desc or default_prefix},
+        '{title}_{aweme_id}',
+    )
+    base = _neutralize_path_separators(base)
+    base = ' '.join(base.split()).strip(' ._') or fallback
+    protected_suffix = ''
+    if normalized_aweme_id:
+        protected_suffix = normalized_aweme_id if base.endswith(normalized_aweme_id) else f'_{normalized_aweme_id}'
+    candidate = base
+    if protected_suffix and not base.endswith(protected_suffix):
+        candidate = f'{base}{protected_suffix}'
+    return _truncate_filename_text(
+        candidate,
+        fallback,
+        int(max_length or Config.MAX_FILENAME_LENGTH),
+        int(max_bytes or getattr(Config, 'MAX_FILENAME_BYTES', 200)),
+        protected_suffix=protected_suffix,
+    )
+
+
+def build_download_name(
+    author: str,
+    desc: str,
+    aweme_id: str,
+    media_type: str = '',
+    default_title_prefix: str = '无标题',
+) -> str:
+    fields = _template_fields(desc, aweme_id, author=author, media_type=media_type)
+    folder = _render_template(
+        getattr(Config, 'FOLDER_NAME_TEMPLATE', '{author}'),
+        fields,
+        '{author}',
+    )
+    folder = _neutralize_path_separators(folder)
+    folder = ' '.join(folder.split()).strip(' ._') or fields['author'] or '未知作者'
+    title = build_download_title(
+        desc,
+        aweme_id,
+        author=author,
+        media_type=media_type,
+        default_prefix=default_title_prefix,
+    )
+    if not getattr(Config, 'AUTO_CREATE_FOLDER', True):
+        return title
+    return f"{folder}/{title}"
+
+
 class DouyinDownloader:
     """抖音下载器类"""
     def __init__(self, api: DouyinAPI, socketio=None):
@@ -67,8 +196,8 @@ class DouyinDownloader:
 
     def _get_record_path(self, user_dir: str) -> str:
         """获取用户下载记录文件路径"""
-        # 在用户目录下创建记录文件
-        user_path = os.path.join(self.download_dir, self._sanitize_path_segment(user_dir, '未知作者'))
+        sanitized_user_dir = self._sanitize_path_segment(user_dir, '未知作者') if str(user_dir or '').strip() else ''
+        user_path = os.path.join(self.download_dir, sanitized_user_dir)
         if self.debug_mode:
             print(f"\033[93m[Downloader] 创建用户目录: {user_path}\033[0m")
         os.makedirs(user_path, exist_ok=True)
@@ -99,6 +228,54 @@ class DouyinDownloader:
             else:
                 print(f"\033[91m加载下载记录失败\033[0m")
         return set()
+
+    def _record_roots(self) -> list[str]:
+        roots = []
+        seen = set()
+        for raw_root in [self.download_dir, *getattr(Config, 'HISTORY_DIRS', [])]:
+            if not raw_root:
+                continue
+            root = os.path.abspath(str(raw_root))
+            key = root.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            roots.append(root)
+        return roots
+
+    def _load_all_download_records(self) -> set:
+        """加载所有下载目录中的作品记录，避免命名规则变化后重复下载。"""
+        records = set()
+        try:
+            with self._record_lock:
+                for root in self._record_roots():
+                    if not os.path.isdir(root):
+                        continue
+                    for dirpath, _, filenames in os.walk(root):
+                        if "download_record.json" not in filenames:
+                            continue
+                        record_path = os.path.join(dirpath, "download_record.json")
+                        try:
+                            with open(record_path, 'r', encoding='utf-8') as f:
+                                raw_records = json.load(f)
+                            if isinstance(raw_records, list):
+                                records.update(str(item) for item in raw_records if item)
+                        except Exception as e:
+                            if self.debug_mode:
+                                print(f"\033[91m[Downloader] 读取下载记录失败 {record_path}: {str(e)}\033[0m")
+        except Exception as e:
+            if self.debug_mode:
+                print(f"\033[91m[Downloader] 加载全局下载记录失败: {str(e)}\033[0m")
+        return records
+
+    def _is_aweme_downloaded(self, aweme_id: str, user_dir: str = '') -> bool:
+        normalized_aweme_id = str(aweme_id or '').strip()
+        if not normalized_aweme_id:
+            return False
+        return (
+            normalized_aweme_id in self._load_download_record(user_dir)
+            or normalized_aweme_id in self._load_all_download_records()
+        )
 
     def _save_download_record(self, user_dir: str, aweme_id: str):
         """保存下载记录"""
@@ -260,7 +437,10 @@ class DouyinDownloader:
         raw_user_dir, separator, raw_filename = str(name or '').partition('/')
         if not separator:
             raw_filename = raw_user_dir
-            raw_user_dir = '未知作者'
+            return (
+                '',
+                self._sanitize_filename(raw_filename, '未命名作品'),
+            )
         return (
             self._sanitize_path_segment(raw_user_dir, '未知作者'),
             self._sanitize_filename(raw_filename, '未命名作品'),
@@ -297,7 +477,7 @@ class DouyinDownloader:
                 print(f"\033[93m[Downloader] 用户目录: {user_dir}, 文件名: {filename}\033[0m")
 
             # 只有当提供了aweme_id时才检查下载记录
-            if aweme_id and aweme_id in self._load_download_record(user_dir):
+            if aweme_id and self._is_aweme_downloaded(aweme_id, user_dir):
                 if self.debug_mode:
                     print(f"\033[93m[Downloader] 作品已在下载记录中: {aweme_id}\033[0m")
                 print(f"\033[93m作品已下载，跳过：{user_dir}/{filename}\033[0m")
@@ -392,7 +572,14 @@ class DouyinDownloader:
                         filename_with_index = self._sanitize_filename(filename)
                     else:
                         # 多个文件添加索引
-                        filename_with_index = self._sanitize_filename(f"{filename}_{i+1:02d}")
+                        index_suffix = f"_{i+1:02d}"
+                        protected_suffix = index_suffix
+                        if aweme_id and filename.endswith(f"_{aweme_id}"):
+                            protected_suffix = f"_{aweme_id}{index_suffix}"
+                        filename_with_index = self._sanitize_filename(
+                            f"{filename}{index_suffix}",
+                            protected_suffix=protected_suffix,
+                        )
                     
                     user_path = os.path.join(self.download_dir, user_dir)
                     os.makedirs(user_path, exist_ok=True)
@@ -571,7 +758,7 @@ class DouyinDownloader:
             user_dir, filename = self._split_download_name(name)
 
             # 检查是否已下载
-            if aweme_id in self._load_download_record(user_dir):
+            if self._is_aweme_downloaded(aweme_id, user_dir):
                 if self.debug_mode:
                     print(f"\033[93m[Downloader] 作品已在下载记录中: {aweme_id}\033[0m")
                 print(f"\033[93m作品已下载，跳过：{user_dir}/{filename}\033[0m")
@@ -712,7 +899,7 @@ class DouyinDownloader:
             user_dir, filename = self._split_download_name(name)
             
             # 检查是否已下载
-            if aweme_id in self._load_download_record(user_dir):
+            if self._is_aweme_downloaded(aweme_id, user_dir):
                 if self.debug_mode:
                     print(f"\033[93m[Downloader] 作品已在下载记录中: {aweme_id}\033[0m")
                 print(f"\033[93m作品已下载，跳过：{user_dir}/{filename}\033[0m")
@@ -889,7 +1076,13 @@ class DouyinDownloader:
             if response is not None:
                 response.close()
 
-    def _sanitize_filename(self, name: str, default: str = '未命名作品', max_length: int = Config.MAX_FILENAME_LENGTH) -> str:
+    def _sanitize_filename(
+        self,
+        name: str,
+        default: str = '未命名作品',
+        max_length: Optional[int] = None,
+        protected_suffix: str = '',
+    ) -> str:
         """清理文件名"""
         if self.debug_mode:
             print(f"\033[93m[Downloader] 清理文件名: {name}\033[0m")
@@ -900,7 +1093,13 @@ class DouyinDownloader:
         sanitized = ' '.join(sanitized.split()).strip(' ._')
         if sanitized in ('', '.', '..'):
             sanitized = default
-        result = sanitized[:max_length].strip(' ._') or default
+        result = _truncate_filename_text(
+            sanitized,
+            default,
+            int(max_length or Config.MAX_FILENAME_LENGTH),
+            int(getattr(Config, 'MAX_FILENAME_BYTES', 200)),
+            protected_suffix=protected_suffix,
+        )
         
         if self.debug_mode and result != name:
             print(f"\033[93m[Downloader] 文件名已清理: {result}\033[0m")

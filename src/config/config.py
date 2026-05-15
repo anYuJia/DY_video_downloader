@@ -88,7 +88,11 @@ class Config:
     
     
     # 文件命名设置
-    MAX_FILENAME_LENGTH = 50  # 文件名最大长度
+    MAX_FILENAME_LENGTH = 120  # 文件名最大字符数
+    MAX_FILENAME_BYTES = 200  # 预留扩展名和自动去重后缀空间，避免超过常见文件系统限制
+    FILENAME_TEMPLATE = "{title}_{aweme_id}"
+    FOLDER_NAME_TEMPLATE = "{author}"
+    AUTO_CREATE_FOLDER = True
     
     @classmethod
     def load_config(cls):
@@ -107,6 +111,15 @@ class Config:
                     cls.DOWNLOAD_DIR = cls.BASE_DIR
                     cls.HISTORY_DIRS = cls.normalize_history_dirs(config_data.get("history_dirs", []))
                     cls.DOWNLOAD_QUALITY = str(config_data.get("download_quality", cls.DOWNLOAD_QUALITY) or "auto")
+                    cls.FILENAME_TEMPLATE = cls.normalize_filename_template(
+                        config_data.get("filename_template", cls.FILENAME_TEMPLATE),
+                        cls.FILENAME_TEMPLATE,
+                    )
+                    cls.FOLDER_NAME_TEMPLATE = cls.normalize_filename_template(
+                        config_data.get("folder_name_template", cls.FOLDER_NAME_TEMPLATE),
+                        cls.FOLDER_NAME_TEMPLATE,
+                    )
+                    cls.AUTO_CREATE_FOLDER = bool(config_data.get("auto_create_folder", cls.AUTO_CREATE_FOLDER))
                     try:
                         cls.MAX_CONCURRENT = max(1, min(10, int(config_data.get("max_concurrent", cls.MAX_CONCURRENT) or 3)))
                     except Exception:
@@ -169,13 +182,40 @@ class Config:
         return normalized
 
     @classmethod
-    def save_config(cls, cookie, base_dir, history_dirs=None, download_quality=None, max_concurrent=None):
+    def normalize_filename_template(cls, template, default):
+        """归一化用户可配置的命名模板。"""
+        value = str(template or '').strip()
+        if not value:
+            return default
+        return value[:160]
+
+    @classmethod
+    def save_config(
+        cls,
+        cookie,
+        base_dir,
+        history_dirs=None,
+        download_quality=None,
+        max_concurrent=None,
+        filename_template=None,
+        folder_name_template=None,
+        auto_create_folder=None,
+    ):
         """保存配置到配置文件"""
         resolved_quality = str(download_quality or cls.DOWNLOAD_QUALITY or "auto")
         try:
             resolved_max_concurrent = max(1, min(10, int(max_concurrent if max_concurrent is not None else cls.MAX_CONCURRENT)))
         except Exception:
             resolved_max_concurrent = cls.MAX_CONCURRENT
+        resolved_filename_template = cls.normalize_filename_template(
+            filename_template if filename_template is not None else cls.FILENAME_TEMPLATE,
+            cls.FILENAME_TEMPLATE,
+        )
+        resolved_folder_name_template = cls.normalize_filename_template(
+            folder_name_template if folder_name_template is not None else cls.FOLDER_NAME_TEMPLATE,
+            cls.FOLDER_NAME_TEMPLATE,
+        )
+        resolved_auto_create_folder = cls.AUTO_CREATE_FOLDER if auto_create_folder is None else bool(auto_create_folder)
 
         config_data = {
             "cookie": cookie,
@@ -183,6 +223,9 @@ class Config:
             "history_dirs": cls.normalize_history_dirs(history_dirs if history_dirs is not None else cls.HISTORY_DIRS),
             "download_quality": resolved_quality,
             "max_concurrent": resolved_max_concurrent,
+            "filename_template": resolved_filename_template,
+            "folder_name_template": resolved_folder_name_template,
+            "auto_create_folder": resolved_auto_create_folder,
         }
         try:
             config_dir = os.path.dirname(cls.CONFIG_FILE)

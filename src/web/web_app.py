@@ -76,7 +76,7 @@ from src.api.native_cookie_login import (
     normalize_cookie_entries,
     serialize_cookie_entries,
 )
-from src.downloader.downloader import DouyinDownloader
+from src.downloader.downloader import DouyinDownloader, build_download_name, build_download_title
 from src.utils.download_history_index import (
     get_download_history_items,
     invalidate_download_history_cache,
@@ -1009,7 +1009,7 @@ class WebDownloadProgress:
         self.desc = desc
         self.display_name = '下载任务'
         if desc and desc.strip():
-            self.display_name = desc[:8] + '...' if len(desc) > 8 else desc
+            self.display_name = ' '.join(str(desc).split()).strip()
     
     def set_total_files(self, total):
         self.total_files = total
@@ -1157,6 +1157,9 @@ def get_config():
         'cookie_preview': f"{Config.COOKIE[:12]}..." if Config.COOKIE else '',
         'download_quality': getattr(Config, 'DOWNLOAD_QUALITY', 'auto'),
         'max_concurrent': getattr(Config, 'MAX_CONCURRENT', 3),
+        'filename_template': getattr(Config, 'FILENAME_TEMPLATE', '{title}_{aweme_id}'),
+        'folder_name_template': getattr(Config, 'FOLDER_NAME_TEMPLATE', '{author}'),
+        'auto_create_folder': getattr(Config, 'AUTO_CREATE_FOLDER', True),
         'app_version': _get_current_app_version(),
     })
 
@@ -1178,6 +1181,18 @@ def set_config():
             Config.DOWNLOAD_QUALITY = str(data.get('download_quality') or 'auto')
         if 'max_concurrent' in data:
             Config.MAX_CONCURRENT = _coerce_int(data.get('max_concurrent'), 3, 1, 10)
+        if 'filename_template' in data:
+            Config.FILENAME_TEMPLATE = Config.normalize_filename_template(
+                data.get('filename_template'),
+                '{title}_{aweme_id}',
+            )
+        if 'folder_name_template' in data:
+            Config.FOLDER_NAME_TEMPLATE = Config.normalize_filename_template(
+                data.get('folder_name_template'),
+                '{author}',
+            )
+        if 'auto_create_folder' in data:
+            Config.AUTO_CREATE_FOLDER = bool(data.get('auto_create_folder'))
 
         move_existing_files = bool(data.get('move_existing_files'))
         history_dirs = list(getattr(Config, 'HISTORY_DIRS', []))
@@ -1210,6 +1225,9 @@ def set_config():
             Config.HISTORY_DIRS,
             download_quality=Config.DOWNLOAD_QUALITY,
             max_concurrent=Config.MAX_CONCURRENT,
+            filename_template=Config.FILENAME_TEMPLATE,
+            folder_name_template=Config.FOLDER_NAME_TEMPLATE,
+            auto_create_folder=Config.AUTO_CREATE_FOLDER,
         )
 
         if previous_download_dir.lower() != new_download_dir.lower():
@@ -1228,6 +1246,9 @@ def set_config():
             'download_roots': [str(root) for root in get_all_download_roots()],
             'download_quality': Config.DOWNLOAD_QUALITY,
             'max_concurrent': Config.MAX_CONCURRENT,
+            'filename_template': Config.FILENAME_TEMPLATE,
+            'folder_name_template': Config.FOLDER_NAME_TEMPLATE,
+            'auto_create_folder': Config.AUTO_CREATE_FOLDER,
         })
     except Exception as e:
         return jsonify({'success': False, 'message': f'配置保存失败: {str(e)}'}), 500
@@ -2545,6 +2566,13 @@ def download_single_video():
                 logger.debug(f" 媒体URL数量: {len(media_urls)}")
                 logger.debug(f" 媒体URLs: {media_urls}")
                 
+                download_title = build_download_title(
+                    video_desc,
+                    aweme_id,
+                    author=author_name,
+                    media_type=raw_media_type,
+                )
+
                 # 发送下载开始事件
                 try:
                     logger.debug(f" 发送WebSocket下载开始事件: task_id={task_id}")
@@ -2563,7 +2591,7 @@ def download_single_video():
                     logger.error(f" 发送WebSocket事件失败: {str(e)}")
                 
                 # 发送进度更新 - 开始
-                display_name = video_desc[:8] if video_desc else "下载任务"
+                display_name = download_title or "下载任务"
                 socketio.emit('download_progress', {
                     'task_id': task_id,
                     'progress': 0,
@@ -2582,8 +2610,8 @@ def download_single_video():
                 if not urls:
                     raise ValueError("没有有效的媒体URL")
                 
-                # 使用作者名字作为文件夹，作品描述作为文件名
-                file_path = f"{author_name}/{video_desc}"
+                # 使用配置的目录模板和文件模板生成下载路径
+                file_path = build_download_name(author_name, video_desc, aweme_id, media_type=raw_media_type)
                 logger.debug(f" 文件路径: {file_path}")
                 
                 # 统一下载处理，不再区分媒体类型
@@ -2755,7 +2783,7 @@ def download_user_video():
                 })
                 
                 # 获取已下载记录
-                downloaded = user_manager.downloader._load_download_record(_nickname)
+                downloaded = user_manager.downloader._load_all_download_records()
                 
                 # 增量下载队列
                 download_queue = asyncio.Queue()
@@ -2884,15 +2912,9 @@ def download_user_video():
                             logger.info(f"Task {task_id} cancelled before download")
                             break
 
-                        media_type, urls = user_manager.get_media_info(post)
-                        desc = post.get('desc', '').strip()
-                        if not desc:
-                            desc = f"无标题_{post['aweme_id']}"
-                        else:
-                            desc = desc.split()[0][:15]
-                        
-                        name = f"{_nickname}/{desc}"
                         aweme_id = post['aweme_id']
+                        media_type, urls = user_manager.get_media_info(post)
+                        name = build_download_name(_nickname, post.get('desc', ''), aweme_id, media_type=media_type)
 
                         def current_total_count():
                             return max(total_videos, total_discovered[0] + total_skipped[0], total_processed[0] + download_queue.qsize())
@@ -4142,8 +4164,7 @@ def download_video_by_aweme_id():
 
         # 生成文件名
         author_name = detail.get('author', {}).get('nickname', '未知作者')
-        desc = detail.get('desc', '未知作品')[:50]
-        name = f"{author_name}/{desc}_{aweme_id}"
+        name = build_download_name(author_name, detail.get('desc', ''), aweme_id, media_type=media_type, default_title_prefix='未知作品')
 
         # 添加到下载队列
         task_id = str(uuid.uuid4())

@@ -31,6 +31,8 @@ import {
   ShieldCheck,
   X,
   LogOut,
+  FileText,
+  FolderTree,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -60,10 +62,33 @@ type UpdateInfo = {
   install_mode?: string;
   portable?: boolean;
 };
-type SettingsField = "theme" | "download_path" | "download_quality" | "max_concurrent";
+type SettingsField =
+  | "theme"
+  | "download_path"
+  | "download_quality"
+  | "max_concurrent"
+  | "filename_template"
+  | "folder_name_template"
+  | "auto_create_folder";
 type SavingFields = Partial<Record<SettingsField, boolean>>;
 type SettingsPatch = Parameters<typeof saveConfig>[0];
 type SettingStatus = "saving" | "saved" | "error";
+
+const TEMPLATE_VARIABLES = [
+  { token: "{title}", label: "标题" },
+  { token: "{aweme_id}", label: "作品ID" },
+  { token: "{author}", label: "作者" },
+  { token: "{date}", label: "日期" },
+  { token: "{time}", label: "时间" },
+  { token: "{media_type}", label: "类型" },
+];
+
+const FILENAME_PRESETS = [
+  { value: "{title}_{aweme_id}", label: "标题 + 作品ID" },
+  { value: "{author}_{title}_{aweme_id}", label: "作者 + 标题 + 作品ID" },
+  { value: "{date}_{title}_{aweme_id}", label: "日期 + 标题 + 作品ID" },
+  { value: "{title}", label: "只写标题，自动补ID" },
+];
 
 export function SettingsView() {
   const theme = useAppStore((s) => s.theme);
@@ -93,6 +118,9 @@ export function SettingsView() {
   const [downloadPath, setDownloadPath] = useState("");
   const [downloadQuality, setDownloadQuality] = useState("auto");
   const [maxConcurrent, setMaxConcurrent] = useState("3");
+  const [filenameTemplate, setFilenameTemplate] = useState("{title}_{aweme_id}");
+  const [folderNameTemplate, setFolderNameTemplate] = useState("{author}");
+  const [autoCreateFolder, setAutoCreateFolder] = useState(true);
   const [choosingDirectory, setChoosingDirectory] = useState(false);
   const [savingFields, setSavingFields] = useState<SavingFields>({});
   const [savedFields, setSavedFields] = useState<SavingFields>({});
@@ -102,6 +130,9 @@ export function SettingsView() {
     downloadPath: "",
     downloadQuality: "auto",
     maxConcurrent: "3",
+    filenameTemplate: "{title}_{aweme_id}",
+    folderNameTemplate: "{author}",
+    autoCreateFolder: true,
     theme,
   });
 
@@ -142,14 +173,23 @@ export function SettingsView() {
         const nextDownloadPath = config.download_path || config.download_dir || "";
         const nextDownloadQuality = config.download_quality || "auto";
         const nextMaxConcurrent = String(config.max_concurrent || 3);
+        const nextFilenameTemplate = config.filename_template || "{title}_{aweme_id}";
+        const nextFolderNameTemplate = config.folder_name_template || "{author}";
+        const nextAutoCreateFolder = config.auto_create_folder ?? true;
         setDownloadPath(nextDownloadPath);
         setDownloadQuality(nextDownloadQuality);
         setMaxConcurrent(nextMaxConcurrent);
+        setFilenameTemplate(nextFilenameTemplate);
+        setFolderNameTemplate(nextFolderNameTemplate);
+        setAutoCreateFolder(nextAutoCreateFolder);
         savedSettingsRef.current = {
           ...savedSettingsRef.current,
           downloadPath: nextDownloadPath,
           downloadQuality: nextDownloadQuality,
           maxConcurrent: nextMaxConcurrent,
+          filenameTemplate: nextFilenameTemplate,
+          folderNameTemplate: nextFolderNameTemplate,
+          autoCreateFolder: nextAutoCreateFolder,
         };
         if (config.cookie_set) {
           verifyCookie()
@@ -527,6 +567,80 @@ export function SettingsView() {
     }
   };
 
+  const normalizeTemplate = (value: string, fallback: string) => {
+    const nextValue = value.trim();
+    return nextValue || fallback;
+  };
+
+  const saveFilenameTemplate = async (value: string) => {
+    const nextTemplate = normalizeTemplate(value, "{title}_{aweme_id}");
+    const previousTemplate = savedSettingsRef.current.filenameTemplate;
+    if (nextTemplate === previousTemplate || savingFields.filename_template) {
+      return;
+    }
+
+    const saved = await saveSetting(
+      "filename_template",
+      { filename_template: nextTemplate },
+      "文件命名规则已保存",
+      `文件命名规则已保存: ${nextTemplate}`
+    );
+    if (saved) {
+      savedSettingsRef.current.filenameTemplate = nextTemplate;
+      setFilenameTemplate(nextTemplate);
+    } else {
+      setFilenameTemplate(previousTemplate);
+    }
+  };
+
+  const saveFolderNameTemplate = async (value: string) => {
+    const nextTemplate = normalizeTemplate(value, "{author}");
+    const previousTemplate = savedSettingsRef.current.folderNameTemplate;
+    if (nextTemplate === previousTemplate || savingFields.folder_name_template) {
+      return;
+    }
+
+    const saved = await saveSetting(
+      "folder_name_template",
+      { folder_name_template: nextTemplate },
+      "目录命名规则已保存",
+      `目录命名规则已保存: ${nextTemplate}`
+    );
+    if (saved) {
+      savedSettingsRef.current.folderNameTemplate = nextTemplate;
+      setFolderNameTemplate(nextTemplate);
+    } else {
+      setFolderNameTemplate(previousTemplate);
+    }
+  };
+
+  const handleAutoCreateFolderChange = async (value: boolean) => {
+    const previousValue = savedSettingsRef.current.autoCreateFolder;
+    setAutoCreateFolder(value);
+    if (value === previousValue || savingFields.auto_create_folder) return;
+
+    const saved = await saveSetting(
+      "auto_create_folder",
+      { auto_create_folder: value },
+      value ? "作者目录已启用" : "作者目录已关闭"
+    );
+    if (saved) {
+      savedSettingsRef.current.autoCreateFolder = value;
+    } else {
+      setAutoCreateFolder(previousValue);
+    }
+  };
+
+  const appendFilenameToken = (token: string) => {
+    const separator = filenameTemplate.trim() ? "_" : "";
+    setFilenameTemplate(`${filenameTemplate}${separator}${token}`);
+  };
+
+  const appendFolderToken = (token: string) => {
+    const separator = folderNameTemplate.trim() ? "_" : "";
+    setFolderNameTemplate(`${folderNameTemplate}${separator}${token}`);
+  };
+
   useEffect(() => {
     if (cookieLoggedIn || loginStatus !== "idle") return;
 
@@ -568,6 +682,33 @@ export function SettingsView() {
 
     return () => window.clearTimeout(timer);
   }, [downloadPath, savingFields.download_path]);
+
+  useEffect(() => {
+    const nextTemplate = normalizeTemplate(filenameTemplate, "{title}_{aweme_id}");
+    if (nextTemplate === savedSettingsRef.current.filenameTemplate || savingFields.filename_template) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void saveFilenameTemplate(nextTemplate);
+    }, 800);
+
+    return () => window.clearTimeout(timer);
+  }, [filenameTemplate, savingFields.filename_template]);
+
+  useEffect(() => {
+    if (!autoCreateFolder) return;
+    const nextTemplate = normalizeTemplate(folderNameTemplate, "{author}");
+    if (nextTemplate === savedSettingsRef.current.folderNameTemplate || savingFields.folder_name_template) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void saveFolderNameTemplate(nextTemplate);
+    }, 800);
+
+    return () => window.clearTimeout(timer);
+  }, [folderNameTemplate, autoCreateFolder, savingFields.folder_name_template]);
 
   const handleCheckUpdate = async () => {
     setUpdateStatus("checking");
@@ -915,6 +1056,126 @@ export function SettingsView() {
           <p className="text-[0.75rem] text-text-muted mt-2">
             输入后自动保存，选择目录后立即生效。
           </p>
+        </SettingGroup>
+
+        {/* Naming */}
+        <SettingGroup icon={FileText} label="文件命名规则" status={fieldStatus("filename_template")}>
+          <div className="space-y-3">
+            <Select
+              value={FILENAME_PRESETS.some((preset) => preset.value === filenameTemplate) ? filenameTemplate : "custom"}
+              onValueChange={(value) => {
+                if (value !== "custom") {
+                  setFilenameTemplate(value);
+                  void saveFilenameTemplate(value);
+                }
+              }}
+            >
+              <SelectTrigger className="h-10" disabled={savingFields.filename_template}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FILENAME_PRESETS.map((preset) => (
+                  <SelectItem key={preset.value} value={preset.value}>
+                    {preset.label}
+                  </SelectItem>
+                ))}
+                <SelectItem value="custom">自定义</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Input
+              value={filenameTemplate}
+              onChange={(event) => setFilenameTemplate(event.target.value)}
+              onBlur={() => void saveFilenameTemplate(filenameTemplate)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.currentTarget.blur();
+                }
+              }}
+              disabled={savingFields.filename_template}
+              placeholder="{title}_{aweme_id}"
+              className="h-10 font-mono text-[0.82rem]"
+            />
+
+            <div className="flex flex-wrap gap-1.5">
+              {TEMPLATE_VARIABLES.map((item) => (
+                <button
+                  key={item.token}
+                  type="button"
+                  onClick={() => appendFilenameToken(item.token)}
+                  disabled={savingFields.filename_template}
+                  className="inline-flex h-7 items-center rounded-[8px] border border-border bg-white/[0.03] px-2 font-mono text-[0.7rem] text-text-secondary transition-[background-color,color,border-color,opacity] hover:border-accent/30 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
+                  title={item.label}
+                >
+                  {item.token}
+                </button>
+              ))}
+            </div>
+            <p className="text-[0.75rem] text-text-muted">
+              即使模板不包含作品ID，保存时也会自动补上，避免同名作品互相覆盖。
+            </p>
+          </div>
+        </SettingGroup>
+
+        <SettingGroup icon={FolderTree} label="作者目录规则" status={fieldStatus("folder_name_template") || fieldStatus("auto_create_folder")}>
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={() => void handleAutoCreateFolderChange(!autoCreateFolder)}
+              disabled={savingFields.auto_create_folder}
+              className={cn(
+                "flex h-10 w-full items-center justify-between rounded-[12px] border px-3 transition-[background-color,border-color,opacity]",
+                autoCreateFolder
+                  ? "border-accent/25 bg-accent/10"
+                  : "border-border bg-white/[0.03]",
+                savingFields.auto_create_folder && "opacity-70"
+              )}
+            >
+              <span className="text-[0.82rem] font-semibold text-text">按目录归档</span>
+              <span
+                className={cn(
+                  "relative h-5 w-9 rounded-full transition-colors",
+                  autoCreateFolder ? "bg-accent" : "bg-white/[0.12]"
+                )}
+              >
+                <span
+                  className={cn(
+                    "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform",
+                    autoCreateFolder ? "translate-x-4" : "translate-x-0.5"
+                  )}
+                />
+              </span>
+            </button>
+
+            <Input
+              value={folderNameTemplate}
+              onChange={(event) => setFolderNameTemplate(event.target.value)}
+              onBlur={() => void saveFolderNameTemplate(folderNameTemplate)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.currentTarget.blur();
+                }
+              }}
+              disabled={!autoCreateFolder || savingFields.folder_name_template}
+              placeholder="{author}"
+              className="h-10 font-mono text-[0.82rem]"
+            />
+
+            <div className="flex flex-wrap gap-1.5">
+              {TEMPLATE_VARIABLES.filter((item) => item.token !== "{title}").map((item) => (
+                <button
+                  key={item.token}
+                  type="button"
+                  onClick={() => appendFolderToken(item.token)}
+                  disabled={!autoCreateFolder || savingFields.folder_name_template}
+                  className="inline-flex h-7 items-center rounded-[8px] border border-border bg-white/[0.03] px-2 font-mono text-[0.7rem] text-text-secondary transition-[background-color,color,border-color,opacity] hover:border-accent/30 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
+                  title={item.label}
+                >
+                  {item.token}
+                </button>
+              ))}
+            </div>
+          </div>
         </SettingGroup>
 
         {/* Quality */}
