@@ -101,7 +101,7 @@ def apply_cookie_to_window(
                     }});
                     try {{
                         if (window.sessionStorage) {{
-                            sessionStorage.setItem('__dy_verify_cookie_applied', String(Date.now()));
+                            sessionStorage.setItem('__dy_verify_cookie_applied', '1');
                             {reload_script}
                         }}
                     }} catch (error) {{}}

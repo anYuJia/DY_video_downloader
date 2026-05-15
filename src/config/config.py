@@ -88,8 +88,8 @@ class Config:
     
     
     # 文件命名设置
-    MAX_FILENAME_LENGTH = 120  # 文件名最大字符数
-    MAX_FILENAME_BYTES = 200  # 预留扩展名和自动去重后缀空间，避免超过常见文件系统限制
+    MAX_FILENAME_LENGTH = 180  # 文件名最大字符数
+    MAX_FILENAME_BYTES = 230  # 预留扩展名和自动去重后缀空间，避免超过常见文件系统限制
     FILENAME_TEMPLATE = "{title}_{aweme_id}"
     FOLDER_NAME_TEMPLATE = "{author}"
     AUTO_CREATE_FOLDER = True
