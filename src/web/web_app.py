@@ -2052,7 +2052,7 @@ def open_verify_browser():
                     apply_cookie_to_window(
                         _native_verify_window,
                         Config.COOKIE,
-                        reload_after_apply=True,
+                        reload_after_apply=False,
                         force=True,
                         post_load_delay=0.8,
                     )
@@ -2067,7 +2067,7 @@ def open_verify_browser():
             apply_cookie_to_window(
                 verify_window,
                 Config.COOKIE,
-                reload_after_apply=True,
+                reload_after_apply=False,
                 force=True,
                 post_load_delay=0.2,
             )
