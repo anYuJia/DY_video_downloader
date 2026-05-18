@@ -55,7 +55,7 @@ export function VideoCard({
           }
         : {})}
       className={cn(
-        'group relative h-[400px] cursor-pointer overflow-hidden rounded-[var(--radius-lg)] bg-surface-solid/90 shadow-sm',
+        'group relative h-[412px] cursor-pointer overflow-hidden rounded-[var(--radius-lg)] bg-surface-solid/90 shadow-sm',
         'border border-transparent transition-[box-shadow,border-color,background-color] duration-[var(--duration-base)] ease-[var(--ease-spring)]',
         'hover:border-border-strong hover:shadow-md',
         selected && 'border-accent shadow-[var(--shadow-glow)]'
@@ -73,8 +73,8 @@ export function VideoCard({
       <VideoCover video={video} className='h-[280px]' showPlayOverlay={false} allowVideoFallback />
 
       {/* Body */}
-      <div className='flex h-[120px] flex-col p-3'>
-        <p className='mb-1.5 text-[0.82rem] leading-snug text-text line-clamp-2 min-h-[2.4em]'>
+      <div className='flex h-[132px] flex-col p-3'>
+        <p className='mb-1.5 text-[0.82rem] leading-[1.32] text-text line-clamp-2 min-h-[2.7em]'>
           {video.desc}
         </p>
 

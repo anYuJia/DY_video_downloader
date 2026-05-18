@@ -163,8 +163,7 @@ export function FullscreenPlayer({
     currentVideo?.author?.nickname || currentVideo?.author?.unique_id || "用户";
   const canOpenAuthor = Boolean(onAuthor && currentVideo?.author?.sec_uid);
   const likeCount = (currentVideo?.statistics?.digg_count || 0) + (liked ? 1 : 0);
-  const favoriteBaseCount =
-    currentVideo?.statistics?.collect_count || currentVideo?.statistics?.digg_count || 0;
+  const favoriteBaseCount = currentVideo?.statistics?.collect_count || 0;
   const favoriteCount = favoriteBaseCount + (favorited ? 1 : 0);
   const musicUrl = getVideoBgmUrl(currentVideo);
   const bgmProxyUrl = musicUrl ? mediaProxyUrl(musicUrl, "audio") : "";

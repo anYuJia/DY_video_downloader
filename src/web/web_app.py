@@ -91,6 +91,8 @@ from src.user.user_manager import DouyinUserManager
 ENHANCED_DOWNLOADER_AVAILABLE = False
 EnhancedDouyinDownloader = None
 _native_verify_window = None
+_native_verify_window_session = None
+VERIFY_COOKIE_SYNC_TIMEOUT = 10 * 60
 
 app = Flask(__name__, static_folder=None)
 app.config['SECRET_KEY'] = 'douyin_downloader_secret_key'
@@ -2029,6 +2031,73 @@ iframe{flex:1;border:none;width:100%}
 <iframe src="https://www.douyin.com/"></iframe>
 </body></html>'''
 
+
+def _start_native_verify_cookie_sync(window):
+    """持续读取验证窗口 Cookie，滑块验证写入新 Cookie 后同步到后端请求层。"""
+    global _native_verify_window_session
+
+    if not window:
+        return
+
+    active_session = _native_verify_window_session
+    if active_session and active_session.is_active() and active_session.window is window:
+        return
+    if active_session and active_session.is_active():
+        active_session.cancel_event.set()
+
+    session = NativeCookieLoginSession(window=window)
+    session.last_cookie_value = Config.COOKIE or ''
+    _native_verify_window_session = session
+
+    def finish() -> None:
+        global _native_verify_window_session
+        session.finished_event.set()
+        if _native_verify_window_session is session:
+            _native_verify_window_session = None
+
+    def poll_verify_window_cookies() -> None:
+        try:
+            if not session.window.events.loaded.wait(45):
+                logger.debug('验证窗口加载超时，停止 Cookie 同步')
+                return
+
+            while True:
+                if session.cancel_event.is_set() or session.window.events.closed.is_set():
+                    return
+                if time.monotonic() - session.created_at >= VERIFY_COOKIE_SYNC_TIMEOUT:
+                    logger.debug('验证窗口 Cookie 同步超时，停止监听')
+                    return
+
+                try:
+                    raw_cookies = session.window.get_cookies() or []
+                except Exception as error:
+                    logger.debug('读取验证窗口 Cookie 失败: %s', error)
+                    time.sleep(1)
+                    continue
+
+                entries = normalize_cookie_entries(raw_cookies)
+                if not has_login_cookie(entries):
+                    time.sleep(1)
+                    continue
+
+                cookie_string = serialize_cookie_entries(entries)
+                if not cookie_string:
+                    time.sleep(1)
+                    continue
+
+                if cookie_string in (session.last_cookie_value, Config.COOKIE or ''):
+                    time.sleep(1)
+                    continue
+
+                session.last_cookie_value = cookie_string
+                _save_cookie_login_success(cookie_string)
+                logger.info('验证窗口 Cookie 已同步到后端')
+                time.sleep(2)
+        finally:
+            finish()
+
+    threading.Thread(target=poll_verify_window_cookies, daemon=True).start()
+
 @app.route('/api/open_verify_browser', methods=['POST'])
 def open_verify_browser():
     """打开抖音验证页面，只使用应用内 pywebview 窗口并注入当前 Cookie。"""
@@ -2056,6 +2125,7 @@ def open_verify_browser():
                         force=True,
                         post_load_delay=0.8,
                     )
+                _start_native_verify_cookie_sync(_native_verify_window)
                 _native_verify_window.show()
                 return jsonify({'success': True, 'message': '验证窗口已打开，请完成验证', 'open_url': target_url})
             except Exception:
@@ -2071,6 +2141,7 @@ def open_verify_browser():
                 force=True,
                 post_load_delay=0.2,
             )
+        _start_native_verify_cookie_sync(verify_window)
         return jsonify({'success': True, 'message': '已打开验证窗口，请完成验证', 'open_url': target_url})
 
     except Exception as e:
@@ -4057,6 +4128,11 @@ def get_recommended_feed():
                 else:
                     cover = cover_data if cover_data else ''
 
+                if not cover:
+                    skipped_count += 1
+                    logger.debug(f"跳过视频 {aweme.get('aweme_id')}: 无封面")
+                    continue
+
                 # 提取动态封面
                 dynamic_cover_data = video_data.get('dynamic_cover', {})
                 if isinstance(dynamic_cover_data, dict):
@@ -4071,6 +4147,18 @@ def get_recommended_feed():
                     avatar_thumb = avatar_data.get('url_list', [''])[0]
                 else:
                     avatar_thumb = avatar_data if avatar_data else ''
+
+                author_key = (
+                    author_data.get('sec_uid')
+                    or author_data.get('uid')
+                    or author_data.get('unique_id')
+                    or author_data.get('nickname')
+                    or ''
+                )
+                if not aweme.get('aweme_id') or not author_key:
+                    skipped_count += 1
+                    logger.debug(f"跳过视频 {aweme.get('aweme_id')}: 缺少作品或作者信息")
+                    continue
 
                 video_info = {
                     'aweme_id': aweme.get('aweme_id', ''),
@@ -4087,6 +4175,7 @@ def get_recommended_feed():
                         'comment_count': (aweme.get('statistics') or {}).get('comment_count', 0),
                         'share_count': (aweme.get('statistics') or {}).get('share_count', 0),
                         'play_count': (aweme.get('statistics') or {}).get('play_count', 0),
+                        'collect_count': (aweme.get('statistics') or {}).get('collect_count', 0),
                     },
                     'video': {
                         'cover': cover,
