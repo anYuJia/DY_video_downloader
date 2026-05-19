@@ -4,6 +4,7 @@ import {
   getUserVideos,
   openVerifyBrowser,
   searchUser,
+  verifyCookie,
   type UserInfo,
   type VideoInfo,
 } from "@/lib/tauri";
@@ -315,6 +316,25 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
   resumeVerifySearch: async () => {
     const pending = get().pendingVerifySearch;
     if (!pending || get().searching) return;
+
+    try {
+      const status = await verifyCookie();
+      if (!status.valid) {
+        if (status.need_verify) {
+          const message = status.message || "验证尚未完成，请完成后重试";
+          useLogStore.getState().addLog(message, "warning");
+          useToastStore.getState().toast(message, "warning", "需要验证");
+          return;
+        }
+
+        const message = status.message || "Cookie 已失效，请重新登录";
+        window.dispatchEvent(new CustomEvent("dy-cookie-invalid", { detail: { message } }));
+        return;
+      }
+    } catch {
+      // 继续执行原有重试逻辑
+    }
+
     await get().search(pending.keyword);
   },
 

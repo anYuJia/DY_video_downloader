@@ -397,6 +397,8 @@ export interface CookieStatus {
   user_name: string | null;
   user_id: string | null;
   expires_at: number | null;
+  need_login?: boolean;
+  need_verify?: boolean;
   message: string;
 }
 
