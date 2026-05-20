@@ -365,11 +365,9 @@ function UserSearchCard({
   onRemove?: () => void;
 }) {
   const stats = [
-    { label: "作品", value: user.aweme_count || 0 },
-    { label: "关注", value: user.following_count || 0 },
-    { label: "粉丝", value: user.follower_count || 0 },
-    { label: "获赞", value: user.total_favorited || 0 },
-  ];
+    { label: "粉丝", value: user.follower_count },
+    { label: "获赞", value: user.total_favorited },
+  ].filter((stat) => Number.isFinite(stat.value) && stat.value > 0);
   const timeLabel = timestamp
     ? new Intl.DateTimeFormat("zh-CN", {
         month: "2-digit",
@@ -419,16 +417,18 @@ function UserSearchCard({
         )}
       </div>
 
-      <div className="mb-3 grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-4">
-        {stats.map((stat) => (
-          <div key={stat.label} className="min-w-0">
-            <div className="truncate text-[0.84rem] font-semibold tabular-nums text-text">
-              {formatNumber(stat.value)}
+      {stats.length > 0 && (
+        <div className="mb-3 grid grid-cols-2 gap-x-3 gap-y-2">
+          {stats.map((stat) => (
+            <div key={stat.label} className="min-w-0">
+              <div className="whitespace-nowrap text-[0.84rem] font-semibold tabular-nums text-text">
+                {formatNumber(stat.value)}
+              </div>
+              <div className="mt-0.5 text-[0.65rem] text-text-muted">{stat.label}</div>
             </div>
-            <div className="mt-0.5 text-[0.65rem] text-text-muted">{stat.label}</div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       <p className="min-h-[38px] text-[0.76rem] leading-relaxed text-text-secondary line-clamp-2">
         {user.signature || "这个用户还没有填写简介"}

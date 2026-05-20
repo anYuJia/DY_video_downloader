@@ -248,7 +248,7 @@ class DouyinAPI:
         verify_url = 'https://www.douyin.com/'
 
         try:
-            if uri and 'discover/search' in uri:
+            if uri and ('discover/search' in uri or 'general/search' in uri):
                 keyword = params.get('keyword', '')
                 if keyword:
                     verify_url = f"https://www.douyin.com/jingxuan/search/{urllib.parse.quote(str(keyword))}?type=user"
@@ -494,6 +494,18 @@ class DouyinAPI:
             
         try:
             json_response = response.json()
+        except Exception:
+            try:
+                text = response.text.lstrip()
+                starts = [idx for idx in (text.find('{'), text.find('[')) if idx >= 0]
+                if not starts:
+                    raise ValueError('no json object found')
+                decoder = json.JSONDecoder()
+                json_response, _ = decoder.raw_decode(text[min(starts):])
+            except Exception as e:
+                if self.debug_mode:
+                    print(f'\033[91m[API] JSON解析失败: {e}\033[0m')
+                return {}, False
         except Exception as e:
             if self.debug_mode:
                 print(f'\033[91m[API] JSON解析失败: {e}\033[0m')

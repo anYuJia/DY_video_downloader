@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import {
-  getUserDetail,
   getUserVideos,
   openVerifyBrowser,
   searchUser,
@@ -82,34 +81,6 @@ const initialState = {
   pendingVerifySearch: null as PendingVerifySearch | null,
 };
 
-function mergeUserInfo(base: UserInfo, incoming: UserInfo): UserInfo {
-  const keepString = (next: string | undefined, previous: string | undefined) =>
-    next && next.trim() ? next : previous || "";
-  const keepNumber = (next: number | undefined, previous: number | undefined) =>
-    next && next > 0 ? next : previous || 0;
-  const uniqueId = incoming.unique_id && incoming.unique_id !== incoming.sec_uid
-    ? incoming.unique_id
-    : base.unique_id;
-
-  return {
-    ...base,
-    ...incoming,
-    uid: keepString(incoming.uid, base.uid),
-    sec_uid: keepString(incoming.sec_uid, base.sec_uid),
-    nickname: keepString(incoming.nickname, base.nickname),
-    avatar_thumb: keepString(incoming.avatar_thumb, base.avatar_thumb),
-    avatar_medium: keepString(incoming.avatar_medium, base.avatar_medium),
-    avatar_larger: keepString(incoming.avatar_larger, base.avatar_larger),
-    signature: keepString(incoming.signature, base.signature),
-    unique_id: keepString(uniqueId, base.unique_id),
-    follower_count: keepNumber(incoming.follower_count, base.follower_count),
-    following_count: keepNumber(incoming.following_count, base.following_count),
-    total_favorited: keepNumber(incoming.total_favorited, base.total_favorited),
-    aweme_count: keepNumber(incoming.aweme_count, base.aweme_count),
-    favoriting_count: keepNumber(incoming.favoriting_count, base.favoriting_count),
-  };
-}
-
 function formatSearchErrorMessage(message: string | undefined, fallback = "搜索失败"): string {
   const text = (message || "").trim();
   if (!text) return fallback;
@@ -123,32 +94,6 @@ function formatSearchErrorMessage(message: string | undefined, fallback = "搜�
   }
 
   return text.length > 240 ? `${text.slice(0, 180)}...` : text;
-}
-
-function isSameUser(left: UserInfo, right: UserInfo): boolean {
-  if (left.sec_uid && right.sec_uid) return left.sec_uid === right.sec_uid;
-  if (left.uid && right.uid) return left.uid === right.uid;
-  return Boolean(left.nickname && right.nickname && left.nickname === right.nickname);
-}
-
-function shouldEnrichSearchUser(user: UserInfo): boolean {
-  return Boolean(user.sec_uid && (!user.aweme_count || user.aweme_count <= 0));
-}
-
-function mergeDetailedUserIntoSearchState(
-  current: SearchStoreState,
-  target: UserInfo,
-  detail: UserInfo
-): Partial<SearchStoreState> {
-  const users = current.users.map((user) =>
-    isSameUser(user, target) ? mergeUserInfo(user, detail) : user
-  );
-  const currentUser =
-    current.currentUser && isSameUser(current.currentUser, target)
-      ? mergeUserInfo(current.currentUser, detail)
-      : current.currentUser;
-
-  return { users, currentUser };
 }
 
 function openVerifyWindow(verifyUrl: string | undefined, addLog: (message: string, type: "info" | "success" | "warning" | "error") => void) {
@@ -205,27 +150,6 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
     const loadingToastId = toast(`正在搜索用户: ${query}`, "loading");
 
     try {
-      const enrichSearchUserStats = (baseUsers: UserInfo[]) => {
-        const candidates = baseUsers.filter(shouldEnrichSearchUser).slice(0, 10);
-        if (candidates.length === 0) return;
-
-        void (async () => {
-          for (let index = 0; index < candidates.length; index += 3) {
-            const batch = candidates.slice(index, index + 3);
-            await Promise.allSettled(
-              batch.map(async (user) => {
-                const detail = await getUserDetail(user.sec_uid, user.nickname);
-                if (requestId !== latestSearchRequestId || !detail.success || !detail.user) return;
-                if (get().currentUser && isSameUser(get().currentUser!, user)) {
-                  saveRecentSearchUser(mergeUserInfo(user, detail.user));
-                }
-                set((current) => mergeDetailedUserIntoSearchState(current, user, detail.user!));
-              })
-            );
-          }
-        })();
-      };
-
       const result = await searchUser(query);
       useToastStore.getState().dismiss(loadingToastId);
       if (requestId !== latestSearchRequestId) return;
@@ -278,7 +202,6 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
         useAppStore.getState().setView("user");
         addLog(`已匹配用户: ${result.user.nickname}`, "success");
         toast(`已找到用户: ${result.user.nickname}`, "success");
-        enrichSearchUserStats([result.user]);
         void get().loadVideos();
         return;
       }
@@ -297,7 +220,6 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       const msg = `找到 ${users.length} 个候选用户`;
       addLog(msg, users.length > 0 ? "success" : "warning");
       toast(msg, users.length > 0 ? "success" : "warning");
-      enrichSearchUserStats(users);
     } catch (error) {
       useToastStore.getState().dismiss(loadingToastId);
       if (requestId !== latestSearchRequestId) return;
@@ -343,15 +265,14 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
   },
 
   selectUser: async (user) => {
-    const requestId = ++latestUserRequestId;
+    latestUserRequestId += 1;
     latestSearchRequestId += 1;
     latestVideoRequestId += 1;
     latestLoadMoreRequestId += 1;
     const addLog = useLogStore.getState().addLog;
-    const toast = useToastStore.getState().toast;
 
     set({
-      loadingUser: true,
+      loadingUser: false,
       currentUser: user,
       users: [],
       videos: [],
@@ -360,61 +281,7 @@ export const useSearchStore = create<SearchStoreState>((set, get) => ({
       error: null,
     });
     saveRecentSearchUser(user);
-    addLog(`加载用户详情: ${user.nickname}`, "info");
-    const loadingToastId = toast(`正在加载 ${user.nickname} 的详情`, "loading");
-
-    try {
-      const detail = await getUserDetail(user.sec_uid, user.nickname);
-      useToastStore.getState().dismiss(loadingToastId);
-      if (requestId !== latestUserRequestId) return;
-
-      if (detail.need_verify) {
-        const message = detail.message || "需要完成抖音验证";
-        requestVerifyRecovery({
-          verifyUrl: detail.verify_url,
-          message,
-          title: "用户详情需要验证",
-          onResume: () => void get().selectUser(user),
-        });
-        set({ loadingUser: false, error: message, currentUser: user });
-        addLog(message, "warning");
-        return;
-      }
-
-      if (!detail.success || !detail.user) {
-        const message = detail.message || "获取用户详情失败";
-        set({ loadingUser: false, error: message, currentUser: user });
-        addLog(message, "error");
-        
-        if (checkQuotaError(message)) {
-          showQuotaAlert(message);
-        } else {
-          toast(message, "error", "加载失败");
-        }
-        return;
-      }
-
-      const mergedUser = mergeUserInfo(user, detail.user);
-      saveRecentSearchUser(mergedUser);
-      set({
-        loadingUser: false,
-        currentUser: mergedUser,
-        error: null,
-      });
-      addLog(`已载入 ${mergedUser.nickname} 的详情`, "success");
-    } catch (error) {
-      useToastStore.getState().dismiss(loadingToastId);
-      if (requestId !== latestUserRequestId) return;
-      const message = error instanceof Error ? error.message : "获取用户详情失败";
-      set({ loadingUser: false, error: message, currentUser: user });
-      addLog(message, "error");
-      
-      if (checkQuotaError(message)) {
-        showQuotaAlert(message);
-      } else {
-        toast(message, "error", "加载异常");
-      }
-    }
+    addLog(`已进入用户主页: ${user.nickname}`, "info");
   },
 
   openUser: async (user, options = {}) => {

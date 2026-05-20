@@ -290,12 +290,13 @@ class DouyinUserManager:
                                                      headers, skip_sign=True)
                                                      
             if succ:
-                if resp.get('user_list'):
+                user_list = self._extract_search_user_items(resp)
+                if user_list:
                     if self.debug_mode:
                         print(f"\033[92m[UserManager] 搜索成功，找到用户\033[0m")
                     else:
                         print(f"\033[92m搜索成功，找到用户\033[0m")
-                    return resp['user_list'][0]['user_info']  # 直接返回用户信息
+                    return user_list[0].get('user_info', user_list[0])  # 直接返回用户信息
                 else:
                     if self.debug_mode:
                         print(f"\033[91m[UserManager] 搜索成功但未找到用户，响应: {resp}\033[0m")
@@ -343,7 +344,8 @@ class DouyinUserManager:
                                                  params,
                                                  headers,
                                                  skip_sign=True)
-        if not succ or not resp.get('user_list'):
+        user_list = self._extract_search_user_items(resp) if succ else []
+        if not succ or not user_list:
             # 传递验证码信号
             if resp.get('_need_verify') or resp.get('_need_login'):
                 return resp
@@ -354,10 +356,28 @@ class DouyinUserManager:
             return None
         
         if self.debug_mode:
-            print(f"\033[92m[UserManager] 关键词搜索成功，找到 {len(resp['user_list'])} 个用户\033[0m")
+            print(f"\033[92m[UserManager] 关键词搜索成功，找到 {len(user_list)} 个用户\033[0m")
         else:
-            print(f"\033[92m关键词搜索成功，找到 {len(resp['user_list'])} 个用户\033[0m")
-        return resp['user_list'] if resp['user_list'] else None
+            print(f"\033[92m关键词搜索成功，找到 {len(user_list)} 个用户\033[0m")
+        return user_list if user_list else None
+
+    def _extract_search_user_items(self, resp: dict) -> list[dict]:
+        """兼容 general/search/stream 与旧 discover/search 的用户列表结构。"""
+        if not isinstance(resp, dict):
+            return []
+
+        users = resp.get('user_list')
+        if isinstance(users, list):
+            return [item for item in users if isinstance(item, dict)]
+
+        result = []
+        for group in resp.get('data') or []:
+            if not isinstance(group, dict):
+                continue
+            group_users = group.get('user_list')
+            if isinstance(group_users, list):
+                result.extend(item for item in group_users if isinstance(item, dict))
+        return result
 
     def _is_image_post(self, post: dict) -> bool:
         """判断是否为图片作品"""

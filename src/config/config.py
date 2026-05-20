@@ -27,7 +27,7 @@ class Config:
     
     # Cookie设置
     COOKIE = ""
-    APP_VERSION = (os.environ.get("APP_VERSION") or os.environ.get("GITHUB_REF_NAME") or "1.0.10").lstrip("v")
+    APP_VERSION = (os.environ.get("APP_VERSION") or os.environ.get("GITHUB_REF_NAME") or "1.0.11").lstrip("v")
 
     # 文件保存路径默认在执行文件旁边
     BASE_DIR = os.path.join(APP_EXEC_DIR, "douyin_download")

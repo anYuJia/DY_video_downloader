@@ -379,6 +379,70 @@ def _coerce_int(value, default: int = 0, min_value: int | None = None, max_value
     return result
 
 
+def _count_value(value, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return max(0, int(round(value)))
+    if isinstance(value, str):
+        text = value.strip().replace(',', '')
+        if not text:
+            return default
+        multiplier = 1
+        suffix = text[-1].lower()
+        if suffix in ('w', '万'):
+            multiplier = 10000
+            text = text[:-1]
+        elif suffix in ('k', '千'):
+            multiplier = 1000
+            text = text[:-1]
+        try:
+            return max(0, int(round(float(text) * multiplier)))
+        except ValueError:
+            return default
+    return default
+
+
+def _first_count(sources: list[dict], keys: tuple[str, ...]) -> int:
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for key in keys:
+            value = source.get(key)
+            count = _count_value(value, -1)
+            if count >= 0:
+                return count
+    return 0
+
+
+def _search_user_payload(user_info: dict, item: dict | None = None) -> dict:
+    item = item if isinstance(item, dict) else {}
+    user_info = user_info if isinstance(user_info, dict) else {}
+    sources = [
+        user_info,
+        user_info.get('stats') or {},
+        user_info.get('card_info') or {},
+        user_info.get('extra') or {},
+        item,
+        item.get('stats') or {},
+        item.get('card_info') or {},
+        item.get('user_info') or {},
+    ]
+    return {
+        'nickname': user_info.get('nickname', ''),
+        'unique_id': user_info.get('unique_id', ''),
+        'follower_count': _first_count(sources, ('follower_count', 'follower_count_str', 'follower_count_text', 'fans_count', 'fans_count_str', 'fans_count_text')),
+        'following_count': _first_count(sources, ('following_count', 'following_count_str', 'following_count_text', 'follow_count', 'follow_count_str', 'follow_count_text')),
+        'total_favorited': _first_count(sources, ('total_favorited', 'total_favorited_str', 'total_favorited_text', 'favorited_count', 'favorited_count_str', 'like_count', 'like_count_str')),
+        'aweme_count': _first_count(sources, ('aweme_count', 'aweme_count_str', 'aweme_count_text', 'work_count', 'work_count_str', 'works_count', 'works_count_str', 'video_count', 'video_count_str')),
+        'favoriting_count': _first_count(sources, ('favoriting_count', 'favoriting_count_str', 'favoriting_count_text')),
+        'signature': user_info.get('signature', ''),
+        'sec_uid': user_info.get('sec_uid', ''),
+        'avatar_thumb': user_info.get('avatar_thumb', {}).get('url_list', [''])[0] if user_info.get('avatar_thumb') else '',
+        'avatar_larger': user_info.get('avatar_larger', {}).get('url_list', [''])[0] if user_info.get('avatar_larger') else ''
+    }
+
+
 def _filter_download_history_items(items: list[dict]) -> tuple[list[dict], int, int, dict | None]:
     query = str(request.args.get('query') or '').strip().lower()
     media_type = str(request.args.get('media_type') or request.args.get('mediaType') or 'all').strip().lower()
@@ -2220,36 +2284,13 @@ def search_user():
             return jsonify({
                 'success': True,
                 'type': 'single',
-                'user': {
-                    'nickname': users.get('nickname', ''),
-                    'unique_id': users.get('unique_id', ''),
-                    'follower_count': users.get('follower_count', 0),
-                    'following_count': users.get('following_count', 0),
-                    'total_favorited': users.get('total_favorited', 0),
-                    'aweme_count': users.get('aweme_count', 0) or users.get('aweme_count_str', 0) or users.get('work_count', 0),
-                    'favoriting_count': users.get('favoriting_count', 0),
-                    'signature': users.get('signature', ''),
-                    'sec_uid': users.get('sec_uid', ''),
-                    'avatar_thumb': users.get('avatar_thumb', {}).get('url_list', [''])[0] if users.get('avatar_thumb') else '',
-                    'avatar_larger': users.get('avatar_larger', {}).get('url_list', [''])[0] if users.get('avatar_larger') else ''
-                }
+                'user': _search_user_payload(users)
             })
         else:  # 多个用户
             user_list = []
             for user in users:
                 user_info = user['user_info']
-                user_list.append({
-                    'nickname': user_info.get('nickname', ''),
-                    'unique_id': user_info.get('unique_id', ''),
-                    'follower_count': user_info.get('follower_count', 0),
-                    'following_count': user_info.get('following_count', 0),
-                    'total_favorited': user_info.get('total_favorited', 0),
-                    'aweme_count': user_info.get('aweme_count', 0) or user_info.get('aweme_count_str', 0) or user_info.get('work_count', 0),
-                    'signature': user_info.get('signature', ''),
-                    'sec_uid': user_info.get('sec_uid', ''),
-                    'avatar_thumb': user_info.get('avatar_thumb', {}).get('url_list', [''])[0] if user_info.get('avatar_thumb') else '',
-                    'avatar_larger': user_info.get('avatar_larger', {}).get('url_list', [''])[0] if user_info.get('avatar_larger') else ''
-                })
+                user_list.append(_search_user_payload(user_info, user))
             
             return jsonify({
                 'success': True,
@@ -2266,6 +2307,7 @@ def get_user_detail():
     try:
         data = _request_json()
         sec_uid = data.get('sec_uid', '').strip()
+        fallback_nickname = (data.get('nickname') or '').strip()
         
         if not sec_uid:
             return jsonify({'success': False, 'message': '用户ID不能为空'}), 400
@@ -2282,15 +2324,44 @@ def get_user_detail():
                 '获取用户详情失败，抖音用户接口暂时拒绝请求，请稍后重试',
             ))
         if isinstance(user_detail, dict) and (user_detail.get('_need_login') or user_detail.get('_error')):
-            response = (
-                _login_error_response(user_detail)
-                if user_detail.get('_need_login')
-                else _cookie_aware_error_response(user_detail, '获取用户详情失败，请检查 Cookie 或稍后重试')
-            )
-            return jsonify(response)
+            if user_detail.get('_need_login'):
+                return jsonify(_login_error_response(user_detail))
+            return jsonify({
+                'success': True,
+                'detail_unavailable': True,
+                'message': user_detail.get('message') or '用户详情暂不可用',
+                'user': {
+                    'nickname': fallback_nickname,
+                    'unique_id': '',
+                    'follower_count': 0,
+                    'following_count': 0,
+                    'total_favorited': 0,
+                    'aweme_count': 0,
+                    'signature': '',
+                    'sec_uid': sec_uid,
+                    'avatar_thumb': '',
+                    'avatar_larger': '',
+                }
+            })
         
         if not user_detail:
-            return jsonify({'success': False, 'message': '获取用户详情失败'})
+            return jsonify({
+                'success': True,
+                'detail_unavailable': True,
+                'message': '用户详情暂不可用',
+                'user': {
+                    'nickname': fallback_nickname,
+                    'unique_id': '',
+                    'follower_count': 0,
+                    'following_count': 0,
+                    'total_favorited': 0,
+                    'aweme_count': 0,
+                    'signature': '',
+                    'sec_uid': sec_uid,
+                    'avatar_thumb': '',
+                    'avatar_larger': '',
+                }
+            })
         
         return jsonify({
             'success': True,
@@ -2309,7 +2380,23 @@ def get_user_detail():
         })
     
     except Exception as e:
-        return jsonify({'success': False, 'message': f'获取用户详情失败: {str(e)}'}), 500
+        return jsonify({
+            'success': True,
+            'detail_unavailable': True,
+            'message': f'用户详情暂不可用: {str(e)}',
+            'user': {
+                'nickname': fallback_nickname if 'fallback_nickname' in locals() else '',
+                'unique_id': '',
+                'follower_count': 0,
+                'following_count': 0,
+                'total_favorited': 0,
+                'aweme_count': 0,
+                'signature': '',
+                'sec_uid': sec_uid if 'sec_uid' in locals() else '',
+                'avatar_thumb': '',
+                'avatar_larger': '',
+            }
+        })
 
 @app.route('/api/get_liked_videos', methods=['POST'])
 def get_liked_videos_api():
