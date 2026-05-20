@@ -542,6 +542,28 @@ def _cookie_aware_error_response(payload, fallback='请求失败，请检查 Coo
     }
 
 
+def _verify_or_request_error_response(payload, fallback='请求失败，请稍后重试', verify_url=None):
+    """只有 Cookie 校验也确认需要验证时才弹验证窗口，避免普通接口失败误触发验证。"""
+    payload_dict = payload if isinstance(payload, dict) else {}
+    if Config.COOKIE:
+        login_status = _verify_native_cookie_login(Config.COOKIE)
+        if login_status.get('success'):
+            return {
+                'success': False,
+                'message': _api_message(payload_dict, fallback),
+            }
+        if login_status.get('need_verify'):
+            return {
+                'success': False,
+                'need_verify': True,
+                'verify_url': verify_url or payload_dict.get('_verify_url') or 'https://www.douyin.com/',
+                'message': _api_message(login_status, '需要完成验证后重试'),
+            }
+        return _login_error_response(login_status)
+
+    return _verify_error_response(payload_dict, fallback, verify_url)
+
+
 def infer_media_type_from_url(url, fallback_type='video'):
     """根据 URL 粗略推断媒体类型，用于兼容旧前端传入的字符串数组。"""
     normalized_fallback = fallback_type if fallback_type in ('video', 'image', 'live_photo') else 'video'
@@ -2142,7 +2164,7 @@ def open_verify_browser():
                     apply_cookie_to_window(
                         _native_verify_window,
                         Config.COOKIE,
-                        reload_after_apply=False,
+                        reload_after_apply=True,
                         force=True,
                         post_load_delay=0.8,
                     )
@@ -2158,7 +2180,7 @@ def open_verify_browser():
             apply_cookie_to_window(
                 verify_window,
                 Config.COOKIE,
-                reload_after_apply=False,
+                reload_after_apply=True,
                 force=True,
                 post_load_delay=0.2,
             )
@@ -2255,7 +2277,10 @@ def get_user_detail():
         user_detail = run_async(user_manager.get_user_detail(sec_uid))
 
         if isinstance(user_detail, dict) and user_detail.get('_need_verify'):
-            return jsonify(_verify_error_response(user_detail, '需要完成滑块验证'))
+            return jsonify(_verify_or_request_error_response(
+                user_detail,
+                '获取用户详情失败，抖音用户接口暂时拒绝请求，请稍后重试',
+            ))
         if isinstance(user_detail, dict) and (user_detail.get('_need_login') or user_detail.get('_error')):
             response = (
                 _login_error_response(user_detail)
@@ -2523,7 +2548,10 @@ def get_user_videos():
 
         # 检测验证码
         if isinstance(resp, dict) and resp.get('_need_verify'):
-            return jsonify(_verify_error_response(resp, '需要完成滑块验证'))
+            return jsonify(_verify_or_request_error_response(
+                resp,
+                '获取作品列表失败，抖音作品接口暂时拒绝请求，请稍后重试',
+            ))
         if isinstance(resp, dict) and resp.get('_need_login'):
             return jsonify(_login_error_response(resp))
 
