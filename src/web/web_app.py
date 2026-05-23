@@ -25,6 +25,8 @@ import webbrowser
 import concurrent.futures
 import tempfile
 import mimetypes
+import hashlib
+import shlex
 import requests as http_requests
 from datetime import datetime
 from pathlib import Path
@@ -863,6 +865,7 @@ def _release_asset_payload(asset: dict | None, portable: bool = False, fallback_
         'name': name,
         'url': str(asset.get('browser_download_url') or fallback_url),
         'size': int(asset.get('size') or 0),
+        'digest': str(asset.get('digest') or ''),
         'portable': portable,
         'install_mode': _infer_update_install_mode(name, portable),
     }
@@ -988,7 +991,7 @@ def _emit_update_event(event: str, payload: dict) -> None:
         logger.debug(f"发送更新事件失败 {event}: {exc}")
 
 
-def _download_update_asset(download_url: str, asset_name: str, release_version: str) -> Path:
+def _download_update_asset(download_url: str, asset_name: str, release_version: str, expected_digest: str = '') -> Path:
     if not download_url:
         raise ValueError('没有可下载的更新资源')
 
@@ -1002,6 +1005,7 @@ def _download_update_asset(download_url: str, asset_name: str, release_version: 
     }
     downloaded = 0
     last_emit = 0.0
+    sha256 = hashlib.sha256()
 
     _emit_update_event('update_download_progress', {
         'progress': 0,
@@ -1019,6 +1023,7 @@ def _download_update_asset(download_url: str, asset_name: str, release_version: 
                 if not chunk:
                     continue
                 fh.write(chunk)
+                sha256.update(chunk)
                 downloaded += len(chunk)
 
                 now = time.monotonic()
@@ -1038,6 +1043,17 @@ def _download_update_asset(download_url: str, asset_name: str, release_version: 
 
     os.replace(partial, destination)
 
+    normalized_digest = expected_digest.strip().lower()
+    if normalized_digest.startswith('sha256:'):
+        expected_sha256 = normalized_digest.split(':', 1)[1]
+        actual_sha256 = sha256.hexdigest()
+        if actual_sha256.lower() != expected_sha256:
+            try:
+                destination.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise ValueError('更新包校验失败，请稍后重试')
+
     if destination.suffix.lower() == '.appimage':
         try:
             destination.chmod(destination.stat().st_mode | 0o755)
@@ -1051,6 +1067,289 @@ def _download_update_asset(download_url: str, asset_name: str, release_version: 
         'asset_name': filename,
     })
     return destination
+
+
+def _ps_quote(value: str | Path) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _current_app_paths() -> dict:
+    executable = Path(sys.executable).resolve()
+    target_root = executable.parent
+    launch_target = executable
+    app_bundle = None
+
+    if IS_MACOS:
+        app_bundle = next((parent for parent in executable.parents if parent.suffix == '.app'), None)
+        if app_bundle:
+            target_root = app_bundle
+            launch_target = app_bundle
+
+    return {
+        'executable': executable,
+        'target_root': target_root,
+        'launch_target': launch_target,
+        'app_bundle': app_bundle,
+    }
+
+
+def _write_update_script(name: str, content: str, suffix: str) -> Path:
+    update_dir = _get_update_download_dir()
+    script_path = update_dir / f'{name}-{uuid.uuid4().hex}{suffix}'
+    script_path.write_text(content, encoding='utf-8')
+    if not IS_WINDOWS:
+        try:
+            script_path.chmod(script_path.stat().st_mode | 0o755)
+        except Exception:
+            pass
+    return script_path
+
+
+def _stage_windows_update(file_path: Path, install_mode: str, paths: dict) -> None:
+    log_path = _get_update_download_dir() / 'update-helper.log'
+    stage_dir = Path(tempfile.gettempdir()) / f'dy-video-downloader-update-{uuid.uuid4().hex}'
+    current_pid = os.getpid()
+    target_root = paths['target_root']
+    target_exe = paths['executable']
+    package = file_path
+
+    script = f"""$ErrorActionPreference = 'Stop'
+$pidToWait = {current_pid}
+$package = {_ps_quote(package)}
+$targetRoot = {_ps_quote(target_root)}
+$targetExe = {_ps_quote(target_exe)}
+$stage = {_ps_quote(stage_dir)}
+$log = {_ps_quote(log_path)}
+function Write-UpdateLog($message) {{
+  try {{ Add-Content -LiteralPath $log -Value ("[{0}] {1}" -f (Get-Date -Format s), $message) }} catch {{}}
+}}
+try {{
+  Write-UpdateLog "waiting for app process $pidToWait"
+  Wait-Process -Id $pidToWait -ErrorAction SilentlyContinue
+  Start-Sleep -Milliseconds 800
+
+  if ($package.ToLower().EndsWith('.zip')) {{
+    Write-UpdateLog "extracting portable update"
+    if (Test-Path -LiteralPath $stage) {{
+      Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+    }}
+    New-Item -ItemType Directory -Path $stage -Force | Out-Null
+    Expand-Archive -LiteralPath $package -DestinationPath $stage -Force
+    $exeName = Split-Path -Leaf $targetExe
+    $sourceExe = Get-ChildItem -LiteralPath $stage -Recurse -Filter $exeName -File | Select-Object -First 1
+    if (-not $sourceExe) {{ throw "Cannot find updated executable: $exeName" }}
+    $sourceRoot = Split-Path -Parent $sourceExe.FullName
+    Write-UpdateLog "copying portable update from $sourceRoot to $targetRoot"
+    robocopy $sourceRoot $targetRoot /E /R:3 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) {{ throw "robocopy failed with code $LASTEXITCODE" }}
+  }} elseif ($package.ToLower().EndsWith('.exe')) {{
+    Write-UpdateLog "running installer silently"
+    $args = @('/S', "/D=$targetRoot")
+    Start-Process -FilePath $package -ArgumentList $args -Verb RunAs -Wait
+  }} else {{
+    throw "Unsupported Windows update package: $package"
+  }}
+
+  Write-UpdateLog "starting updated app"
+  Start-Process -FilePath $targetExe -WorkingDirectory $targetRoot
+}} catch {{
+  Write-UpdateLog $_.Exception.ToString()
+  try {{ Start-Process -FilePath $package }} catch {{}}
+}} finally {{
+  try {{
+    if (Test-Path -LiteralPath $stage) {{
+      Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+    }}
+    Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
+  }} catch {{}}
+}}
+"""
+    script_path = _write_update_script('windows-update-helper', script, '.ps1')
+    subprocess.Popen(
+        [
+            'powershell.exe',
+            '-NoProfile',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-WindowStyle',
+            'Hidden',
+            '-File',
+            str(script_path),
+        ],
+        close_fds=True,
+    )
+
+
+def _stage_macos_update(file_path: Path, install_mode: str, paths: dict) -> None:
+    if not paths.get('app_bundle'):
+        raise RuntimeError('无法确定当前 .app 位置')
+
+    current_pid = os.getpid()
+    target_app = paths['app_bundle']
+    package = file_path
+    stage_dir = Path(tempfile.gettempdir()) / f'dy-video-downloader-update-{uuid.uuid4().hex}'
+    log_path = _get_update_download_dir() / 'update-helper.log'
+
+    script = f"""#!/usr/bin/env bash
+set -euo pipefail
+pid={current_pid}
+package={shlex.quote(str(package))}
+target_app={shlex.quote(str(target_app))}
+stage={shlex.quote(str(stage_dir))}
+log={shlex.quote(str(log_path))}
+mount_dir=""
+log_msg() {{
+  printf '[%s] %s\\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" >> "$log" 2>/dev/null || true
+}}
+cleanup() {{
+  if [ -n "$mount_dir" ]; then
+    /usr/bin/hdiutil detach "$mount_dir" -quiet >/dev/null 2>&1 || true
+  fi
+  rm -rf "$stage" "$0" 2>/dev/null || true
+}}
+trap cleanup EXIT
+while kill -0 "$pid" >/dev/null 2>&1; do
+  sleep 0.5
+done
+sleep 0.8
+mkdir -p "$stage"
+source_app=""
+case "$package" in
+  *.dmg)
+    log_msg "mounting dmg"
+    mount_dir="$(/usr/bin/hdiutil attach -nobrowse -readonly "$package" | awk '/\\/Volumes\\// {{print substr($0, index($0, "/Volumes/")); exit}}')"
+    source_app="$(find "$mount_dir" -maxdepth 2 -name '*.app' -type d | head -n 1)"
+    ;;
+  *.zip)
+    log_msg "extracting zip"
+    /usr/bin/ditto -x -k "$package" "$stage"
+    source_app="$(find "$stage" -maxdepth 4 -name '*.app' -type d | head -n 1)"
+    ;;
+  *)
+    log_msg "unsupported package: $package"
+    /usr/bin/open "$package" >/dev/null 2>&1 || true
+    exit 0
+    ;;
+esac
+if [ -z "$source_app" ]; then
+  log_msg "cannot find app bundle in update package"
+  /usr/bin/open "$package" >/dev/null 2>&1 || true
+  exit 1
+fi
+tmp_target="${{target_app}}.updating"
+old_target="${{target_app}}.old"
+rm -rf "$tmp_target" "$old_target"
+log_msg "copying app bundle"
+/usr/bin/ditto "$source_app" "$tmp_target"
+if [ -d "$target_app" ]; then
+  mv "$target_app" "$old_target"
+fi
+mv "$tmp_target" "$target_app"
+rm -rf "$old_target"
+log_msg "starting updated app"
+/usr/bin/open -n "$target_app"
+"""
+    script_path = _write_update_script('macos-update-helper', script, '.sh')
+    subprocess.Popen(['/bin/bash', str(script_path)], close_fds=True)
+
+
+def _stage_linux_update(file_path: Path, install_mode: str, paths: dict) -> None:
+    current_pid = os.getpid()
+    target_root = paths['target_root']
+    target_exe = paths['executable']
+    package = file_path
+    stage_dir = Path(tempfile.gettempdir()) / f'dy-video-downloader-update-{uuid.uuid4().hex}'
+    log_path = _get_update_download_dir() / 'update-helper.log'
+
+    script = f"""#!/usr/bin/env bash
+set -euo pipefail
+pid={current_pid}
+package={shlex.quote(str(package))}
+target_root={shlex.quote(str(target_root))}
+target_exe={shlex.quote(str(target_exe))}
+stage={shlex.quote(str(stage_dir))}
+log={shlex.quote(str(log_path))}
+log_msg() {{
+  printf '[%s] %s\\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" >> "$log" 2>/dev/null || true
+}}
+cleanup() {{
+  rm -rf "$stage" "$0" 2>/dev/null || true
+}}
+trap cleanup EXIT
+while kill -0 "$pid" >/dev/null 2>&1; do
+  sleep 0.5
+done
+sleep 0.8
+case "$package" in
+  *.tar.gz)
+    mkdir -p "$stage"
+    tar -xzf "$package" -C "$stage"
+    exe_name="$(basename "$target_exe")"
+    source_exe="$(find "$stage" -type f -name "$exe_name" | head -n 1)"
+    if [ -z "$source_exe" ]; then
+      log_msg "cannot find updated executable"
+      xdg-open "$package" >/dev/null 2>&1 || true
+      exit 1
+    fi
+    source_root="$(dirname "$source_exe")"
+    cp -a "$source_root"/. "$target_root"/
+    ;;
+  *.deb)
+    if command -v pkexec >/dev/null 2>&1; then
+      pkexec dpkg -i "$package"
+    else
+      xdg-open "$package" >/dev/null 2>&1 || true
+      exit 1
+    fi
+    ;;
+  *.rpm)
+    if command -v pkexec >/dev/null 2>&1; then
+      pkexec rpm -Uvh "$package"
+    else
+      xdg-open "$package" >/dev/null 2>&1 || true
+      exit 1
+    fi
+    ;;
+  *)
+    xdg-open "$package" >/dev/null 2>&1 || true
+    exit 0
+    ;;
+esac
+nohup "$target_exe" >/dev/null 2>&1 &
+"""
+    script_path = _write_update_script('linux-update-helper', script, '.sh')
+    subprocess.Popen(['/bin/sh', str(script_path)], close_fds=True)
+
+
+def _stage_self_update(file_path: Path, install_mode: str) -> dict:
+    if not getattr(sys, 'frozen', False):
+        raise RuntimeError('源码运行模式不支持自动安装更新')
+
+    paths = _current_app_paths()
+    if IS_WINDOWS:
+        _stage_windows_update(file_path, install_mode, paths)
+    elif IS_MACOS:
+        _stage_macos_update(file_path, install_mode, paths)
+    else:
+        _stage_linux_update(file_path, install_mode, paths)
+
+    return {
+        'success': True,
+        'restart_required': False,
+        'auto_relaunch': True,
+        'message': '更新已下载，应用即将关闭并自动安装重启',
+    }
+
+
+def _schedule_app_exit_for_update() -> None:
+    def exit_app() -> None:
+        try:
+            socketio.stop()
+        except Exception:
+            pass
+        os._exit(0)
+
+    threading.Timer(1.2, exit_app).start()
 
 
 def _open_update_file(file_path: Path, install_mode: str) -> bool:
@@ -1443,8 +1742,31 @@ def download_update():
                 'message': '未找到匹配安装包，已打开 Releases 页面'
             })
 
-        file_path = _download_update_asset(download_url, str(asset.get('name') or ''), latest_version)
+        file_path = _download_update_asset(
+            download_url,
+            str(asset.get('name') or ''),
+            latest_version,
+            str(asset.get('digest') or ''),
+        )
         install_mode = str(asset.get('install_mode') or 'download')
+
+        try:
+            staged = _stage_self_update(file_path, install_mode)
+            _schedule_app_exit_for_update()
+            return jsonify({
+                'success': True,
+                'mode': 'auto_install',
+                'portable': bool(asset.get('portable')),
+                'install_mode': install_mode,
+                'restart_required': staged.get('restart_required', False),
+                'auto_relaunch': True,
+                'download_url': download_url,
+                'file_path': str(file_path),
+                'message': staged.get('message') or '更新已下载，应用即将关闭并自动安装重启',
+            })
+        except Exception as install_error:
+            logger.warning(f"自动安装更新不可用，回退为打开更新包: {install_error}")
+
         opened = _open_update_file(file_path, install_mode)
 
         _emit_update_event('update_download_finished', {
