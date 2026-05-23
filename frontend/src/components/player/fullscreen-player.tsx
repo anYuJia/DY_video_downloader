@@ -26,7 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { cn, formatDuration, formatNumber } from "@/lib/utils";
-import { getVideoDetail, mediaProxyUrl, type VideoInfo } from "@/lib/tauri";
+import { copyTextToClipboard, getVideoDetail, mediaProxyUrl, type VideoInfo } from "@/lib/tauri";
 import {
   collectVideoMedia,
   collectVideoQualityOptions,
@@ -658,8 +658,9 @@ export function FullscreenPlayer({
     event.stopPropagation();
     const url = currentPlaybackUrl || currentMedia?.url || "";
     if (!url) return;
-    void navigator.clipboard?.writeText(url).catch(() => undefined);
-    setOpenPanel(null);
+    void copyTextToClipboard(url).then((success) => {
+      if (success) setOpenPanel(null);
+    });
   }, [currentMedia?.url, currentPlaybackUrl]);
 
   const toggleMute = useCallback((event: ReactMouseEvent) => {
@@ -1878,7 +1879,7 @@ export function FullscreenPlayer({
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 6 }}
                         transition={{ duration: 0.16 }}
-                        className="absolute bottom-9 left-1/2 z-40 w-[min(240px,calc(100vw-24px))] -translate-x-1/2 rounded-xl bg-[#141414]/95 p-2 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+                        className="absolute bottom-9 left-1/2 z-40 w-[160px] -translate-x-1/2 rounded-xl bg-[#141414]/95 p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
                         onPointerEnter={(event) => openPanelOnPointerEnter("download", event)}
                         onPointerLeave={(event) => closePanelOnPointerLeave("download", event)}
                         onMouseEnter={() => openToolPanel("download")}
@@ -1886,9 +1887,6 @@ export function FullscreenPlayer({
                         onClick={(event) => event.stopPropagation()}
                         onWheel={(event) => event.stopPropagation()}
                       >
-                        <div className="mb-2 truncate px-2 text-[0.72rem] font-medium text-white/70">
-                          {currentVideo.desc || "当前作品"}
-                        </div>
                         <div className="flex flex-col gap-1">
                           <button
                             type="button"
@@ -1938,7 +1936,7 @@ export function FullscreenPlayer({
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 6 }}
                         transition={{ duration: 0.16 }}
-                        className="absolute bottom-9 right-0 z-40 w-[min(260px,calc(100vw-24px))] rounded-xl bg-[#141414]/95 p-2 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+                        className="absolute bottom-9 right-0 z-40 w-[160px] rounded-xl bg-[#141414]/95 p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
                         onPointerEnter={(event) => openPanelOnPointerEnter("music", event)}
                         onPointerLeave={(event) => closePanelOnPointerLeave("music", event)}
                         onMouseEnter={() => openToolPanel("music")}
@@ -1946,18 +1944,8 @@ export function FullscreenPlayer({
                         onClick={(event) => event.stopPropagation()}
                         onWheel={(event) => event.stopPropagation()}
                       >
-                        <div className="mb-2 min-w-0">
-                          <div className="truncate text-[0.78rem] font-medium text-white">
-                            {currentVideo.music?.title || "暂无背景音乐"}
-                          </div>
-                          {currentVideo.music?.author && (
-                            <div className="truncate text-[0.68rem] text-white/45">
-                              {currentVideo.music.author}
-                            </div>
-                          )}
-                        </div>
                         {musicUrl ? (
-                          <div className="flex flex-col gap-2">
+                          <div className="flex flex-col gap-1">
                             <button
                               type="button"
                               onClick={toggleBgm}

@@ -201,6 +201,61 @@ export function localFileAssetUrl(path: string | null | undefined): string {
   }
 }
 
+async function writeTextWithBrowserClipboard(text: string): Promise<boolean> {
+  if (window.navigator?.clipboard?.writeText) {
+    try {
+      await window.navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Embedded WebViews can reject clipboard writes even after a click.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  const value = String(text || "");
+  if (!value) return false;
+
+  if (isTauriRuntime()) {
+    try {
+      await invoke("copy_text_to_clipboard", { text: value });
+      return true;
+    } catch {
+      // Fall back to browser clipboard if the native bridge is unavailable.
+    }
+  }
+
+  try {
+    const result = await requestJson<{ success?: boolean }>("/api/clipboard/write", {
+      method: "POST",
+      body: JSON.stringify({ text: value }),
+    });
+    if (result.success !== false) return true;
+  } catch {
+    // Fall back to browser clipboard below.
+  }
+
+  return writeTextWithBrowserClipboard(value);
+}
+
 // ── Tauri / Browser event listener ──
 
 type TauriUnlisten = () => void;

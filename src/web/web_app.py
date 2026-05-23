@@ -1645,6 +1645,44 @@ def local_media():
         return 'Local media error', 500
 
 
+def _write_text_to_clipboard(text: str) -> None:
+    if IS_WINDOWS:
+        subprocess.run(['clip'], input=text, text=True, check=True, timeout=5)
+        return
+
+    if sys.platform == 'darwin':
+        subprocess.run(['pbcopy'], input=text, text=True, check=True, timeout=5)
+        return
+
+    linux_commands = [
+        ['wl-copy'],
+        ['xclip', '-selection', 'clipboard'],
+        ['xsel', '--clipboard', '--input'],
+    ]
+    for command in linux_commands:
+        if shutil.which(command[0]):
+            subprocess.run(command, input=text, text=True, check=True, timeout=5)
+            return
+
+    raise RuntimeError('当前系统缺少可用的剪贴板工具')
+
+
+@app.route('/api/clipboard/write', methods=['POST'])
+def write_clipboard_text():
+    """写入系统剪贴板，供嵌入 WebView 和普通浏览器兜底使用。"""
+    try:
+        data = _request_json()
+        text = str(data.get('text') or '')
+        if not text:
+            return jsonify({'success': False, 'message': '复制内容不能为空'}), 400
+
+        _write_text_to_clipboard(text)
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"写入剪贴板失败: {str(e)}")
+        return jsonify({'success': False, 'message': f'写入剪贴板失败: {str(e)}'}), 500
+
+
 @app.route('/api/download_history/open', methods=['POST'])
 def open_download_history_file():
     """打开下载文件。"""

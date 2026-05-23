@@ -16,7 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { cn, formatNumber, formatTime } from "@/lib/utils";
-import { mediaProxyUrl, type VideoInfo } from "@/lib/tauri";
+import { copyTextToClipboard, mediaProxyUrl, type VideoInfo } from "@/lib/tauri";
 import {
   collectVideoMedia,
   getMediaProxyType,
@@ -74,9 +74,8 @@ export function VideoDetailModal({ video, open, onOpenChange, onDownload }: Vide
     musicUrl && { label: "BGM", url: musicUrl, type: "audio" },
   ]);
   const copyLink = (link: DetailLink) => {
-    const write = navigator.clipboard?.writeText(link.url);
-    if (!write) return;
-    void write.then(() => {
+    void copyTextToClipboard(link.url).then((success) => {
+      if (!success) return;
       setCopiedLinkType(link.type);
       window.setTimeout(() => setCopiedLinkType((current) => (current === link.type ? null : current)), 1_200);
     });
