@@ -2702,6 +2702,13 @@ def get_user_videos():
             elif video.get('images'):
                 cover_url = safe_get_url(video['images'][0])
             media_type, media_urls = user_manager.get_media_info(video)
+            video_data = video.get('video') or {}
+            play_addr = safe_get_url(video_data.get('play_addr'))
+            play_addr_h264 = safe_get_url(video_data.get('play_addr_h264'))
+            play_addr_lowbr = safe_get_url(video_data.get('play_addr_lowbr'))
+            download_addr = safe_get_url(video_data.get('download_addr'))
+            dynamic_cover = safe_get_url(video_data.get('dynamic_cover')) or cover_url
+            origin_cover = safe_get_url(video_data.get('origin_cover')) or cover_url
 
             music_info = _extract_music_info(video.get('music') or {})
             bgm_url = music_info['play_url']
@@ -2724,11 +2731,28 @@ def get_user_videos():
                 'raw_media_type': media_type,
                 'media_urls': media_urls,
                 'bgm_url': bgm_url,
+                'images': video.get('images') or [],
+                'live_photos': video.get('live_photos') or video.get('live_photo_urls') or [],
                 'music': music_info,
                 'music_title': music_info['title'],
                 'music_author': music_info['author'],
                 'music_url': music_info['play_url'],
                 'music_duration': music_info['duration'],
+                'video': {
+                    'cover': cover_url,
+                    'dynamic_cover': dynamic_cover,
+                    'origin_cover': origin_cover,
+                    'preview_addr': play_addr_lowbr or play_addr_h264 or play_addr or (media_urls[0].get('url') if media_urls else ''),
+                    'play_addr': play_addr or (media_urls[0].get('url') if media_urls else ''),
+                    'play_addr_h264': play_addr_h264,
+                    'play_addr_lowbr': play_addr_lowbr,
+                    'download_addr': download_addr,
+                    'width': video_data.get('width', 0),
+                    'height': video_data.get('height', 0),
+                    'duration': _raw_duration_value(video_data.get('duration', 0)),
+                    'ratio': video_data.get('ratio', ''),
+                    'bit_rate': video_data.get('bit_rate') or [],
+                },
                 'author': {
                     'nickname': video.get('author', {}).get('nickname', ''),
                     'avatar_thumb': safe_get_url(video.get('author', {}).get('avatar_thumb', {})),
@@ -4329,6 +4353,30 @@ def get_recommended_feed():
                 else:
                     dynamic_cover = dynamic_cover_data if dynamic_cover_data else ''
 
+                origin_cover_data = video_data.get('origin_cover', {})
+                if isinstance(origin_cover_data, dict):
+                    origin_cover = origin_cover_data.get('url_list', [''])[0]
+                else:
+                    origin_cover = origin_cover_data if origin_cover_data else cover
+
+                play_addr_h264_data = video_data.get('play_addr_h264', {})
+                if isinstance(play_addr_h264_data, dict):
+                    play_addr_h264 = play_addr_h264_data.get('url_list', [''])[0]
+                else:
+                    play_addr_h264 = play_addr_h264_data if play_addr_h264_data else ''
+
+                play_addr_lowbr_data = video_data.get('play_addr_lowbr', {})
+                if isinstance(play_addr_lowbr_data, dict):
+                    play_addr_lowbr = play_addr_lowbr_data.get('url_list', [''])[0]
+                else:
+                    play_addr_lowbr = play_addr_lowbr_data if play_addr_lowbr_data else ''
+
+                download_addr_data = video_data.get('download_addr', {})
+                if isinstance(download_addr_data, dict):
+                    download_addr = download_addr_data.get('url_list', [''])[0]
+                else:
+                    download_addr = download_addr_data if download_addr_data else ''
+
                 # 提取作者头像
                 author_data = aweme.get('author', {})
                 avatar_data = author_data.get('avatar_thumb', {})
@@ -4369,10 +4417,17 @@ def get_recommended_feed():
                     'video': {
                         'cover': cover,
                         'dynamic_cover': dynamic_cover,
+                        'origin_cover': origin_cover or cover,
+                        'preview_addr': play_addr_lowbr or play_addr_h264 or play_addr,
                         'play_addr': play_addr,
+                        'play_addr_h264': play_addr_h264,
+                        'play_addr_lowbr': play_addr_lowbr,
+                        'download_addr': download_addr,
                         'width': video_data.get('width', 0),
                         'height': video_data.get('height', 0),
                         'duration': _raw_duration_value(video_data.get('duration', 0)),
+                        'ratio': video_data.get('ratio', ''),
+                        'bit_rate': video_data.get('bit_rate') or [],
                     },
                     'music': {
                         **_extract_music_info(aweme.get('music') or {}),

@@ -114,6 +114,25 @@ function getDocumentVideoNode(reference: HTMLElement | null): HTMLVideoElement |
   return reference?.ownerDocument.querySelector("video") || null;
 }
 
+function applyPlaybackRateToNode(node: HTMLMediaElement | null, rate: number) {
+  if (!node) return;
+  const safeRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
+  try {
+    if (Math.abs(node.defaultPlaybackRate - safeRate) > 0.001) {
+      node.defaultPlaybackRate = safeRate;
+    }
+  } catch {
+    // Some embedded engines expose a partial media API while loading.
+  }
+  try {
+    if (Math.abs(node.playbackRate - safeRate) > 0.001) {
+      node.playbackRate = safeRate;
+    }
+  } catch {
+    // Keep playback usable if the current media backend rejects speed changes.
+  }
+}
+
 export function FullscreenPlayer({
   videos,
   initialIndex = 0,
@@ -156,6 +175,7 @@ export function FullscreenPlayer({
   const imageAdvanceQueued = useRef(false);
   const desiredPlayingRef = useRef(true);
   const playingRef = useRef(false);
+  const playbackRateRef = useRef(1);
   const mediaSwitchingRef = useRef(false);
   const qualitySwitchingRef = useRef(false);
   const bgmManuallyPausedRef = useRef(false);
@@ -677,14 +697,20 @@ export function FullscreenPlayer({
     setMuted(safeVolume === 0);
   }, []);
 
+  const syncPlaybackRate = useCallback((rate: number) => {
+    playbackRateRef.current = rate;
+    applyPlaybackRateToNode(videoRef.current || getDocumentVideoNode(playerRootRef.current), rate);
+    applyPlaybackRateToNode(bgmRef.current, rate);
+  }, []);
+
   const handlePlaybackRateChange = useCallback((rate: number, event: ReactMouseEvent) => {
     event.stopPropagation();
     setPlaybackRate(rate);
-    if (videoRef.current) {
-      videoRef.current.playbackRate = rate;
-    }
+    syncPlaybackRate(rate);
+    window.requestAnimationFrame(() => syncPlaybackRate(rate));
+    window.setTimeout(() => syncPlaybackRate(rate), 120);
     setOpenPanel(null);
-  }, []);
+  }, [syncPlaybackRate]);
 
   const handleQualityChange = useCallback((qualityKey: string, event: ReactMouseEvent) => {
     event.stopPropagation();
@@ -727,7 +753,7 @@ export function FullscreenPlayer({
       node.volume = effectiveVolume / 100;
       const targetMuted = shouldUseBgmForCurrentMedia || muted || volume === 0;
       node.muted = shouldResume && !targetMuted ? true : targetMuted;
-      node.playbackRate = playbackRate;
+      applyPlaybackRateToNode(node, playbackRateRef.current);
       node.load();
       if (shouldResume) {
         void node.play().then(() => {
@@ -807,6 +833,7 @@ export function FullscreenPlayer({
     }
     audio.volume = effectiveVolume / 100;
     audio.muted = muted || volume === 0;
+    applyPlaybackRateToNode(audio, playbackRateRef.current);
     return audio;
   }, [bgmProxyUrl, effectiveVolume, muted, volume]);
 
@@ -1256,15 +1283,26 @@ export function FullscreenPlayer({
     if (video) {
       video.volume = nextVolume;
       video.muted = shouldUseBgmForCurrentMedia || muted || volume === 0;
-      video.playbackRate = playbackRate;
+      applyPlaybackRateToNode(video, playbackRateRef.current);
     }
 
     const audio = bgmRef.current;
     if (audio) {
       audio.volume = nextVolume;
       audio.muted = muted || volume === 0;
+      applyPlaybackRateToNode(audio, playbackRateRef.current);
     }
-  }, [effectiveVolume, mediaKey, muted, playbackRate, shouldUseBgmForCurrentMedia, volume]);
+  }, [effectiveVolume, mediaKey, muted, shouldUseBgmForCurrentMedia, volume]);
+
+  useEffect(() => {
+    syncPlaybackRate(playbackRate);
+    const frame = window.requestAnimationFrame(() => syncPlaybackRate(playbackRate));
+    const timer = window.setTimeout(() => syncPlaybackRate(playbackRate), 160);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [mediaKey, playbackRate, syncPlaybackRate]);
 
   useEffect(() => {
     stopVideoProgressLoop();
@@ -1281,7 +1319,7 @@ export function FullscreenPlayer({
       last = timestamp;
 
       setCurrentTime((value) => {
-        const next = Math.min(IMAGE_DURATION_SECONDS, value + delta);
+        const next = Math.min(IMAGE_DURATION_SECONDS, value + delta * playbackRateRef.current);
         if (next >= IMAGE_DURATION_SECONDS && !imageAdvanceQueued.current) {
           imageAdvanceQueued.current = true;
           requestAdvanceMediaSequence();
@@ -1461,17 +1499,18 @@ export function FullscreenPlayer({
 	                    onWaiting={showBufferingSoon}
 	                    onStalled={showBufferingSoon}
                     onLoadedMetadata={(event) => {
+                      applyPlaybackRateToNode(event.currentTarget, playbackRateRef.current);
                       restorePendingQualitySeek(event.currentTarget);
                       syncVideoProgress(event.currentTarget);
                       event.currentTarget.volume = effectiveVolume / 100;
                       event.currentTarget.muted = shouldUseBgmForCurrentMedia || muted || volume === 0;
-                      event.currentTarget.playbackRate = playbackRate;
                       if (event.currentTarget.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
                         markMediaReady();
                       }
                       resumeVideoIfDesired(event.currentTarget);
                     }}
                     onLoadedData={(event) => {
+                      applyPlaybackRateToNode(event.currentTarget, playbackRateRef.current);
                       syncVideoProgress(event.currentTarget);
                       markMediaReady();
                       resumeVideoIfDesired(event.currentTarget);
@@ -1480,6 +1519,7 @@ export function FullscreenPlayer({
                       syncVideoProgress(event.currentTarget);
                     }}
                     onCanPlay={(event) => {
+                      applyPlaybackRateToNode(event.currentTarget, playbackRateRef.current);
                       restorePendingQualitySeek(event.currentTarget);
                       syncVideoProgress(event.currentTarget);
                       markMediaReady();
@@ -1499,15 +1539,17 @@ export function FullscreenPlayer({
                     }}
                     onSeeking={(event) => syncVideoProgress(event.currentTarget)}
                     onSeeked={(event) => syncVideoProgress(event.currentTarget)}
-	                    onPlay={(event) => {
-	                      desiredPlayingRef.current = true;
-	                      playingRef.current = true;
-	                      syncVideoProgress(event.currentTarget);
+		                    onPlay={(event) => {
+                      applyPlaybackRateToNode(event.currentTarget, playbackRateRef.current);
+		                      desiredPlayingRef.current = true;
+		                      playingRef.current = true;
+		                      syncVideoProgress(event.currentTarget);
 	                      setPlaying(true);
 	                      startVideoProgressLoop();
 	                    }}
-	                    onPlaying={(event) => {
-                      qualitySwitchingRef.current = false;
+		                    onPlaying={(event) => {
+                      applyPlaybackRateToNode(event.currentTarget, playbackRateRef.current);
+	                      qualitySwitchingRef.current = false;
                       if (qualitySwitchReleaseRef.current) {
                         window.clearTimeout(qualitySwitchReleaseRef.current);
                         qualitySwitchReleaseRef.current = null;
@@ -1520,7 +1562,7 @@ export function FullscreenPlayer({
                       setPlaying(true);
                       startVideoProgressLoop();
                     }}
-	                    onPause={(event) => {
+		                    onPause={(event) => {
 	                      stopVideoProgressLoop();
                       if (qualitySwitchingRef.current && desiredPlayingRef.current) {
                         window.setTimeout(() => resumeVideoIfDesired(event.currentTarget), 80);
@@ -1531,6 +1573,9 @@ export function FullscreenPlayer({
 	                        setPlaying(false);
 	                        desiredPlayingRef.current = false;
 	                      }
+		                    }}
+                    onRateChange={(event) => {
+                      applyPlaybackRateToNode(event.currentTarget, playbackRateRef.current);
                     }}
                     onEnded={() => {
                       stopVideoProgressLoop();
@@ -2005,7 +2050,14 @@ export function FullscreenPlayer({
             </div>
           </div>
 
-          <audio ref={bgmRef} className="hidden" />
+          <audio
+            ref={bgmRef}
+            className="hidden"
+            onLoadedMetadata={(event) => applyPlaybackRateToNode(event.currentTarget, playbackRateRef.current)}
+            onCanPlay={(event) => applyPlaybackRateToNode(event.currentTarget, playbackRateRef.current)}
+            onPlay={(event) => applyPlaybackRateToNode(event.currentTarget, playbackRateRef.current)}
+            onRateChange={(event) => applyPlaybackRateToNode(event.currentTarget, playbackRateRef.current)}
+          />
         </motion.div>
       )}
     </AnimatePresence>

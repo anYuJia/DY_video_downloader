@@ -545,9 +545,11 @@ class DouyinUserManager:
                     'download_addr': self._first_url(video_data.get('download_addr')),
                     'cover': self._first_url(video_data.get('cover')),
                     'dynamic_cover': self._first_url(video_data.get('dynamic_cover')),
+                    'origin_cover': self._first_url(video_data.get('origin_cover')),
                     'width': video_data.get('width', 0),
                     'height': video_data.get('height', 0),
                     'duration': self._raw_duration_value(video_data.get('duration', 0)),
+                    'ratio': video_data.get('ratio', ''),
                     'bit_rate': video_data.get('bit_rate') or [],
                 }
             }

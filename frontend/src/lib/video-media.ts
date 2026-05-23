@@ -258,10 +258,12 @@ function uniqueMediaItems(items: VideoMediaItem[]): VideoMediaItem[] {
 }
 
 function buildQualityCandidates(bitRate: BitRateInfo, index: number): VideoQualityOption[] {
+  const inferredHeight = inferQualityHeight(bitRate);
+  const rawWidth = Number(bitRate.width || 0);
   const options: VideoQualityOption[] = [];
   const base = {
-    width: Number(bitRate.width || 0),
-    height: Number(bitRate.height || 0),
+    width: rawWidth > 0 ? rawWidth : inferredHeight > 0 ? Math.round(inferredHeight * 16 / 9) : 0,
+    height: inferredHeight,
     bitRate: Number(bitRate.bit_rate || 0),
     dataSize: Number(bitRate.data_size || 0),
     qualityType: Number(bitRate.quality_type || 0),
@@ -297,17 +299,32 @@ function buildQualityCandidates(bitRate: BitRateInfo, index: number): VideoQuali
 }
 
 function formatQualityLabel(bitRate: BitRateInfo): string {
-  const height = Number(bitRate.height || 0);
+  const height = inferQualityHeight(bitRate);
+  if (height >= 2160) return "4K";
+  if (height >= 1440) return "2K";
   if (height > 0) return `${height}p`;
-
-  const gearName = String(bitRate.gear_name || "");
-  const matchedHeight = gearName.match(/(?:^|[_-])(\d{3,4})(?:p|[_-]|$)/i)?.[1];
-  if (matchedHeight) return `${matchedHeight}p`;
 
   const qualityType = Number(bitRate.quality_type || 0);
   if (qualityType > 0) return `Q${qualityType}`;
 
   return "画质";
+}
+
+function inferQualityHeight(bitRate: BitRateInfo): number {
+  const explicitHeight = Number(bitRate.height || 0);
+  if (explicitHeight > 0) return explicitHeight;
+
+  const gearName = String(bitRate.gear_name || "").trim().toLowerCase();
+  if (/(^|[_-])(4k|uhd|2160p?)([_-]|$)/i.test(gearName)) return 2160;
+  if (/(^|[_-])(2k|qhd|1440p?)([_-]|$)/i.test(gearName)) return 1440;
+
+  const matchedHeight = gearName.match(/(?:^|[_-])(\d{3,4})(?:p|[_-]|$)/i)?.[1];
+  if (matchedHeight) return Number(matchedHeight);
+
+  const qualityType = Number(bitRate.quality_type || 0);
+  if (qualityType === 72 || qualityType === 73) return 2160;
+
+  return 0;
 }
 
 function formatQualityDetail(bitRate: BitRateInfo, codec: string): string {
@@ -342,17 +359,28 @@ function formatDataSize(value: number): string {
 }
 
 function qualityRank(option: VideoQualityOption): number {
-  const resolution = option.height > 0 ? option.height * 10_000_000 + option.width * 1_000 : 0;
+  const height = option.height || parseQualityLabelHeight(option.label);
+  const width = option.width || (height > 0 ? Math.round(height * 16 / 9) : 0);
+  const resolution = height > 0 ? height * 1_000_000_000 + width * 100_000 : 0;
   return resolution + option.dataSize + option.bitRate + option.qualityType;
 }
 
 function qualityGroupKey(option: VideoQualityOption): string {
-  if (option.height > 0) return `height:${option.height}`;
+  const height = option.height || parseQualityLabelHeight(option.label);
+  if (height > 0) return `height:${height}`;
 
   const label = option.label.trim().toLowerCase();
   if (label) return `label:${label}`;
 
   return `quality:${option.qualityType || option.key}`;
+}
+
+function parseQualityLabelHeight(label: string): number {
+  const normalized = label.trim().toLowerCase();
+  if (normalized === "4k") return 2160;
+  if (normalized === "2k") return 1440;
+  const matchedHeight = normalized.match(/^(\d{3,4})p$/)?.[1];
+  return matchedHeight ? Number(matchedHeight) : 0;
 }
 
 function readUrl(value: unknown): string {
