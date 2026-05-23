@@ -1577,6 +1577,67 @@ export function FullscreenPlayer({
             className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-2 pb-1 pt-24 text-white"
             onClick={(event) => event.stopPropagation()}
           >
+            {hasQualityChoices && (
+              <div className="absolute bottom-[4.75rem] right-3 z-40">
+                <button
+                  type="button"
+                  onClick={(event) => togglePanel("quality", event)}
+                  className={cn(
+                    "flex h-8 items-center gap-1.5 rounded-full bg-black/45 px-3 text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition-[background-color,transform,color] hover:scale-[1.04] hover:bg-white/12 active:scale-95",
+                    openPanel === "quality" && "bg-white/14"
+                  )}
+                  aria-label={`画质 ${activeQualityOption?.label || "自动"}`}
+                  title={`画质 ${activeQualityOption?.label || "自动"}`}
+                >
+                  <Gauge className="h-4 w-4" />
+                  <span className="text-[0.72rem] font-semibold">
+                    画质
+                  </span>
+                  <span className="text-[0.72rem] font-bold tabular-nums text-accent">
+                    {activeQualityOption?.label || "自动"}
+                  </span>
+                </button>
+                <AnimatePresence>
+                  {openPanel === "quality" && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 6 }}
+                      transition={{ duration: 0.16 }}
+                      className="absolute bottom-10 right-0 z-40 flex w-[min(280px,calc(100vw-24px))] flex-col gap-1 rounded-xl bg-[#141414]/95 p-2 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+                      onClick={(event) => event.stopPropagation()}
+                      onWheel={(event) => event.stopPropagation()}
+                    >
+                      <div className="px-2 pb-1 text-[0.68rem] font-semibold uppercase tracking-wider text-white/45">
+                        画质
+                      </div>
+                      {qualityOptions.map((option) => (
+                        <button
+                          key={option.key}
+                          type="button"
+                          onClick={(event) => handleQualityChange(option.key, event)}
+                          className={cn(
+                            "flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-white/12",
+                            option.key === activeQualityOption?.key && "bg-accent/18 text-accent"
+                          )}
+                        >
+                          <span className="w-12 shrink-0 text-[0.78rem] font-bold tabular-nums">
+                            {option.label}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-[0.68rem] text-white/55">
+                            {option.detail}
+                          </span>
+                          {option.key === activeQualityOption?.key && (
+                            <Check className="h-3.5 w-3.5 shrink-0" />
+                          )}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
             <div className="flex min-w-0 items-center justify-between gap-3">
               <button
                 type="button"
@@ -1717,56 +1778,6 @@ export function FullscreenPlayer({
                     )}
                   </AnimatePresence>
                 </div>
-
-                {hasQualityChoices && (
-                  <div className="relative shrink-0">
-                    <PlayerIconButton
-                      label={`画质 ${activeQualityOption?.label || "自动"}`}
-                      onClick={(event) => togglePanel("quality", event)}
-                      active={openPanel === "quality"}
-                    >
-                      <Gauge className="h-4 w-4" />
-                    </PlayerIconButton>
-                    <AnimatePresence>
-                      {openPanel === "quality" && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: 6 }}
-                          transition={{ duration: 0.16 }}
-                          className="absolute bottom-9 left-1/2 z-40 flex w-[min(260px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-1 rounded-xl bg-[#141414]/95 p-2 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
-                          onClick={(event) => event.stopPropagation()}
-                          onWheel={(event) => event.stopPropagation()}
-                        >
-                          <div className="px-2 pb-1 text-[0.68rem] font-semibold uppercase tracking-wider text-white/45">
-                            画质
-                          </div>
-                          {qualityOptions.map((option) => (
-                            <button
-                              key={option.key}
-                              type="button"
-                              onClick={(event) => handleQualityChange(option.key, event)}
-                              className={cn(
-                                "flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-white/12",
-                                option.key === activeQualityOption?.key && "bg-accent/18 text-accent"
-                              )}
-                            >
-                              <span className="w-12 shrink-0 text-[0.78rem] font-bold tabular-nums">
-                                {option.label}
-                              </span>
-                              <span className="min-w-0 flex-1 truncate text-[0.68rem] text-white/55">
-                                {option.detail}
-                              </span>
-                              {option.key === activeQualityOption?.key && (
-                                <Check className="h-3.5 w-3.5 shrink-0" />
-                              )}
-                            </button>
-                          ))}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                )}
 
                 <PlayerIconButton
                   label="下载作品"
