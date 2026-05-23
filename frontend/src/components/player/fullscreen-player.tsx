@@ -226,6 +226,7 @@ export function FullscreenPlayer({
       musicUrl &&
       (shouldUseSeparateBgm(currentMedia) || hasMultipleMedia)
   );
+  const showQualityControl = currentMedia?.type === "video";
   const hasQualityChoices = currentMedia?.type === "video" && qualityOptions.length > 1;
 
   const stopVideoProgressLoop = useCallback(() => {
@@ -1663,7 +1664,7 @@ export function FullscreenPlayer({
                 <span className="truncate text-[0.88rem] font-semibold drop-shadow-md">@{authorName}</span>
               </button>
 
-              <div className="flex min-w-0 max-w-[66vw] items-center gap-1 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="flex min-w-0 max-w-[66vw] items-center gap-1 overflow-visible pb-0.5">
                 <InlinePlayerButton
                   label="点赞"
                   count={likeCount}
@@ -1792,7 +1793,7 @@ export function FullscreenPlayer({
                   </AnimatePresence>
                 </div>
 
-                {hasQualityChoices && (
+                {showQualityControl && (
                   <div
                     className="relative shrink-0"
                     onPointerEnter={(event) => openPanelOnPointerEnter("quality", event)}
@@ -2263,7 +2264,7 @@ function PlayerIconButton({
       onClick={onClick}
       onPointerDown={onPointerDown}
       className={cn(
-        "flex h-8 w-8 items-center justify-center rounded-full bg-transparent text-white transition-[background-color,transform,color] hover:scale-[1.08] hover:bg-white/10 active:scale-95",
+        "flex h-8 w-8 items-center justify-center rounded-full bg-transparent text-white transition-[background-color,color] hover:bg-white/10 active:bg-white/15",
         active && "bg-white/10"
       )}
       aria-label={label}
