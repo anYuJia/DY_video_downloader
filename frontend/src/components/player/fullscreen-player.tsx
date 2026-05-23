@@ -630,7 +630,24 @@ export function FullscreenPlayer({
     }, PLAYER_PANEL_CLOSE_DELAY_MS);
   }, [clearPanelCloseTimer]);
 
+  const openPanelOnPointerEnter = useCallback((panel: PlayerPanel, event: ReactPointerEvent<HTMLElement>) => {
+    if (event.pointerType === "touch") return;
+    openToolPanel(panel);
+  }, [openToolPanel]);
+
+  const closePanelOnPointerLeave = useCallback((panel: PlayerPanel, event: ReactPointerEvent<HTMLElement>) => {
+    if (event.pointerType === "touch") return;
+    schedulePanelClose(panel);
+  }, [schedulePanelClose]);
+
   const togglePanel = useCallback((panel: PlayerPanel, event: ReactMouseEvent) => {
+    event.stopPropagation();
+    clearPanelCloseTimer();
+    setOpenPanel(panel);
+  }, [clearPanelCloseTimer]);
+
+  const openPanelOnPointerDown = useCallback((panel: PlayerPanel, event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
     event.stopPropagation();
     clearPanelCloseTimer();
     setOpenPanel(panel);
@@ -1675,12 +1692,15 @@ export function FullscreenPlayer({
 
                 <div
                   className="relative shrink-0"
+                  onPointerEnter={(event) => openPanelOnPointerEnter("volume", event)}
+                  onPointerLeave={(event) => closePanelOnPointerLeave("volume", event)}
                   onMouseEnter={() => openToolPanel("volume")}
                   onMouseLeave={() => schedulePanelClose("volume")}
                 >
                   <PlayerIconButton
                     label="音量"
                     onClick={(event) => togglePanel("volume", event)}
+                    onPointerDown={(event) => openPanelOnPointerDown("volume", event)}
                     active={openPanel === "volume"}
                   >
                     {muted || volume === 0 ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
@@ -1693,6 +1713,8 @@ export function FullscreenPlayer({
                         exit={{ opacity: 0, y: 6 }}
                         transition={{ duration: 0.16 }}
                         className="absolute bottom-9 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl bg-[#141414]/95 px-3 py-2 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+                        onPointerEnter={(event) => openPanelOnPointerEnter("volume", event)}
+                        onPointerLeave={(event) => closePanelOnPointerLeave("volume", event)}
                         onMouseEnter={() => openToolPanel("volume")}
                         onMouseLeave={() => schedulePanelClose("volume")}
                         onClick={(event) => event.stopPropagation()}
@@ -1725,12 +1747,15 @@ export function FullscreenPlayer({
 
                 <div
                   className="relative shrink-0"
+                  onPointerEnter={(event) => openPanelOnPointerEnter("rate", event)}
+                  onPointerLeave={(event) => closePanelOnPointerLeave("rate", event)}
                   onMouseEnter={() => openToolPanel("rate")}
                   onMouseLeave={() => schedulePanelClose("rate")}
                 >
                   <PlayerIconButton
                     label="倍速"
                     onClick={(event) => togglePanel("rate", event)}
+                    onPointerDown={(event) => openPanelOnPointerDown("rate", event)}
                     active={openPanel === "rate"}
                   >
                     <span className="text-[0.78rem] font-semibold tabular-nums">{playbackRate}x</span>
@@ -1743,6 +1768,8 @@ export function FullscreenPlayer({
                         exit={{ opacity: 0, y: 6 }}
                         transition={{ duration: 0.16 }}
                         className="absolute bottom-9 left-1/2 z-40 flex max-w-[200px] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-xl bg-[#141414]/95 p-2 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+                        onPointerEnter={(event) => openPanelOnPointerEnter("rate", event)}
+                        onPointerLeave={(event) => closePanelOnPointerLeave("rate", event)}
                         onMouseEnter={() => openToolPanel("rate")}
                         onMouseLeave={() => schedulePanelClose("rate")}
                         onClick={(event) => event.stopPropagation()}
@@ -1768,12 +1795,15 @@ export function FullscreenPlayer({
                 {hasQualityChoices && (
                   <div
                     className="relative shrink-0"
+                    onPointerEnter={(event) => openPanelOnPointerEnter("quality", event)}
+                    onPointerLeave={(event) => closePanelOnPointerLeave("quality", event)}
                     onMouseEnter={() => openToolPanel("quality")}
                     onMouseLeave={() => schedulePanelClose("quality")}
                   >
                     <PlayerIconButton
                       label={`画质 ${activeQualityOption?.label || "自动"}`}
                       onClick={(event) => togglePanel("quality", event)}
+                      onPointerDown={(event) => openPanelOnPointerDown("quality", event)}
                       active={openPanel === "quality"}
                     >
                       <Gauge className="h-4 w-4" />
@@ -1786,6 +1816,8 @@ export function FullscreenPlayer({
                           exit={{ opacity: 0, y: 6 }}
                           transition={{ duration: 0.16 }}
                           className="absolute bottom-9 left-1/2 z-40 flex w-[min(280px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-1 rounded-xl bg-[#141414]/95 p-2 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+                          onPointerEnter={(event) => openPanelOnPointerEnter("quality", event)}
+                          onPointerLeave={(event) => closePanelOnPointerLeave("quality", event)}
                           onMouseEnter={() => openToolPanel("quality")}
                           onMouseLeave={() => schedulePanelClose("quality")}
                           onClick={(event) => event.stopPropagation()}
@@ -1828,12 +1860,15 @@ export function FullscreenPlayer({
 
                 <div
                   className="relative shrink-0"
+                  onPointerEnter={(event) => openPanelOnPointerEnter("download", event)}
+                  onPointerLeave={(event) => closePanelOnPointerLeave("download", event)}
                   onMouseEnter={() => openToolPanel("download")}
                   onMouseLeave={() => schedulePanelClose("download")}
                 >
                   <PlayerIconButton
                     label="下载作品"
                     onClick={(event) => togglePanel("download", event)}
+                    onPointerDown={(event) => openPanelOnPointerDown("download", event)}
                     active={openPanel === "download"}
                   >
                     <Download className="h-4 w-4" />
@@ -1846,6 +1881,8 @@ export function FullscreenPlayer({
                         exit={{ opacity: 0, y: 6 }}
                         transition={{ duration: 0.16 }}
                         className="absolute bottom-9 left-1/2 z-40 w-[min(240px,calc(100vw-24px))] -translate-x-1/2 rounded-xl bg-[#141414]/95 p-2 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+                        onPointerEnter={(event) => openPanelOnPointerEnter("download", event)}
+                        onPointerLeave={(event) => closePanelOnPointerLeave("download", event)}
                         onMouseEnter={() => openToolPanel("download")}
                         onMouseLeave={() => schedulePanelClose("download")}
                         onClick={(event) => event.stopPropagation()}
@@ -1883,12 +1920,15 @@ export function FullscreenPlayer({
 
                 <div
                   className="relative shrink-0"
+                  onPointerEnter={(event) => openPanelOnPointerEnter("music", event)}
+                  onPointerLeave={(event) => closePanelOnPointerLeave("music", event)}
                   onMouseEnter={() => openToolPanel("music")}
                   onMouseLeave={() => schedulePanelClose("music")}
                 >
                   <PlayerIconButton
                     label="背景音乐"
                     onClick={(event) => togglePanel("music", event)}
+                    onPointerDown={(event) => openPanelOnPointerDown("music", event)}
                     active={openPanel === "music"}
                   >
                     <Music className="h-4 w-4" />
@@ -1901,6 +1941,8 @@ export function FullscreenPlayer({
                         exit={{ opacity: 0, y: 6 }}
                         transition={{ duration: 0.16 }}
                         className="absolute bottom-9 right-0 z-40 w-[min(260px,calc(100vw-24px))] rounded-xl bg-[#141414]/95 p-2 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+                        onPointerEnter={(event) => openPanelOnPointerEnter("music", event)}
+                        onPointerLeave={(event) => closePanelOnPointerLeave("music", event)}
                         onMouseEnter={() => openToolPanel("music")}
                         onMouseLeave={() => schedulePanelClose("music")}
                         onClick={(event) => event.stopPropagation()}
@@ -2207,16 +2249,19 @@ function PlayerIconButton({
   label,
   active,
   onClick,
+  onPointerDown,
 }: {
   children: ReactNode;
   label: string;
   active?: boolean;
   onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
+  onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      onPointerDown={onPointerDown}
       className={cn(
         "flex h-8 w-8 items-center justify-center rounded-full bg-transparent text-white transition-[background-color,transform,color] hover:scale-[1.08] hover:bg-white/10 active:scale-95",
         active && "bg-white/10"
