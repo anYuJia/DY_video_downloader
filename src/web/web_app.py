@@ -443,6 +443,15 @@ def _search_user_payload(user_info: dict, item: dict | None = None) -> dict:
     }
 
 
+def _user_detail_payload(user_info: dict, fallback_sec_uid: str = '', fallback_nickname: str = '') -> dict:
+    payload = _search_user_payload(user_info)
+    payload['uid'] = (user_info or {}).get('uid', '')
+    payload['sec_uid'] = payload.get('sec_uid') or fallback_sec_uid
+    payload['nickname'] = payload.get('nickname') or fallback_nickname
+    payload['avatar_medium'] = safe_get_url((user_info or {}).get('avatar_medium'))
+    return payload
+
+
 def _filter_download_history_items(items: list[dict]) -> tuple[list[dict], int, int, dict | None]:
     query = str(request.args.get('query') or '').strip().lower()
     media_type = str(request.args.get('media_type') or request.args.get('mediaType') or 'all').strip().lower()
@@ -1841,8 +1850,8 @@ def media_proxy():
 
     request_range = request.headers.get('Range')
     request_range_str = request_range or ''
-    should_seed_video_range = not request_range and (requested_media_type == 'video' or '/play/' in url)
-    upstream_range_value = request_range or (MEDIA_PROXY_INITIAL_VIDEO_RANGE if should_seed_video_range else None)
+    should_seed_video_range = False
+    upstream_range_value = request_range
     cache_key = url if '/aweme/v1/play/' in url else None
     upstream_url = MEDIA_PROXY_REDIRECT_CACHE.get(cache_key, url) if cache_key else url
 
@@ -1950,15 +1959,9 @@ def media_proxy():
 
         upstream_content_type = resp.headers.get('Content-Type', '')
         normalized_content_type = upstream_content_type.split(';', 1)[0].strip().lower() if upstream_content_type else ''
-        is_media = requested_media_type in ('audio', 'video') or 'video' in normalized_content_type
         content_length = resp.headers.get('Content-Length', '')
         if content_length:
-            try:
-                cl = int(content_length)
-                if cl < 2 * 1024 * 1024 or not is_media:
-                    resp_headers['Content-Length'] = content_length
-            except ValueError:
-                resp_headers['Content-Length'] = content_length
+            resp_headers['Content-Length'] = content_length
 
         inferred_name = requested_filename or upstream_url
         if requested_media_type == 'audio':
@@ -2365,18 +2368,7 @@ def get_user_detail():
         
         return jsonify({
             'success': True,
-            'user': {
-                'nickname': user_detail.get('nickname', ''),
-                'unique_id': user_detail.get('unique_id', ''),
-                'follower_count': user_detail.get('follower_count', 0),
-                'following_count': user_detail.get('following_count', 0),
-                'total_favorited': user_detail.get('total_favorited', 0),
-                'aweme_count': user_detail.get('aweme_count', 0),
-                'signature': user_detail.get('signature', ''),
-                'sec_uid': user_detail.get('sec_uid', ''),
-                'avatar_thumb': user_detail.get('avatar_thumb', {}).get('url_list', [''])[0] if user_detail.get('avatar_thumb') else '',
-                'avatar_larger': user_detail.get('avatar_larger', {}).get('url_list', [''])[0] if user_detail.get('avatar_larger') else ''
-            }
+            'user': _user_detail_payload(user_detail, sec_uid, fallback_nickname)
         })
     
     except Exception as e:
@@ -2685,7 +2677,7 @@ def get_user_videos():
                 'aweme_id': aweme_id,
                 'desc': video.get('desc', ''),
                 'create_time': video.get('create_time', 0),
-                'duration': _normalize_duration_seconds((video.get('video') or {}).get('duration', 0)),
+                'duration': _raw_duration_value((video.get('video') or {}).get('duration', 0)),
                 'digg_count': video.get('statistics', {}).get('digg_count', 0),
                 'comment_count': video.get('statistics', {}).get('comment_count', 0),
                 'share_count': video.get('statistics', {}).get('share_count', 0),
@@ -4142,6 +4134,14 @@ def _normalize_duration_seconds(value):
     return max(1, round(duration_value))
 
 
+def _raw_duration_value(value):
+    try:
+        duration_value = float(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return int(round(duration_value)) if duration_value > 0 else 0
+
+
 def _extract_music_info(music_data):
     """提取统一的音乐信息结构。"""
     if not isinstance(music_data, dict):
@@ -4334,7 +4334,7 @@ def get_recommended_feed():
                         'play_addr': play_addr,
                         'width': video_data.get('width', 0),
                         'height': video_data.get('height', 0),
-                        'duration': _normalize_duration_seconds(video_data.get('duration', 0)),
+                        'duration': _raw_duration_value(video_data.get('duration', 0)),
                     },
                     'music': {
                         **_extract_music_info(aweme.get('music') or {}),

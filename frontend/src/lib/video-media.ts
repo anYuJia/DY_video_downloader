@@ -144,20 +144,6 @@ export function getVideoMediaLabel(video: VideoInfo | null | undefined): string 
   return "视频";
 }
 
-export function isRenderableRecommendedVideo(video: VideoInfo | null | undefined): boolean {
-  if (!video) return false;
-  if (!String(video.aweme_id || "").trim()) return false;
-
-  const author = video.author;
-  const hasAuthor = Boolean(
-    String(author?.sec_uid || author?.uid || author?.unique_id || author?.nickname || "").trim()
-  );
-  if (!hasAuthor) return false;
-
-  if (!getVideoCover(video)) return false;
-  return collectVideoMedia(video).length > 0;
-}
-
 function collectRawMediaItems(value: unknown, poster?: string): VideoMediaItem[] {
   if (!Array.isArray(value)) return [];
 

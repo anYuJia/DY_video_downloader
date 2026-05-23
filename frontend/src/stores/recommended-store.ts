@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { getRecommended, type VideoInfo } from "@/lib/tauri";
-import { isRenderableRecommendedVideo } from "@/lib/video-media";
 import { requestVerifyRecovery } from "@/lib/verify-recovery";
 import { useLogStore } from "@/stores/app-store";
 
@@ -24,7 +23,7 @@ interface RecommendedStoreState {
 const uniqueVideos = (existing: VideoInfo[], incoming: VideoInfo[]) => {
   const seen = new Set(existing.flatMap(getRecommendedVideoKeys).filter(Boolean));
   const next = [...existing];
-  for (const video of incoming.filter(isRenderableRecommendedVideo)) {
+  for (const video of incoming) {
     const keys = getRecommendedVideoKeys(video);
     if (keys.length === 0 || keys.some((key) => seen.has(key))) continue;
     keys.forEach((key) => seen.add(key));

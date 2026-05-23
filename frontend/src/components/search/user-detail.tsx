@@ -185,11 +185,11 @@ interface UserDetailCardProps {
 
 export function UserDetailCard({ user }: UserDetailCardProps) {
   const stats = [
-    { label: "作品", value: user.aweme_count },
-    { label: "粉丝", value: user.follower_count },
-    { label: "关注", value: user.following_count },
-    { label: "获赞", value: user.total_favorited },
-  ].filter((stat) => Number.isFinite(stat.value) && stat.value > 0);
+    { label: "作品", value: user.aweme_count || 0 },
+    { label: "粉丝", value: user.follower_count || 0 },
+    { label: "关注", value: user.following_count || 0 },
+    { label: "获赞", value: user.total_favorited || 0 },
+  ];
 
   return (
     <motion.div

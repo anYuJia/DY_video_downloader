@@ -145,7 +145,11 @@ class DouyinUserManager:
         return selected['url'] if selected else ''
 
     def _build_video_media_urls(self, video_data: dict) -> list[dict]:
-        selected_url = self._select_video_url(video_data or {})
+        video_data = video_data or {}
+        # 播放器优先使用抖音的动态 play_addr。它和 Rust 版一致，更适合浏览器通过
+        # 本地代理进行 Range 寻址；下载质量选择仍保留在 _select_video_url 中作为兜底。
+        play_url = self._first_url(video_data.get('play_addr'))
+        selected_url = play_url or self._select_video_url(video_data)
         return [{'type': 'video', 'url': selected_url}] if selected_url else []
 
     def _normalize_duration_seconds(self, value) -> int:
@@ -156,6 +160,13 @@ class DouyinUserManager:
         if duration > 1000:
             return int(round(duration / 1000))
         return int(round(duration))
+
+    def _raw_duration_value(self, value) -> int:
+        try:
+            duration = float(value or 0)
+        except (TypeError, ValueError):
+            return 0
+        return int(round(duration)) if duration > 0 else 0
         
     async def get_user_videos(self, user_id: str, offset: int = 0, limit: int = 1000, on_batch=None) -> Union[List[dict], Dict]:
         """获取用户视频列表
@@ -496,13 +507,14 @@ class DouyinUserManager:
             # 获取媒体信息
             media_type, urls = self.get_media_info(post)
             video_data = post.get('video') or {}
-            selected_video_url = self._select_video_url(video_data)
+            play_url = self._first_url(video_data.get('play_addr'))
+            selected_video_url = play_url or self._select_video_url(video_data)
             # 构建详情信息
             detail = {
                 'aweme_id': post.get('aweme_id', ''),
                 'desc': post.get('desc', ''),
                 'create_time': post.get('create_time', 0),
-                'duration': self._normalize_duration_seconds(video_data.get('duration', 0)),
+                'duration': self._raw_duration_value(video_data.get('duration', 0)),
                 'digg_count': post.get('statistics', {}).get('digg_count', 0),
                 'comment_count': post.get('statistics', {}).get('comment_count', 0),
                 'share_count': post.get('statistics', {}).get('share_count', 0),
@@ -526,8 +538,8 @@ class DouyinUserManager:
                 'images': post.get('images'),
                 'videos': urls,
                 'video': {
-                    'play_addr': selected_video_url or self._first_url(video_data.get('play_addr')),
-                    'preview_addr': self._first_url(video_data.get('preview_addr')) or selected_video_url,
+                    'play_addr': selected_video_url,
+                    'preview_addr': play_url or self._first_url(video_data.get('preview_addr')) or selected_video_url,
                     'play_addr_h264': self._first_url(video_data.get('play_addr_h264')),
                     'play_addr_lowbr': self._first_url(video_data.get('play_addr_lowbr')),
                     'download_addr': self._first_url(video_data.get('download_addr')),
@@ -535,7 +547,7 @@ class DouyinUserManager:
                     'dynamic_cover': self._first_url(video_data.get('dynamic_cover')),
                     'width': video_data.get('width', 0),
                     'height': video_data.get('height', 0),
-                    'duration': self._normalize_duration_seconds(video_data.get('duration', 0)),
+                    'duration': self._raw_duration_value(video_data.get('duration', 0)),
                     'bit_rate': video_data.get('bit_rate') or [],
                 }
             }
@@ -836,9 +848,12 @@ class DouyinUserManager:
                 if not aweme_id:
                     continue
                 media_type, media_urls = self.get_media_info(post)
+                video_data = post.get('video') or {}
+                play_url = self._first_url(video_data.get('play_addr'))
+                duration = self._raw_duration_value(video_data.get('duration', 0))
                 cover_url = ""
-                if post.get('video') and post['video'].get('cover'):
-                    cover_url = post['video']['cover'].get('url_list', [''])[0]
+                if video_data.get('cover'):
+                    cover_url = video_data['cover'].get('url_list', [''])[0]
                 elif post.get('images'):
                     cover_url = post['images'][0].get('url_list', [''])[-1]
                 video_list.append({
@@ -849,10 +864,33 @@ class DouyinUserManager:
                     'comment_count': post.get('statistics', {}).get('comment_count', 0),
                     'share_count': post.get('statistics', {}).get('share_count', 0),
                     'cover_url': cover_url,
+                    'duration': duration,
                     'media_type': media_type,
                     'raw_media_type': media_type,
                     'media_urls': media_urls,
                     'bgm_url': self._extract_bgm_url(post),
+                    'statistics': {
+                        'digg_count': post.get('statistics', {}).get('digg_count', 0),
+                        'comment_count': post.get('statistics', {}).get('comment_count', 0),
+                        'share_count': post.get('statistics', {}).get('share_count', 0),
+                        'play_count': post.get('statistics', {}).get('play_count', 0),
+                        'collect_count': post.get('statistics', {}).get('collect_count', 0),
+                    },
+                    'video': {
+                        'play_addr': play_url or (media_urls[0].get('url') if media_urls else ''),
+                        'preview_addr': play_url or (media_urls[0].get('url') if media_urls else ''),
+                        'play_addr_h264': self._first_url(video_data.get('play_addr_h264')),
+                        'play_addr_lowbr': self._first_url(video_data.get('play_addr_lowbr')),
+                        'download_addr': self._first_url(video_data.get('download_addr')),
+                        'cover': cover_url,
+                        'dynamic_cover': self._first_url(video_data.get('dynamic_cover')) or cover_url,
+                        'origin_cover': self._first_url(video_data.get('origin_cover')) or cover_url,
+                        'width': video_data.get('width', 0),
+                        'height': video_data.get('height', 0),
+                        'duration': duration,
+                        'ratio': video_data.get('ratio', ''),
+                        'bit_rate': video_data.get('bit_rate') or [],
+                    },
                     'author': {
                         'nickname': post.get('author', {}).get('nickname', ''),
                         'sec_uid': post.get('author', {}).get('sec_uid', ''),
@@ -879,9 +917,12 @@ class DouyinUserManager:
         if not aweme_id:
             return None
         media_type, media_urls = self.get_media_info(post)
+        video_data = post.get('video') or {}
+        play_url = self._first_url(video_data.get('play_addr'))
+        duration = self._raw_duration_value(video_data.get('duration', 0))
         cover_url = ""
-        if post.get('video') and post['video'].get('cover'):
-            cover_url = post['video']['cover'].get('url_list', [''])[0]
+        if video_data.get('cover'):
+            cover_url = video_data['cover'].get('url_list', [''])[0]
         elif post.get('images'):
             cover_url = post['images'][0].get('url_list', [''])[-1]
         author = post.get('author', {}) or {}
@@ -893,10 +934,33 @@ class DouyinUserManager:
             'comment_count': post.get('statistics', {}).get('comment_count', 0),
             'share_count': post.get('statistics', {}).get('share_count', 0),
             'cover_url': cover_url,
+            'duration': duration,
             'media_type': media_type,
             'raw_media_type': media_type,
             'media_urls': media_urls,
             'bgm_url': self._extract_bgm_url(post),
+            'statistics': {
+                'digg_count': post.get('statistics', {}).get('digg_count', 0),
+                'comment_count': post.get('statistics', {}).get('comment_count', 0),
+                'share_count': post.get('statistics', {}).get('share_count', 0),
+                'play_count': post.get('statistics', {}).get('play_count', 0),
+                'collect_count': post.get('statistics', {}).get('collect_count', 0),
+            },
+            'video': {
+                'play_addr': play_url or (media_urls[0].get('url') if media_urls else ''),
+                'preview_addr': play_url or (media_urls[0].get('url') if media_urls else ''),
+                'play_addr_h264': self._first_url(video_data.get('play_addr_h264')),
+                'play_addr_lowbr': self._first_url(video_data.get('play_addr_lowbr')),
+                'download_addr': self._first_url(video_data.get('download_addr')),
+                'cover': cover_url,
+                'dynamic_cover': self._first_url(video_data.get('dynamic_cover')) or cover_url,
+                'origin_cover': self._first_url(video_data.get('origin_cover')) or cover_url,
+                'width': video_data.get('width', 0),
+                'height': video_data.get('height', 0),
+                'duration': duration,
+                'ratio': video_data.get('ratio', ''),
+                'bit_rate': video_data.get('bit_rate') or [],
+            },
             'author': {
                 'nickname': author.get('nickname', ''),
                 'sec_uid': author.get('sec_uid', ''),

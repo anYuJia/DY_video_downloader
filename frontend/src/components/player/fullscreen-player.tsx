@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type TouchEvent as ReactTouchEvent,
   type WheelEvent as ReactWheelEvent,
@@ -74,11 +75,37 @@ const mediaMotionVariants: Variants = {
     scale: 0.992,
   }),
 };
+// 模块级别的会话唯一缓存击碎器：只在页面加载时生成一次，在整个会话中保持稳定，
+// 避免组件重新渲染时生成新 URL 导致视频元素被反复重置。
+const SESSION_CACHE_BUSTER = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
 function playerMediaProxyUrl(url: string | null | undefined, mediaType: "video" | "image" | "audio", retryKey = 0): string {
   const proxied = mediaProxyUrl(url, mediaType);
-  if (!proxied || retryKey <= 0) return proxied;
+  if (!proxied) return "";
+  if (mediaType === "video" || mediaType === "audio") {
+    const sep = proxied.includes("?") ? "&" : "?";
+    const buster = retryKey > 0 ? `${SESSION_CACHE_BUSTER}_r${retryKey}` : SESSION_CACHE_BUSTER;
+    return `${proxied}${sep}t=${buster}`;
+  }
+  if (retryKey <= 0) return proxied;
   return `${proxied}${proxied.includes("?") ? "&" : "?"}player_retry=${encodeURIComponent(String(retryKey))}`;
+}
+
+function finiteMediaTime(value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function readMediaDuration(node: HTMLMediaElement): number {
+  const duration = finiteMediaTime(node.duration);
+  if (duration > 0) return duration;
+
+  const ranges = node.seekable;
+  if (!ranges.length) return 0;
+  return finiteMediaTime(ranges.end(ranges.length - 1));
+}
+
+function getDocumentVideoNode(reference: HTMLElement | null): HTMLVideoElement | null {
+  return reference?.ownerDocument.querySelector("video") || null;
 }
 
 export function FullscreenPlayer({
@@ -112,6 +139,7 @@ export function FullscreenPlayer({
   const [navigationNotice, setNavigationNotice] = useState("");
   const playerRootRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const surfaceHitRef = useRef<HTMLDivElement>(null);
   const bgmRef = useRef<HTMLAudioElement>(null);
   const bgmSourceKeyRef = useRef("");
   const touchStart = useRef({ x: 0, y: 0 });
@@ -120,6 +148,7 @@ export function FullscreenPlayer({
   const loadMoreRequestedForLength = useRef(0);
   const imageAdvanceQueued = useRef(false);
   const desiredPlayingRef = useRef(true);
+  const playingRef = useRef(false);
   const mediaSwitchingRef = useRef(false);
   const bgmManuallyPausedRef = useRef(false);
   const mediaSwitchReleaseRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
@@ -133,6 +162,8 @@ export function FullscreenPlayer({
   const refreshedDetailIdsRef = useRef(new Set<string>());
   const videoProgressRafRef = useRef<number | null>(null);
   const progressSampleRef = useRef(0);
+  const surfaceTapStartRef = useRef<{ x: number; y: number; at: number } | null>(null);
+  const lastSurfaceToggleAtRef = useRef(0);
   const preloadedMediaRef = useRef(new Set<string>());
   const preloadedNodesRef = useRef<Array<HTMLImageElement | HTMLVideoElement>>([]);
 
@@ -163,7 +194,8 @@ export function FullscreenPlayer({
     currentVideo?.author?.nickname || currentVideo?.author?.unique_id || "用户";
   const canOpenAuthor = Boolean(onAuthor && currentVideo?.author?.sec_uid);
   const likeCount = (currentVideo?.statistics?.digg_count || 0) + (liked ? 1 : 0);
-  const favoriteBaseCount = currentVideo?.statistics?.collect_count || 0;
+  const favoriteBaseCount =
+    currentVideo?.statistics?.collect_count || currentVideo?.statistics?.digg_count || 0;
   const favoriteCount = favoriteBaseCount + (favorited ? 1 : 0);
   const musicUrl = getVideoBgmUrl(currentVideo);
   const bgmProxyUrl = musicUrl ? mediaProxyUrl(musicUrl, "audio") : "";
@@ -180,6 +212,10 @@ export function FullscreenPlayer({
     videoProgressRafRef.current = null;
   }, []);
 
+  useEffect(() => {
+    playingRef.current = playing;
+  }, [playing]);
+
   const clearLoadTimers = useCallback(() => {
     if (loadStatusTimerRef.current) {
       window.clearTimeout(loadStatusTimerRef.current);
@@ -192,6 +228,14 @@ export function FullscreenPlayer({
     if (bufferingTimerRef.current) {
       window.clearTimeout(bufferingTimerRef.current);
       bufferingTimerRef.current = null;
+    }
+  }, []);
+
+  const syncVideoProgress = useCallback((node: HTMLVideoElement) => {
+    setCurrentTime(finiteMediaTime(node.currentTime));
+    const nextDuration = readMediaDuration(node);
+    if (nextDuration > 0) {
+      setDuration(nextDuration);
     }
   }, []);
 
@@ -208,8 +252,7 @@ export function FullscreenPlayer({
       const now = performance.now();
       if (now - progressSampleRef.current >= 50 || node.paused || node.ended) {
         progressSampleRef.current = now;
-        setCurrentTime(node.currentTime || 0);
-        setDuration(node.duration || 0);
+        syncVideoProgress(node);
       }
 
       if (!node.paused && !node.ended) {
@@ -220,7 +263,7 @@ export function FullscreenPlayer({
     };
 
     videoProgressRafRef.current = window.requestAnimationFrame(tick);
-  }, []);
+  }, [syncVideoProgress]);
 
   const goToVideo = useCallback((index: number) => {
     if (index < 0 || index >= videos.length) return;
@@ -343,7 +386,7 @@ export function FullscreenPlayer({
       return;
     }
 
-    const node = videoRef.current;
+    const node = videoRef.current || getDocumentVideoNode(surfaceHitRef.current);
     if (!node) return;
     if (node.paused) {
       desiredPlayingRef.current = true;
@@ -357,6 +400,194 @@ export function FullscreenPlayer({
       setPlaying(false);
     }
   }, [currentMedia, startVideoProgressLoop]);
+
+  const togglePlayFromSurface = useCallback((action?: "play" | "pause") => {
+    const now = Date.now();
+    if (now - lastSurfaceToggleAtRef.current < 420) return;
+    lastSurfaceToggleAtRef.current = now;
+
+    const node = videoRef.current || getDocumentVideoNode(playerRootRef.current);
+    if (node) {
+      const surfaceLabel = surfaceHitRef.current?.getAttribute("aria-label");
+      const shouldPause = action ? action === "pause" : surfaceLabel === "暂停" || playingRef.current;
+      if (!shouldPause) {
+        desiredPlayingRef.current = true;
+        void node.play().then(() => {
+          playingRef.current = true;
+          setPlaying(true);
+          startVideoProgressLoop();
+        }).catch(() => setPlaying(false));
+      } else {
+        desiredPlayingRef.current = false;
+        playingRef.current = false;
+        setPlaying(false);
+        try {
+          node.pause();
+        } catch {
+          // Some embedded webviews expose media methods late; keep UI state consistent.
+        }
+      }
+      return;
+    }
+
+    togglePlay();
+  }, [startVideoProgressLoop, togglePlay]);
+
+  const rememberSurfaceTap = useCallback((x: number, y: number) => {
+    surfaceTapStartRef.current = { x, y, at: Date.now() };
+  }, []);
+
+  const finishSurfaceTap = useCallback((x: number, y: number) => {
+    const start = surfaceTapStartRef.current;
+    surfaceTapStartRef.current = null;
+    if (!start) return;
+    if (Date.now() - start.at > 700) return;
+    if (Math.abs(x - start.x) > 14 || Math.abs(y - start.y) > 14) return;
+    togglePlayFromSurface();
+  }, [togglePlayFromSurface]);
+
+  const handleSurfacePointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    event.preventDefault();
+    rememberSurfaceTap(event.clientX, event.clientY);
+  }, [rememberSurfaceTap]);
+
+  const handleSurfacePointerUp = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    event.preventDefault();
+    finishSurfaceTap(event.clientX, event.clientY);
+  }, [finishSurfaceTap]);
+
+  const handleSurfacePointerCancel = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    event.stopPropagation();
+    surfaceTapStartRef.current = null;
+  }, []);
+
+  const handleSurfaceMouseDown = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+    const ownerWindow = event.currentTarget.ownerDocument.defaultView || window;
+    if (typeof ownerWindow.PointerEvent !== "undefined") return;
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    event.preventDefault();
+    rememberSurfaceTap(event.clientX, event.clientY);
+  }, [rememberSurfaceTap]);
+
+  const handleSurfaceMouseUp = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+    const ownerWindow = event.currentTarget.ownerDocument.defaultView || window;
+    if (typeof ownerWindow.PointerEvent !== "undefined") return;
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    event.preventDefault();
+    finishSurfaceTap(event.clientX, event.clientY);
+  }, [finishSurfaceTap]);
+
+  const handleSurfaceTouchStart = useCallback((event: ReactTouchEvent<HTMLElement>) => {
+    const ownerWindow = event.currentTarget.ownerDocument.defaultView || window;
+    if (typeof ownerWindow.PointerEvent !== "undefined") return;
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    event.stopPropagation();
+    rememberSurfaceTap(touch.clientX, touch.clientY);
+  }, [rememberSurfaceTap]);
+
+  const handleSurfaceTouchEnd = useCallback((event: ReactTouchEvent<HTMLElement>) => {
+    const ownerWindow = event.currentTarget.ownerDocument.defaultView || window;
+    if (typeof ownerWindow.PointerEvent !== "undefined") return;
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    event.stopPropagation();
+    finishSurfaceTap(touch.clientX, touch.clientY);
+  }, [finishSurfaceTap]);
+
+  const handleSurfaceClick = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+    event.stopPropagation();
+    event.preventDefault();
+    togglePlayFromSurface(event.currentTarget.getAttribute("aria-label") === "暂停" ? "pause" : "play");
+  }, [togglePlayFromSurface]);
+
+  useEffect(() => {
+    if (!open) return;
+    const node = surfaceHitRef.current;
+    if (!node) return;
+
+    const handleNativePointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      event.stopPropagation();
+      event.preventDefault();
+      rememberSurfaceTap(event.clientX, event.clientY);
+    };
+    const handleNativePointerUp = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      event.stopPropagation();
+      event.preventDefault();
+      surfaceTapStartRef.current = null;
+    };
+    const handleNativePointerCancel = (event: PointerEvent) => {
+      event.stopPropagation();
+      surfaceTapStartRef.current = null;
+    };
+    const handleNativeMouseDown = (event: MouseEvent) => {
+      const ownerWindow = node.ownerDocument.defaultView || window;
+      if (typeof ownerWindow.PointerEvent !== "undefined") return;
+      if (event.button !== 0) return;
+      event.stopPropagation();
+      event.preventDefault();
+      rememberSurfaceTap(event.clientX, event.clientY);
+    };
+    const handleNativeMouseUp = (event: MouseEvent) => {
+      const ownerWindow = node.ownerDocument.defaultView || window;
+      if (typeof ownerWindow.PointerEvent !== "undefined") return;
+      if (event.button !== 0) return;
+      event.stopPropagation();
+      event.preventDefault();
+      finishSurfaceTap(event.clientX, event.clientY);
+    };
+    const handleNativeTouchStart = (event: TouchEvent) => {
+      const ownerWindow = node.ownerDocument.defaultView || window;
+      if (typeof ownerWindow.PointerEvent !== "undefined") return;
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      event.stopPropagation();
+      rememberSurfaceTap(touch.clientX, touch.clientY);
+    };
+    const handleNativeTouchEnd = (event: TouchEvent) => {
+      const ownerWindow = node.ownerDocument.defaultView || window;
+      if (typeof ownerWindow.PointerEvent !== "undefined") return;
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      event.stopPropagation();
+      finishSurfaceTap(touch.clientX, touch.clientY);
+    };
+    const handleNativeClick = (event: MouseEvent) => {
+      event.stopPropagation();
+      event.preventDefault();
+      togglePlayFromSurface(node.getAttribute("aria-label") === "暂停" ? "pause" : "play");
+    };
+
+    node.addEventListener("pointerdown", handleNativePointerDown);
+    node.addEventListener("pointerup", handleNativePointerUp);
+    node.addEventListener("pointercancel", handleNativePointerCancel);
+    node.addEventListener("mousedown", handleNativeMouseDown);
+    node.addEventListener("mouseup", handleNativeMouseUp);
+    node.addEventListener("touchstart", handleNativeTouchStart, { passive: false });
+    node.addEventListener("touchend", handleNativeTouchEnd, { passive: false });
+    node.addEventListener("touchcancel", handleNativeTouchEnd, { passive: false });
+    node.addEventListener("click", handleNativeClick);
+
+    return () => {
+      node.removeEventListener("pointerdown", handleNativePointerDown);
+      node.removeEventListener("pointerup", handleNativePointerUp);
+      node.removeEventListener("pointercancel", handleNativePointerCancel);
+      node.removeEventListener("mousedown", handleNativeMouseDown);
+      node.removeEventListener("mouseup", handleNativeMouseUp);
+      node.removeEventListener("touchstart", handleNativeTouchStart);
+      node.removeEventListener("touchend", handleNativeTouchEnd);
+      node.removeEventListener("touchcancel", handleNativeTouchEnd);
+      node.removeEventListener("click", handleNativeClick);
+    };
+  }, [finishSurfaceTap, open, rememberSurfaceTap, togglePlayFromSurface]);
 
   const togglePanel = useCallback((panel: "volume" | "rate" | "music", event: ReactMouseEvent) => {
     event.stopPropagation();
@@ -433,16 +664,34 @@ export function FullscreenPlayer({
     }
   }, [ensureBgmSource]);
 
-  const handleSeek = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    event.stopPropagation();
+  const handleSeek = useCallback((nextTime: number) => {
     if (!duration) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const nextTime = Math.max(0, Math.min(duration, ((event.clientX - rect.left) / rect.width) * duration));
+    const safeTime = Math.max(0, Math.min(duration, nextTime));
+    setCurrentTime(safeTime);
+    progressSampleRef.current = performance.now();
 
-    if (currentMedia && isVideoLikeMedia(currentMedia) && videoRef.current) {
-      videoRef.current.currentTime = nextTime;
+    const node = videoRef.current || getDocumentVideoNode(playerRootRef.current);
+    if (currentMedia && isVideoLikeMedia(currentMedia) && node) {
+      try {
+        if (typeof node.fastSeek === "function") {
+          node.fastSeek(safeTime);
+        } else {
+          node.currentTime = safeTime;
+        }
+      } catch {
+        try {
+          node.currentTime = safeTime;
+        } catch {
+          return;
+        }
+      }
+
+      window.requestAnimationFrame(() => {
+        if (videoRef.current !== node) return;
+        const actualTime = finiteMediaTime(node.currentTime);
+        setCurrentTime(actualTime || safeTime);
+      });
     }
-    setCurrentTime(nextTime);
   }, [currentMedia, duration]);
 
   const refreshCurrentVideoDetail = useCallback(async () => {
@@ -968,7 +1217,10 @@ export function FullscreenPlayer({
             </button>
           </div>
 
-          <div className="relative flex min-h-0 flex-1 items-center justify-center" onClick={togglePlay}>
+          <div
+            className="relative flex min-h-0 flex-1 items-center justify-center"
+            onClick={(event) => event.stopPropagation()}
+          >
             <AnimatePresence initial={false} custom={mediaTransitionDirection}>
               <motion.div
                 key={mediaKey}
@@ -986,21 +1238,41 @@ export function FullscreenPlayer({
                     ref={videoRef}
                     src={currentMediaSrc}
                     poster={currentPosterSrc}
-                    className="h-full max-h-full w-full max-w-full object-contain"
+	                    className="pointer-events-none h-full max-h-full w-full max-w-full object-contain"
                     loop={!hasMultipleMedia}
                     playsInline
                     muted={shouldUseBgmForCurrentMedia || muted || volume === 0}
-                    preload="auto"
-                    onLoadStart={scheduleLoadTimeout}
-                    onWaiting={showBufferingSoon}
-                    onStalled={showBufferingSoon}
+	                    preload="auto"
+	                    onPointerDown={handleSurfacePointerDown}
+	                    onPointerUp={handleSurfacePointerUp}
+	                    onPointerCancel={handleSurfacePointerCancel}
+	                    onMouseDown={handleSurfaceMouseDown}
+	                    onMouseUp={handleSurfaceMouseUp}
+	                    onTouchStart={handleSurfaceTouchStart}
+	                    onTouchEnd={handleSurfaceTouchEnd}
+	                    onTouchCancel={handleSurfaceTouchEnd}
+	                    onClick={handleSurfaceClick}
+	                    onLoadStart={scheduleLoadTimeout}
+	                    onWaiting={showBufferingSoon}
+	                    onStalled={showBufferingSoon}
                     onLoadedMetadata={(event) => {
-                      setDuration(event.currentTarget.duration || 0);
+                      syncVideoProgress(event.currentTarget);
                       event.currentTarget.volume = effectiveVolume / 100;
                       event.currentTarget.muted = shouldUseBgmForCurrentMedia || muted || volume === 0;
                       event.currentTarget.playbackRate = playbackRate;
+                      if (event.currentTarget.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+                        markMediaReady();
+                      }
+                    }}
+                    onLoadedData={(event) => {
+                      syncVideoProgress(event.currentTarget);
+                      markMediaReady();
+                    }}
+                    onDurationChange={(event) => {
+                      syncVideoProgress(event.currentTarget);
                     }}
                     onCanPlay={(event) => {
+                      syncVideoProgress(event.currentTarget);
                       markMediaReady();
                       releaseMediaSwitchSoon();
                       if (shouldUseBgmForCurrentMedia && desiredPlayingRef.current) {
@@ -1018,17 +1290,37 @@ export function FullscreenPlayer({
                         startVideoProgressLoop();
                       }
                     }}
-                    onPlay={() => {
-                      desiredPlayingRef.current = true;
+                    onTimeUpdate={(event) => {
+                      syncVideoProgress(event.currentTarget);
+                      if (loadState !== "ready" && event.currentTarget.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+                        markMediaReady();
+                      }
+                    }}
+                    onSeeking={(event) => syncVideoProgress(event.currentTarget)}
+                    onSeeked={(event) => syncVideoProgress(event.currentTarget)}
+	                    onPlay={(event) => {
+	                      desiredPlayingRef.current = true;
+	                      playingRef.current = true;
+	                      syncVideoProgress(event.currentTarget);
+	                      setPlaying(true);
+	                      startVideoProgressLoop();
+	                    }}
+	                    onPlaying={(event) => {
+	                      playingRef.current = true;
+	                      syncVideoProgress(event.currentTarget);
+	                      if (loadState !== "ready") {
+	                        markMediaReady();
+                      }
                       setPlaying(true);
                       startVideoProgressLoop();
                     }}
-                    onPause={() => {
-                      stopVideoProgressLoop();
-                      if (!mediaSwitchingRef.current) {
-                        setPlaying(false);
-                        desiredPlayingRef.current = false;
-                      }
+	                    onPause={() => {
+	                      stopVideoProgressLoop();
+	                      if (!mediaSwitchingRef.current) {
+	                        playingRef.current = false;
+	                        setPlaying(false);
+	                        desiredPlayingRef.current = false;
+	                      }
                     }}
                     onEnded={() => {
                       stopVideoProgressLoop();
@@ -1042,10 +1334,19 @@ export function FullscreenPlayer({
 
                 {currentMedia?.type === "image" && (
                   <img
-                    src={currentMediaSrc}
-                    alt={currentVideo.desc || "图片"}
-                    className="max-h-full max-w-full object-contain"
-                    onLoad={() => {
+	                    src={currentMediaSrc}
+	                    alt={currentVideo.desc || "图片"}
+	                    className="pointer-events-none max-h-full max-w-full object-contain"
+	                    onPointerDown={handleSurfacePointerDown}
+	                    onPointerUp={handleSurfacePointerUp}
+	                    onPointerCancel={handleSurfacePointerCancel}
+	                    onMouseDown={handleSurfaceMouseDown}
+	                    onMouseUp={handleSurfaceMouseUp}
+	                    onTouchStart={handleSurfaceTouchStart}
+	                    onTouchEnd={handleSurfaceTouchEnd}
+	                    onTouchCancel={handleSurfaceTouchEnd}
+	                    onClick={handleSurfaceClick}
+	                    onLoad={() => {
                       markMediaReady();
                       releaseMediaSwitchSoon();
                       if (desiredPlayingRef.current) {
@@ -1068,9 +1369,18 @@ export function FullscreenPlayer({
                     onRetry={retryCurrentMedia}
                     state="error"
                   />
-                )}
-              </motion.div>
-            </AnimatePresence>
+	                )}
+	              </motion.div>
+	            </AnimatePresence>
+
+            <div
+              ref={surfaceHitRef}
+              role="button"
+              tabIndex={0}
+              className="absolute inset-0 z-10 cursor-default bg-black/[0.001]"
+              aria-label={playing ? "暂停" : "播放"}
+              onClick={handleSurfaceClick}
+            />
 
             {loadState === "loading" && showLoadStatus && currentMedia && isVideoLikeMedia(currentMedia) && (
               <PlayerStatus title="正在加载媒体..." message="正在通过本地代理拉取播放地址" />
@@ -1085,7 +1395,7 @@ export function FullscreenPlayer({
             )}
 
             {!playing && loadState === "ready" && (
-              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+              <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
                 <div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/20 bg-white/15 shadow-[0_18px_52px_rgba(0,0,0,0.4)] backdrop-blur-md">
                   <Play className="ml-1 h-8 w-8 fill-white" />
                 </div>
@@ -1373,9 +1683,107 @@ function ProgressBar({
   progressPct: number;
   mediaItems: VideoMediaItem[];
   mediaIndex: number;
-  onSeek: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  onSeek: (time: number) => void;
   onSelectMedia: (index: number) => void;
 }) {
+  const pointerDraggingRef = useRef(false);
+  const mouseDraggingRef = useRef(false);
+  const touchDraggingRef = useRef(false);
+
+  const seekFromClientX = useCallback((target: HTMLDivElement, clientX: number) => {
+    if (!duration) return;
+    const rect = target.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    onSeek(ratio * duration);
+  }, [duration, onSeek]);
+
+  const handleSeekPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    event.preventDefault();
+    pointerDraggingRef.current = true;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    seekFromClientX(event.currentTarget, event.clientX);
+  }, [seekFromClientX]);
+
+  const handleSeekPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!pointerDraggingRef.current) return;
+    event.stopPropagation();
+    event.preventDefault();
+    seekFromClientX(event.currentTarget, event.clientX);
+  }, [seekFromClientX]);
+
+  const handleSeekPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!pointerDraggingRef.current) return;
+    event.stopPropagation();
+    event.preventDefault();
+    seekFromClientX(event.currentTarget, event.clientX);
+    pointerDraggingRef.current = false;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  }, [seekFromClientX]);
+
+  const handleSeekClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    if (pointerDraggingRef.current || mouseDraggingRef.current) return;
+    seekFromClientX(event.currentTarget, event.clientX);
+  }, [seekFromClientX]);
+
+  const handleSeekMouseDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const ownerWindow = event.currentTarget.ownerDocument.defaultView || window;
+    if (typeof ownerWindow.PointerEvent !== "undefined") return;
+    event.stopPropagation();
+    event.preventDefault();
+    const target = event.currentTarget;
+    mouseDraggingRef.current = true;
+    seekFromClientX(target, event.clientX);
+
+    const handleMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault();
+      seekFromClientX(target, moveEvent.clientX);
+    };
+    const handleUp = (upEvent: MouseEvent) => {
+      upEvent.preventDefault();
+      seekFromClientX(target, upEvent.clientX);
+      mouseDraggingRef.current = false;
+      ownerWindow.removeEventListener("mousemove", handleMove);
+      ownerWindow.removeEventListener("mouseup", handleUp);
+    };
+
+    ownerWindow.addEventListener("mousemove", handleMove);
+    ownerWindow.addEventListener("mouseup", handleUp);
+  }, [seekFromClientX]);
+
+  const handleSeekTouchStart = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    const ownerWindow = event.currentTarget.ownerDocument.defaultView || window;
+    if (typeof ownerWindow.PointerEvent !== "undefined") return;
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    event.stopPropagation();
+    event.preventDefault();
+    touchDraggingRef.current = true;
+    seekFromClientX(event.currentTarget, touch.clientX);
+  }, [seekFromClientX]);
+
+  const handleSeekTouchMove = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    if (!touchDraggingRef.current) return;
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    event.stopPropagation();
+    event.preventDefault();
+    seekFromClientX(event.currentTarget, touch.clientX);
+  }, [seekFromClientX]);
+
+  const handleSeekTouchEnd = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    if (!touchDraggingRef.current) return;
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    event.stopPropagation();
+    event.preventDefault();
+    seekFromClientX(event.currentTarget, touch.clientX);
+    touchDraggingRef.current = false;
+  }, [seekFromClientX]);
+
   if (mediaItems.length > 1) {
     return (
       <div className="flex items-center gap-2">
@@ -1408,8 +1816,18 @@ function ProgressBar({
   return (
     <div className="flex items-center gap-3">
       <div
-        className="group relative h-[3px] flex-1 cursor-pointer rounded-full bg-white/20 transition-[height,background-color] hover:h-[5px] hover:bg-white/30"
-        onClick={onSeek}
+        data-player-control="true"
+        className="group relative h-[3px] flex-1 cursor-pointer touch-none select-none rounded-full bg-white/20 transition-[height,background-color] hover:h-[5px] hover:bg-white/30"
+        onPointerDown={handleSeekPointerDown}
+        onPointerMove={handleSeekPointerMove}
+        onPointerUp={handleSeekPointerEnd}
+        onPointerCancel={handleSeekPointerEnd}
+        onClick={handleSeekClick}
+        onMouseDown={handleSeekMouseDown}
+        onTouchStart={handleSeekTouchStart}
+        onTouchMove={handleSeekTouchMove}
+        onTouchEnd={handleSeekTouchEnd}
+        onTouchCancel={handleSeekTouchEnd}
       >
         <div
           className="absolute inset-y-0 left-0 w-full origin-left rounded-full bg-accent transition-transform duration-100 ease-linear"
