@@ -1842,11 +1842,8 @@ export function FullscreenPlayer({
                                 option.key === activeQualityOption?.key && "bg-accent/18 text-accent"
                               )}
                             >
-                              <span className="w-12 shrink-0 text-[0.78rem] font-bold tabular-nums">
+                              <span className="min-w-0 flex-1 text-[0.78rem] font-bold tabular-nums">
                                 {option.label}
-                              </span>
-                              <span className="min-w-0 flex-1 truncate text-[0.68rem] text-white/55">
-                                {option.detail}
                               </span>
                               {option.key === activeQualityOption?.key && (
                                 <Check className="h-3.5 w-3.5 shrink-0" />
