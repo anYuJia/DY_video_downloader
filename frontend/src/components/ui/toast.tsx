@@ -31,16 +31,23 @@ interface ToastStore {
   update: (id: number, patch: Partial<Toast>) => void;
 }
 
+const MAX_VISIBLE_TOASTS = 4;
+
 export const useToastStore = create<ToastStore>((set) => ({
   toasts: [],
   nextId: 1,
   toast: (message, type = "info", title, action) => {
-    const id = Date.now() + Math.random();
-    set(() => ({
-      toasts: [
-        { id, message, type, title, action, duration: type === "loading" ? 0 : 4500 },
-      ],
-    }));
+    let id = 0;
+    set((s) => {
+      id = s.nextId;
+      return {
+        nextId: s.nextId + 1,
+        toasts: [
+          ...s.toasts,
+          { id, message, type, title, action, duration: type === "loading" ? 0 : 4500 },
+        ].slice(-MAX_VISIBLE_TOASTS),
+      };
+    });
     return id;
   },
   update: (id, patch) =>

@@ -315,9 +315,7 @@ export function SearchView() {
             </div>
             {totalHistoryPages > 1 && (
               <div className="mt-4 flex items-center justify-end gap-2 text-[0.78rem] text-text-muted">
-                <span className="tabular-nums">
-                  {safeHistoryPage} / {totalHistoryPages}
-                </span>
+                <span className="tabular-nums">{safeHistoryPage} / {totalHistoryPages}</span>
                 <Button
                   variant="outline"
                   size="icon-sm"

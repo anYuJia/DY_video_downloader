@@ -458,5 +458,5 @@ export function useSocket() {
       unlistenRefs.current.forEach((unlisten) => unlisten());
       unlistenRefs.current = [];
     };
-  }, [updateTask, addLog]);
+  }, [updateTask, addLog, toast]);
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   AlertCircle,
+  Download,
   Loader2,
   Search,
   Sparkles,
@@ -9,19 +10,61 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAppStore } from "@/stores/app-store";
+import { useAppStore, useDownloadStore, useLogStore } from "@/stores/app-store";
 import { useSearchStore } from "@/stores/search-store";
-import { mediaProxyUrl, type UserInfo } from "@/lib/tauri";
+import { downloadUserVideos, mediaProxyUrl, type UserInfo } from "@/lib/tauri";
 import { formatNumber } from "@/lib/utils";
 
 export function UserDetail() {
   const query = useSearchStore((s) => s.query);
   const searching = useSearchStore((s) => s.searching);
+  const loadingUser = useSearchStore((s) => s.loadingUser);
   const currentUser = useSearchStore((s) => s.currentUser);
   const users = useSearchStore((s) => s.users);
   const error = useSearchStore((s) => s.error);
   const openUser = useSearchStore((s) => s.openUser);
+  const loadVideos = useSearchStore((s) => s.loadVideos);
   const setView = useAppStore((s) => s.setView);
+  const addLog = useLogStore((s) => s.addLog);
+  const updateTask = useDownloadStore((s) => s.updateTask);
+  const [downloadingAll, setDownloadingAll] = useState(false);
+
+  const handleDownloadAll = async () => {
+    if (!currentUser || downloadingAll) return;
+    setDownloadingAll(true);
+
+    try {
+      const result = await downloadUserVideos(
+        currentUser.sec_uid,
+        currentUser.nickname,
+        currentUser.aweme_count || 0
+      );
+      if (!result.success) {
+        addLog(result.message || "批量下载启动失败", "error");
+        return;
+      }
+      if (result.task_id) {
+        const totalVideos = result.total_videos ?? currentUser.aweme_count ?? 0;
+        updateTask({
+          id: result.task_id,
+          filename: `${result.nickname || currentUser.nickname || "用户"} 全部作品`,
+          progress: 0,
+          status: "downloading",
+          isBatch: true,
+          mediaCount: totalVideos,
+          fileTotal: totalVideos,
+          fileIndex: 0,
+          startTime: Date.now(),
+          speed: 0,
+        });
+      }
+      addLog(result.message || `开始下载 ${currentUser.nickname} 的作品`, "success");
+    } catch (error) {
+      addLog(error instanceof Error ? error.message : "批量下载启动失败", "error");
+    } finally {
+      setDownloadingAll(false);
+    }
+  };
 
   if (searching && !currentUser && users.length === 0) {
     return (
@@ -48,7 +91,12 @@ export function UserDetail() {
   if (currentUser) {
     return (
       <div className="mb-5">
-        <UserDetailCard user={currentUser} />
+        <UserDetailCard
+          user={currentUser}
+          busy={loadingUser || downloadingAll}
+          onDownloadAll={handleDownloadAll}
+          onViewVideos={loadVideos}
+        />
 
         {error && (
           <div className="mt-3 flex items-start gap-2 rounded-[14px] border border-danger/20 bg-danger-soft px-4 py-3 text-[0.78rem] text-danger">
@@ -181,9 +229,12 @@ export function UserDetail() {
 
 interface UserDetailCardProps {
   user: UserInfo;
+  busy?: boolean;
+  onDownloadAll?: () => void;
+  onViewVideos?: () => void;
 }
 
-export function UserDetailCard({ user }: UserDetailCardProps) {
+export function UserDetailCard({ user, busy, onDownloadAll, onViewVideos }: UserDetailCardProps) {
   const stats = [
     { label: "作品", value: user.aweme_count || 0 },
     { label: "粉丝", value: user.follower_count || 0 },
@@ -235,6 +286,15 @@ export function UserDetailCard({ user }: UserDetailCardProps) {
         </div>
       </div>
 
+      <div className="flex gap-2.5 mt-4 flex-wrap">
+        <Button variant="default" size="sm" onClick={onDownloadAll} disabled={busy}>
+          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+          下载所有作品
+        </Button>
+        <Button variant="info-outline" size="sm" onClick={onViewVideos} disabled={busy}>
+          查看作品列表
+        </Button>
+      </div>
     </motion.div>
   );
 }

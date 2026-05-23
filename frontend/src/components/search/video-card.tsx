@@ -1,10 +1,10 @@
-import { motion } from 'framer-motion';
-import type { MouseEvent as ReactMouseEvent } from 'react';
-import { Download, Eye, UserRound } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { VideoCover } from '@/components/media/video-cover';
-import { cn, formatTime } from '@/lib/utils';
-import { mediaProxyUrl, type VideoInfo } from '@/lib/tauri';
+import { motion } from "framer-motion";
+import type { MouseEvent as ReactMouseEvent } from "react";
+import { Download, Eye, UserRound } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { VideoCover } from "@/components/media/video-cover";
+import { cn, formatTime } from "@/lib/utils";
+import { mediaProxyUrl, type VideoInfo } from "@/lib/tauri";
 
 interface VideoCardProps {
   video: VideoInfo;
@@ -29,8 +29,8 @@ export function VideoCard({
   selected,
   animate = false,
 }: VideoCardProps) {
-  const Card = animate ? motion.div : 'div';
-  const authorLabel = video.author?.nickname ? `@${video.author.nickname}` : '';
+  const Card = animate ? motion.div : "div";
+  const authorLabel = video.author?.nickname ? `@${video.author.nickname}` : "";
   const authorAvatar = video.author?.avatar_thumb || video.author?.avatar_medium;
 
   const handleCardClick = () => {
@@ -51,83 +51,83 @@ export function VideoCard({
         ? {
             initial: { opacity: 0, y: 12 },
             animate: { opacity: 1, y: 0 },
-            transition: { delay: index * 0.05, type: 'spring' as const, stiffness: 350, damping: 28 },
+            transition: { delay: index * 0.05, type: "spring" as const, stiffness: 350, damping: 28 },
           }
         : {})}
       className={cn(
-        'group relative h-[412px] cursor-pointer overflow-hidden rounded-[var(--radius-lg)] bg-surface-solid/90 shadow-sm',
-        'border border-transparent transition-[box-shadow,border-color,background-color] duration-[var(--duration-base)] ease-[var(--ease-spring)]',
-        'hover:border-border-strong hover:shadow-md',
-        selected && 'border-accent shadow-[var(--shadow-glow)]'
+        "group relative h-[400px] cursor-pointer overflow-hidden rounded-[var(--radius-lg)] bg-surface-solid/90 shadow-sm",
+        "border border-transparent transition-[box-shadow,border-color,background-color] duration-[var(--duration-base)] ease-[var(--ease-spring)]",
+        "hover:border-border-strong hover:shadow-md",
+        selected && "border-accent shadow-[var(--shadow-glow)]"
       )}
-      style={{ breakInside: 'avoid' }}
+      style={{ breakInside: "avoid" }}
       onClick={handleCardClick}
       onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
+        if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           handleCardClick();
         }
       }}
       tabIndex={0}
     >
-      <VideoCover video={video} className='h-[280px]' showPlayOverlay={false} allowVideoFallback />
+      <VideoCover video={video} className="h-[280px]" showPlayOverlay={false} allowVideoFallback />
 
       {/* Body */}
-      <div className='flex h-[132px] flex-col p-3'>
-        <p className='mb-1.5 text-[0.82rem] leading-[1.32] text-text line-clamp-2 min-h-[2.7em]'>
+      <div className="flex h-[120px] flex-col p-3">
+        <p className="mb-1.5 text-[0.82rem] leading-snug text-text line-clamp-2 min-h-[2.4em]">
           {video.desc}
         </p>
 
-        <div className='mb-auto flex items-center gap-2 min-w-0'>
+        <div className="mb-auto flex items-center gap-2 min-w-0">
           {authorAvatar && (
             <img
-              src={mediaProxyUrl(authorAvatar, 'image')}
+              src={mediaProxyUrl(authorAvatar, "image")}
               alt={authorLabel}
-              className='w-5 h-5 rounded-full object-cover shrink-0 ring-1 ring-border/50'
+              className="w-5 h-5 rounded-full object-cover shrink-0 ring-1 ring-border/50"
             />
           )}
-          <span className='truncate text-[0.7rem] text-text-muted'>
-            {[authorLabel, formatTime(video.create_time)].filter(Boolean).join(' · ')}
+          <span className="truncate text-[0.7rem] text-text-muted">
+            {[authorLabel, formatTime(video.create_time)].filter(Boolean).join(" · ")}
           </span>
         </div>
 
-        <div className='mt-2.5 flex gap-1.5 transition-[opacity,transform] duration-[var(--duration-base)] ease-[var(--ease-spring)] sm:translate-y-1 sm:opacity-0 sm:group-hover:translate-y-0 sm:group-hover:opacity-100 sm:group-focus-within:translate-y-0 sm:group-focus-within:opacity-100'>
+        <div className="mt-2.5 flex gap-1.5 transition-[opacity,transform] duration-[var(--duration-base)] ease-[var(--ease-spring)] sm:translate-y-1 sm:opacity-0 sm:group-hover:translate-y-0 sm:group-hover:opacity-100 sm:group-focus-within:translate-y-0 sm:group-focus-within:opacity-100">
           <Button
-            variant='outline'
-            size='icon-sm'
-            className='h-8 flex-1 rounded-[8px]'
+            variant="outline"
+            size="icon-sm"
+            className="h-8 flex-1 rounded-[8px]"
             onClick={(event) => stopAndRun(event, onAuthor)}
             disabled={!onAuthor || !video.author?.sec_uid || authorLoading}
-            title={video.author?.sec_uid ? '进入作者主页' : '作者信息不可用'}
-            aria-label='进入作者主页'
+            title={video.author?.sec_uid ? "进入作者主页" : "作者信息不可用"}
+            aria-label="进入作者主页"
           >
             {authorLoading ? (
-              <span className='h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent' />
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
             ) : (
-              <UserRound className='h-3.5 w-3.5' />
+              <UserRound className="h-3.5 w-3.5" />
             )}
           </Button>
           <Button
-            variant='info-outline'
-            size='icon-sm'
-            className='h-8 flex-1 rounded-[8px]'
+            variant="info-outline"
+            size="icon-sm"
+            className="h-8 flex-1 rounded-[8px]"
             onClick={(event) => stopAndRun(event, onDetail)}
             disabled={!onDetail}
-            title='详情'
-            aria-label='查看详情'
+            title="详情"
+            aria-label="查看详情"
           >
-            <Eye className='h-3.5 w-3.5' />
+            <Eye className="h-3.5 w-3.5" />
           </Button>
           <Button
-            variant='success-outline'
-            size='icon-sm'
-            className='h-8 flex-1 rounded-[8px]'
+            variant="success-outline"
+            size="icon-sm"
+            className="h-8 flex-1 rounded-[8px]"
             onClick={(event) => stopAndRun(event, onDownload)}
             disabled={!onDownload}
-            title='下载'
-            aria-label='下载作品'
+            title="下载"
+            aria-label="下载作品"
           >
-            <Download className='w-3.5 h-3.5' />
+            <Download className="w-3.5 h-3.5" />
           </Button>
         </div>
       </div>

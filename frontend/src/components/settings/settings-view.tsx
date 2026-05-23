@@ -59,6 +59,7 @@ type UpdateInfo = {
   notes?: string;
   asset_name?: string;
   asset_size?: number;
+  download_url?: string;
   install_mode?: string;
   portable?: boolean;
 };
@@ -380,6 +381,19 @@ export function SettingsView() {
       unitIndex++;
     }
     return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+  };
+
+  const updateAssetName = (info: UpdateInfo | null) => {
+    const explicit = info?.asset_name?.trim();
+    if (explicit) return explicit;
+    const downloadUrl = info?.download_url?.trim();
+    if (!downloadUrl) return "";
+    try {
+      const pathname = new URL(downloadUrl).pathname;
+      return decodeURIComponent(pathname.split("/").filter(Boolean).pop() || "");
+    } catch {
+      return downloadUrl.split("/").filter(Boolean).pop() || "";
+    }
   };
 
   const handleSaveCookie = async (value = cookieValue) => {
@@ -728,6 +742,7 @@ export function SettingsView() {
           notes: result.notes,
           asset_name: result.asset_name,
           asset_size: result.asset_size,
+          download_url: result.download_url,
           install_mode: result.install_mode,
           portable: result.portable,
         });
@@ -1244,11 +1259,11 @@ export function SettingsView() {
               {updateInfo.notes}
             </div>
           )}
-          {updateInfo?.asset_name && updateStatus === "available" && (
+          {updateAssetName(updateInfo) && updateStatus === "available" && (
             <div className="mt-3 flex items-center justify-between gap-3 rounded-[12px] border border-border bg-white/[0.03] px-3 py-2 text-[0.74rem] text-text-muted">
-              <span className="min-w-0 truncate">{updateInfo.asset_name}</span>
-              {formatBytes(updateInfo.asset_size) && (
-                <span className="shrink-0 font-mono tabular-nums">{formatBytes(updateInfo.asset_size)}</span>
+              <span className="min-w-0 truncate">{updateAssetName(updateInfo)}</span>
+              {formatBytes(updateInfo?.asset_size) && (
+                <span className="shrink-0 font-mono tabular-nums">{formatBytes(updateInfo?.asset_size)}</span>
               )}
             </div>
           )}
