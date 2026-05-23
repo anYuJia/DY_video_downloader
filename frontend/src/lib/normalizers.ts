@@ -27,9 +27,13 @@ interface LikedVideoItemRaw {
   comment_count?: number;
   share_count?: number;
   cover_url?: string;
+  duration?: number;
   media_type?: string;
+  raw_media_type?: string | number | null;
   media_urls?: LikedVideoMediaUrl[];
   bgm_url?: string | null;
+  statistics?: Partial<Statistics>;
+  video?: Partial<VideoData>;
   author?: LikedVideoAuthorRaw;
 }
 
@@ -192,7 +196,7 @@ export function normalizeLikedVideo(item: unknown): VideoInfo | null {
   if (!item || typeof item !== "object") return null;
 
   const candidate = item as Partial<VideoInfo> & LikedVideoItemRaw;
-  if (candidate.aweme_id && candidate.video && candidate.statistics) {
+  if (candidate.aweme_id && candidate.video) {
     const normalized = normalizeVideo(candidate);
     return normalized || (candidate as VideoInfo);
   }
@@ -231,6 +235,7 @@ export function normalizeLikedVideo(item: unknown): VideoInfo | null {
       cover,
       dynamic_cover: cover,
       origin_cover: cover,
+      duration: Number(candidate.duration || 0),
     },
     statistics: {
       ...buildEmptyStatistics(),

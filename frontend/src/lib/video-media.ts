@@ -1,4 +1,4 @@
-import type { VideoInfo, VideoMediaUrl } from "@/lib/tauri";
+import type { BitRateInfo, VideoInfo, VideoMediaUrl } from "@/lib/tauri";
 
 export type VideoMediaType = "video" | "image" | "live_photo";
 
@@ -6,6 +6,20 @@ export interface VideoMediaItem {
   type: VideoMediaType;
   url: string;
   poster?: string;
+}
+
+export interface VideoQualityOption {
+  key: string;
+  label: string;
+  detail: string;
+  url: string;
+  codec: string;
+  isAuto?: boolean;
+  width: number;
+  height: number;
+  bitRate: number;
+  dataSize: number;
+  qualityType: number;
 }
 
 type VideoLikeSource = VideoInfo & {
@@ -91,6 +105,49 @@ export function collectVideoMedia(video: VideoInfo | null | undefined): VideoMed
   }
 
   return uniqueMediaItems(items);
+}
+
+export function collectVideoQualityOptions(
+  video: VideoInfo | null | undefined,
+  fallbackUrl?: string
+): VideoQualityOption[] {
+  if (!video) return [];
+
+  const videoData = video.video || {};
+  const fallback = readUrl(fallbackUrl || videoData.preview_addr || videoData.play_addr);
+  const candidates: VideoQualityOption[] = [];
+  const seenUrls = new Set<string>();
+
+  const pushOption = (option: VideoQualityOption) => {
+    const url = option.url.trim();
+    if (!url || seenUrls.has(url)) return;
+    seenUrls.add(url);
+    candidates.push({ ...option, url });
+  };
+
+  if (fallback) {
+    pushOption({
+      key: "auto",
+      label: "自动",
+      detail: "当前播放线路",
+      url: fallback,
+      codec: "",
+      isAuto: true,
+      width: Number(videoData.width || 0),
+      height: Number(videoData.height || 0),
+      bitRate: 0,
+      dataSize: 0,
+      qualityType: 0,
+    });
+  }
+
+  const bitRates = Array.isArray(videoData.bit_rate) ? videoData.bit_rate : [];
+  bitRates
+    .flatMap((bitRate, index) => buildQualityCandidates(bitRate, index))
+    .sort((a, b) => qualityRank(b) - qualityRank(a))
+    .forEach(pushOption);
+
+  return candidates;
 }
 
 export function getVideoCover(video: VideoInfo | null | undefined): string {
@@ -193,6 +250,95 @@ function uniqueMediaItems(items: VideoMediaItem[]): VideoMediaItem[] {
   }
 
   return result;
+}
+
+function buildQualityCandidates(bitRate: BitRateInfo, index: number): VideoQualityOption[] {
+  const options: VideoQualityOption[] = [];
+  const base = {
+    width: Number(bitRate.width || 0),
+    height: Number(bitRate.height || 0),
+    bitRate: Number(bitRate.bit_rate || 0),
+    dataSize: Number(bitRate.data_size || 0),
+    qualityType: Number(bitRate.quality_type || 0),
+  };
+
+  const playUrl = readUrl(bitRate.play_addr);
+  if (playUrl) {
+    const codec = bitRate.is_h265 ? "H.265" : "H.264";
+    options.push({
+      ...base,
+      key: `quality-${index}-${codec}-main`,
+      label: formatQualityLabel(bitRate),
+      detail: formatQualityDetail(bitRate, codec),
+      url: playUrl,
+      codec,
+    });
+  }
+
+  const h264Url = readUrl(bitRate.play_addr_h264);
+  if (h264Url && h264Url !== playUrl) {
+    const codec = "H.264";
+    options.push({
+      ...base,
+      key: `quality-${index}-${codec}-h264`,
+      label: formatQualityLabel(bitRate),
+      detail: formatQualityDetail(bitRate, codec),
+      url: h264Url,
+      codec,
+    });
+  }
+
+  return options;
+}
+
+function formatQualityLabel(bitRate: BitRateInfo): string {
+  const height = Number(bitRate.height || 0);
+  if (height > 0) return `${height}p`;
+
+  const gearName = String(bitRate.gear_name || "");
+  const matchedHeight = gearName.match(/(?:^|[_-])(\d{3,4})(?:p|[_-]|$)/i)?.[1];
+  if (matchedHeight) return `${matchedHeight}p`;
+
+  const qualityType = Number(bitRate.quality_type || 0);
+  if (qualityType > 0) return `Q${qualityType}`;
+
+  return "画质";
+}
+
+function formatQualityDetail(bitRate: BitRateInfo, codec: string): string {
+  const parts = [codec];
+  const bitRateValue = Number(bitRate.bit_rate || 0);
+  const dataSize = Number(bitRate.data_size || 0);
+  const gearName = String(bitRate.gear_name || "").trim();
+
+  if (bitRateValue > 0) {
+    parts.push(formatBitRate(bitRateValue));
+  }
+  if (dataSize > 0) {
+    parts.push(formatDataSize(dataSize));
+  }
+  if (gearName) {
+    parts.push(gearName);
+  }
+
+  return parts.filter(Boolean).join(" · ");
+}
+
+function formatBitRate(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} Mbps`;
+  if (value >= 1_000) return `${Math.round(value / 1_000)} Kbps`;
+  return `${value} bps`;
+}
+
+function formatDataSize(value: number): string {
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  if (value >= 1024) return `${Math.round(value / 1024)} KB`;
+  return `${value} B`;
+}
+
+function qualityRank(option: VideoQualityOption): number {
+  const resolution = option.height > 0 ? option.height * 10_000 + option.width : 0;
+  return resolution || option.dataSize || option.bitRate || option.qualityType;
 }
 
 function readUrl(value: unknown): string {

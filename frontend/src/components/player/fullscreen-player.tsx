@@ -12,7 +12,9 @@ import {
 } from "react";
 import { AnimatePresence, motion, type Variants } from "framer-motion";
 import {
+  Check,
   Download,
+  Gauge,
   Heart,
   Info,
   Music,
@@ -27,6 +29,7 @@ import { cn, formatDuration, formatNumber } from "@/lib/utils";
 import { getVideoDetail, mediaProxyUrl, type VideoInfo } from "@/lib/tauri";
 import {
   collectVideoMedia,
+  collectVideoQualityOptions,
   getMediaProxyType,
   getVideoBgmUrl,
   isVideoLikeMedia,
@@ -127,7 +130,8 @@ export function FullscreenPlayer({
   const [volume, setVolume] = useState(100);
   const [muted, setMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
-  const [openPanel, setOpenPanel] = useState<"volume" | "rate" | "music" | null>(null);
+  const [selectedQualityKey, setSelectedQualityKey] = useState("auto");
+  const [openPanel, setOpenPanel] = useState<"volume" | "rate" | "quality" | "music" | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
@@ -150,8 +154,10 @@ export function FullscreenPlayer({
   const desiredPlayingRef = useRef(true);
   const playingRef = useRef(false);
   const mediaSwitchingRef = useRef(false);
+  const qualitySwitchingRef = useRef(false);
   const bgmManuallyPausedRef = useRef(false);
   const mediaSwitchReleaseRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const qualitySwitchReleaseRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const wheelResetTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const loadStatusTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const loadTimeoutTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
@@ -164,6 +170,7 @@ export function FullscreenPlayer({
   const progressSampleRef = useRef(0);
   const surfaceTapStartRef = useRef<{ x: number; y: number; at: number } | null>(null);
   const lastSurfaceToggleAtRef = useRef(0);
+  const pendingQualitySeekRef = useRef<number | null>(null);
   const preloadedMediaRef = useRef(new Set<string>());
   const preloadedNodesRef = useRef<Array<HTMLImageElement | HTMLVideoElement>>([]);
 
@@ -176,8 +183,18 @@ export function FullscreenPlayer({
     [currentVideo]
   );
   const currentMedia = mediaItems[mediaIndex] || mediaItems[0] || null;
+  const qualityOptions = useMemo(
+    () => currentMedia?.type === "video" ? collectVideoQualityOptions(currentVideo, currentMedia.url) : [],
+    [currentMedia?.type, currentMedia?.url, currentVideo]
+  );
+  const selectedQualityOption = qualityOptions.find((option) => option.key === selectedQualityKey);
+  const activeQualityOption = selectedQualityOption || qualityOptions[0] || null;
+  const currentPlaybackUrl =
+    currentMedia && currentMedia.type === "video" && activeQualityOption
+      ? activeQualityOption.url
+      : currentMedia?.url || "";
   const currentMediaSrc = currentMedia
-    ? playerMediaProxyUrl(currentMedia.url, getMediaProxyType(currentMedia), reloadKey)
+    ? playerMediaProxyUrl(currentPlaybackUrl, getMediaProxyType(currentMedia), reloadKey)
     : "";
   const currentPosterSrc = currentMedia?.poster
     ? playerMediaProxyUrl(currentMedia.poster, "image")
@@ -205,6 +222,7 @@ export function FullscreenPlayer({
       musicUrl &&
       (shouldUseSeparateBgm(currentMedia) || hasMultipleMedia)
   );
+  const hasQualityChoices = currentMedia?.type === "video" && qualityOptions.length > 1;
 
   const stopVideoProgressLoop = useCallback(() => {
     if (videoProgressRafRef.current === null) return;
@@ -589,7 +607,7 @@ export function FullscreenPlayer({
     };
   }, [finishSurfaceTap, open, rememberSurfaceTap, togglePlayFromSurface]);
 
-  const togglePanel = useCallback((panel: "volume" | "rate" | "music", event: ReactMouseEvent) => {
+  const togglePanel = useCallback((panel: "volume" | "rate" | "quality" | "music", event: ReactMouseEvent) => {
     event.stopPropagation();
     setOpenPanel((value) => (value === panel ? null : panel));
   }, []);
@@ -616,6 +634,115 @@ export function FullscreenPlayer({
     }
     setOpenPanel(null);
   }, []);
+
+  const handleQualityChange = useCallback((qualityKey: string, event: ReactMouseEvent) => {
+    event.stopPropagation();
+    if (qualityKey === selectedQualityKey) {
+      setOpenPanel(null);
+      return;
+    }
+
+    const nextQualityOption = qualityOptions.find((option) => option.key === qualityKey);
+    const nextPlaybackUrl =
+      currentMedia && currentMedia.type === "video" && nextQualityOption
+        ? nextQualityOption.url
+        : currentMedia?.url || "";
+    const nextMediaSrc = currentMedia
+      ? playerMediaProxyUrl(nextPlaybackUrl, getMediaProxyType(currentMedia), reloadKey)
+      : "";
+    const node = videoRef.current || getDocumentVideoNode(playerRootRef.current);
+    const nextTime = node ? finiteMediaTime(node.currentTime) : currentTime;
+    const shouldResume = playingRef.current || desiredPlayingRef.current;
+    pendingQualitySeekRef.current = nextTime > 0 ? nextTime : null;
+    desiredPlayingRef.current = shouldResume;
+    mediaSwitchingRef.current = true;
+    qualitySwitchingRef.current = true;
+    if (qualitySwitchReleaseRef.current) {
+      window.clearTimeout(qualitySwitchReleaseRef.current);
+    }
+    qualitySwitchReleaseRef.current = window.setTimeout(() => {
+      qualitySwitchingRef.current = false;
+      qualitySwitchReleaseRef.current = null;
+    }, 8000);
+    setSelectedQualityKey(qualityKey);
+    setPlaying(shouldResume);
+    setLoadState("loading");
+    setShowLoadStatus(true);
+    setDuration(0);
+    setOpenPanel(null);
+
+    if (node && nextMediaSrc) {
+      node.src = nextMediaSrc;
+      node.volume = effectiveVolume / 100;
+      const targetMuted = shouldUseBgmForCurrentMedia || muted || volume === 0;
+      node.muted = shouldResume && !targetMuted ? true : targetMuted;
+      node.playbackRate = playbackRate;
+      node.load();
+      if (shouldResume) {
+        void node.play().then(() => {
+          node.muted = targetMuted;
+          playingRef.current = true;
+          setPlaying(true);
+          startVideoProgressLoop();
+        }).catch(() => {
+          node.muted = targetMuted;
+          setPlaying(false);
+        });
+      }
+    }
+  }, [
+    currentMedia,
+    currentTime,
+    effectiveVolume,
+    muted,
+    playbackRate,
+    qualityOptions,
+    reloadKey,
+    selectedQualityKey,
+    shouldUseBgmForCurrentMedia,
+    startVideoProgressLoop,
+    volume,
+  ]);
+
+  const restorePendingQualitySeek = useCallback((node: HTMLVideoElement) => {
+    const pendingTime = pendingQualitySeekRef.current;
+    if (!pendingTime || pendingTime <= 0) return;
+
+    const nodeDuration = readMediaDuration(node);
+    const safeTime = nodeDuration > 0 ? Math.min(pendingTime, Math.max(0, nodeDuration - 0.15)) : pendingTime;
+    try {
+      node.currentTime = safeTime;
+      setCurrentTime(safeTime);
+      pendingQualitySeekRef.current = null;
+    } catch {
+      // Some streams reject early seeking until canplay; the next metadata event will keep playback usable.
+    }
+  }, []);
+
+  const resumeVideoIfDesired = useCallback((node: HTMLVideoElement) => {
+    if (!desiredPlayingRef.current || !currentMedia || !isVideoLikeMedia(currentMedia)) return;
+    const targetMuted = shouldUseBgmForCurrentMedia || muted || volume === 0;
+    const shouldTemporarilyMute = qualitySwitchingRef.current && !targetMuted;
+    if (!node.paused) {
+      node.muted = targetMuted;
+      setPlaying(true);
+      startVideoProgressLoop();
+      return;
+    }
+
+    if (shouldTemporarilyMute) {
+      node.muted = true;
+    }
+    void node.play().then(() => {
+      node.muted = targetMuted;
+      playingRef.current = true;
+      setPlaying(true);
+      startVideoProgressLoop();
+    }).catch(() => {
+      node.muted = targetMuted;
+      setPlaying(false);
+    });
+  }, [currentMedia, muted, shouldUseBgmForCurrentMedia, startVideoProgressLoop, volume]);
 
   const ensureBgmSource = useCallback(() => {
     const audio = bgmRef.current;
@@ -868,6 +995,9 @@ export function FullscreenPlayer({
       if (mediaSwitchReleaseRef.current) {
         window.clearTimeout(mediaSwitchReleaseRef.current);
       }
+      if (qualitySwitchReleaseRef.current) {
+        window.clearTimeout(qualitySwitchReleaseRef.current);
+      }
       if (wheelResetTimerRef.current) {
         window.clearTimeout(wheelResetTimerRef.current);
       }
@@ -902,8 +1032,22 @@ export function FullscreenPlayer({
   }, [mediaIndex, mediaItems.length]);
 
   useEffect(() => {
-    autoRetryCountRef.current = 0;
+    pendingQualitySeekRef.current = null;
+    setSelectedQualityKey("auto");
   }, [currentMedia?.url, currentVideo?.aweme_id, mediaIndex]);
+
+  useEffect(() => {
+    if (qualityOptions.length === 0) {
+      if (selectedQualityKey !== "auto") setSelectedQualityKey("auto");
+      return;
+    }
+    if (qualityOptions.some((option) => option.key === selectedQualityKey)) return;
+    setSelectedQualityKey(qualityOptions[0].key);
+  }, [qualityOptions, selectedQualityKey]);
+
+  useEffect(() => {
+    autoRetryCountRef.current = 0;
+  }, [currentMedia?.url, currentVideo?.aweme_id, mediaIndex, selectedQualityKey]);
 
   useEffect(() => {
     bgmManuallyPausedRef.current = false;
@@ -946,6 +1090,12 @@ export function FullscreenPlayer({
       setShowLoadStatus(true);
     });
   }, [currentVideo, mediaItems.length, open, refreshCurrentVideoDetail]);
+
+  useEffect(() => {
+    if (!open || !currentVideo || currentMedia?.type !== "video") return;
+    if (qualityOptions.length > 1) return;
+    void refreshCurrentVideoDetail();
+  }, [currentMedia?.type, currentVideo, open, qualityOptions.length, refreshCurrentVideoDetail]);
 
   useEffect(() => {
     if (!open || !onLoadMore || videos.length === 0) return;
@@ -1239,6 +1389,7 @@ export function FullscreenPlayer({
                     src={currentMediaSrc}
                     poster={currentPosterSrc}
 	                    className="pointer-events-none h-full max-h-full w-full max-w-full object-contain"
+                    autoPlay={desiredPlayingRef.current}
                     loop={!hasMultipleMedia}
                     playsInline
                     muted={shouldUseBgmForCurrentMedia || muted || volume === 0}
@@ -1256,6 +1407,7 @@ export function FullscreenPlayer({
 	                    onWaiting={showBufferingSoon}
 	                    onStalled={showBufferingSoon}
                     onLoadedMetadata={(event) => {
+                      restorePendingQualitySeek(event.currentTarget);
                       syncVideoProgress(event.currentTarget);
                       event.currentTarget.volume = effectiveVolume / 100;
                       event.currentTarget.muted = shouldUseBgmForCurrentMedia || muted || volume === 0;
@@ -1263,15 +1415,18 @@ export function FullscreenPlayer({
                       if (event.currentTarget.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
                         markMediaReady();
                       }
+                      resumeVideoIfDesired(event.currentTarget);
                     }}
                     onLoadedData={(event) => {
                       syncVideoProgress(event.currentTarget);
                       markMediaReady();
+                      resumeVideoIfDesired(event.currentTarget);
                     }}
                     onDurationChange={(event) => {
                       syncVideoProgress(event.currentTarget);
                     }}
                     onCanPlay={(event) => {
+                      restorePendingQualitySeek(event.currentTarget);
                       syncVideoProgress(event.currentTarget);
                       markMediaReady();
                       releaseMediaSwitchSoon();
@@ -1280,15 +1435,7 @@ export function FullscreenPlayer({
                       } else {
                         pauseBgm();
                       }
-                      if (desiredPlayingRef.current && event.currentTarget.paused) {
-                        void event.currentTarget.play().then(() => {
-                          setPlaying(true);
-                          startVideoProgressLoop();
-                        }).catch(() => setPlaying(false));
-                      } else if (desiredPlayingRef.current) {
-                        setPlaying(true);
-                        startVideoProgressLoop();
-                      }
+                      resumeVideoIfDesired(event.currentTarget);
                     }}
                     onTimeUpdate={(event) => {
                       syncVideoProgress(event.currentTarget);
@@ -1306,6 +1453,11 @@ export function FullscreenPlayer({
 	                      startVideoProgressLoop();
 	                    }}
 	                    onPlaying={(event) => {
+                      qualitySwitchingRef.current = false;
+                      if (qualitySwitchReleaseRef.current) {
+                        window.clearTimeout(qualitySwitchReleaseRef.current);
+                        qualitySwitchReleaseRef.current = null;
+                      }
 	                      playingRef.current = true;
 	                      syncVideoProgress(event.currentTarget);
 	                      if (loadState !== "ready") {
@@ -1314,8 +1466,12 @@ export function FullscreenPlayer({
                       setPlaying(true);
                       startVideoProgressLoop();
                     }}
-	                    onPause={() => {
+	                    onPause={(event) => {
 	                      stopVideoProgressLoop();
+                      if (qualitySwitchingRef.current && desiredPlayingRef.current) {
+                        window.setTimeout(() => resumeVideoIfDesired(event.currentTarget), 80);
+                        return;
+                      }
 	                      if (!mediaSwitchingRef.current) {
 	                        playingRef.current = false;
 	                        setPlaying(false);
@@ -1561,6 +1717,56 @@ export function FullscreenPlayer({
                     )}
                   </AnimatePresence>
                 </div>
+
+                {hasQualityChoices && (
+                  <div className="relative shrink-0">
+                    <PlayerIconButton
+                      label={`画质 ${activeQualityOption?.label || "自动"}`}
+                      onClick={(event) => togglePanel("quality", event)}
+                      active={openPanel === "quality"}
+                    >
+                      <Gauge className="h-4 w-4" />
+                    </PlayerIconButton>
+                    <AnimatePresence>
+                      {openPanel === "quality" && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 6 }}
+                          transition={{ duration: 0.16 }}
+                          className="absolute bottom-9 left-1/2 z-40 flex w-[min(260px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-1 rounded-xl bg-[#141414]/95 p-2 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+                          onClick={(event) => event.stopPropagation()}
+                          onWheel={(event) => event.stopPropagation()}
+                        >
+                          <div className="px-2 pb-1 text-[0.68rem] font-semibold uppercase tracking-wider text-white/45">
+                            画质
+                          </div>
+                          {qualityOptions.map((option) => (
+                            <button
+                              key={option.key}
+                              type="button"
+                              onClick={(event) => handleQualityChange(option.key, event)}
+                              className={cn(
+                                "flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-white/12",
+                                option.key === activeQualityOption?.key && "bg-accent/18 text-accent"
+                              )}
+                            >
+                              <span className="w-12 shrink-0 text-[0.78rem] font-bold tabular-nums">
+                                {option.label}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate text-[0.68rem] text-white/55">
+                                {option.detail}
+                              </span>
+                              {option.key === activeQualityOption?.key && (
+                                <Check className="h-3.5 w-3.5 shrink-0" />
+                              )}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
 
                 <PlayerIconButton
                   label="下载作品"
