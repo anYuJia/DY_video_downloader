@@ -68,8 +68,8 @@ export function GlobalAlert() {
               type="button"
               variant="outline"
               onClick={() => {
-                config.onCancel?.();
                 hideAlert();
+                config.onCancel?.();
               }}
               className="h-11 flex-1 rounded-[14px] font-bold"
             >
@@ -80,8 +80,8 @@ export function GlobalAlert() {
             type="button"
             variant={config.variant === "danger" ? "danger" : "default"}
             onClick={() => {
-              config.onAction?.();
               hideAlert();
+              config.onAction?.();
             }}
             className="h-11 flex-1 rounded-[14px] font-bold shadow-md active:scale-[0.98] transition-transform"
           >

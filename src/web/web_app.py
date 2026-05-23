@@ -1451,6 +1451,8 @@ def download_update():
             'file_path': str(file_path),
             'install_mode': install_mode,
             'opened': opened,
+            'restart_required': False,
+            'message': _update_download_message(file_path, install_mode, opened),
         })
 
         return jsonify({
