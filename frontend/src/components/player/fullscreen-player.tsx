@@ -61,6 +61,8 @@ const WHEEL_VIDEO_SWITCH_THRESHOLD = 80;
 const WHEEL_VIDEO_SWITCH_LOCK_MS = 520;
 const WHEEL_IDLE_RESET_MS = 160;
 const PLAYER_PANEL_CLOSE_DELAY_MS = 220;
+const PROGRESS_PREVIEW_WIDTH = 184;
+const PROGRESS_PREVIEW_HEIGHT = 104;
 
 type PlayerPanel = "volume" | "rate" | "quality" | "download" | "music";
 
@@ -1862,7 +1864,7 @@ export function FullscreenPlayer({
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: 6 }}
                           transition={{ duration: 0.16 }}
-                          className="absolute bottom-9 left-1/2 z-40 flex w-[min(280px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-1 rounded-xl bg-[#141414]/95 p-2 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+                          className="absolute bottom-9 left-1/2 z-40 flex w-[160px] -translate-x-1/2 flex-col gap-1 rounded-xl bg-[#141414]/95 p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
                           onPointerEnter={(event) => openPanelOnPointerEnter("quality", event)}
                           onPointerLeave={(event) => closePanelOnPointerLeave("quality", event)}
                           onMouseEnter={() => openToolPanel("quality")}
@@ -1870,7 +1872,7 @@ export function FullscreenPlayer({
                           onClick={(event) => event.stopPropagation()}
                           onWheel={(event) => event.stopPropagation()}
                         >
-                          <div className="flex items-center justify-between px-2 pb-1">
+                          <div className="flex items-center justify-between px-1.5 pb-1">
                             <span className="text-[0.68rem] font-semibold uppercase tracking-wider text-white/45">
                               画质
                             </span>
@@ -1884,7 +1886,7 @@ export function FullscreenPlayer({
                               type="button"
                               onClick={(event) => handleQualityChange(option.key, event)}
                               className={cn(
-                                "flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-white/12",
+                                "flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-white/12",
                                 option.key === activeQualityOption?.key && "bg-accent/18 text-accent"
                               )}
                             >
@@ -2040,6 +2042,8 @@ export function FullscreenPlayer({
                 progressPct={progressPct}
                 mediaItems={mediaItems}
                 mediaIndex={mediaIndex}
+                previewSrc={currentMedia && isVideoLikeMedia(currentMedia) ? currentMediaSrc : ""}
+                previewPoster={currentPosterSrc}
                 onSeek={handleSeek}
                 onSelectMedia={switchToMedia}
               />
@@ -2070,6 +2074,8 @@ function ProgressBar({
   progressPct,
   mediaItems,
   mediaIndex,
+  previewSrc,
+  previewPoster,
   onSeek,
   onSelectMedia,
 }: {
@@ -2078,12 +2084,43 @@ function ProgressBar({
   progressPct: number;
   mediaItems: VideoMediaItem[];
   mediaIndex: number;
+  previewSrc?: string;
+  previewPoster?: string;
   onSeek: (time: number) => void;
   onSelectMedia: (index: number) => void;
 }) {
   const pointerDraggingRef = useRef(false);
   const mouseDraggingRef = useRef(false);
   const touchDraggingRef = useRef(false);
+  const [hoverPreview, setHoverPreview] = useState({
+    visible: false,
+    x: 0,
+    time: 0,
+  });
+
+  const updateHoverPreview = useCallback((target: HTMLDivElement, clientX: number, visible = true) => {
+    if (!duration) {
+      setHoverPreview((current) => current.visible ? { ...current, visible: false } : current);
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    if (rect.width <= 0) return;
+
+    const rawX = Math.max(0, Math.min(rect.width, clientX - rect.left));
+    const ratio = rawX / rect.width;
+
+    setHoverPreview({
+      visible,
+      x: rawX,
+      time: ratio * duration,
+    });
+  }, [duration]);
+
+  const hideHoverPreview = useCallback(() => {
+    if (pointerDraggingRef.current || mouseDraggingRef.current || touchDraggingRef.current) return;
+    setHoverPreview((current) => current.visible ? { ...current, visible: false } : current);
+  }, []);
 
   const seekFromClientX = useCallback((target: HTMLDivElement, clientX: number) => {
     if (!duration) return;
@@ -2099,15 +2136,19 @@ function ProgressBar({
     event.preventDefault();
     pointerDraggingRef.current = true;
     event.currentTarget.setPointerCapture?.(event.pointerId);
+    updateHoverPreview(event.currentTarget, event.clientX);
     seekFromClientX(event.currentTarget, event.clientX);
-  }, [seekFromClientX]);
+  }, [seekFromClientX, updateHoverPreview]);
 
   const handleSeekPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "touch") {
+      updateHoverPreview(event.currentTarget, event.clientX);
+    }
     if (!pointerDraggingRef.current) return;
     event.stopPropagation();
     event.preventDefault();
     seekFromClientX(event.currentTarget, event.clientX);
-  }, [seekFromClientX]);
+  }, [seekFromClientX, updateHoverPreview]);
 
   const handleSeekPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (!pointerDraggingRef.current) return;
@@ -2116,7 +2157,12 @@ function ProgressBar({
     seekFromClientX(event.currentTarget, event.clientX);
     pointerDraggingRef.current = false;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
-  }, [seekFromClientX]);
+    if (event.pointerType !== "touch") {
+      updateHoverPreview(event.currentTarget, event.clientX);
+    } else {
+      hideHoverPreview();
+    }
+  }, [hideHoverPreview, seekFromClientX, updateHoverPreview]);
 
   const handleSeekClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     event.stopPropagation();
@@ -2131,23 +2177,26 @@ function ProgressBar({
     event.preventDefault();
     const target = event.currentTarget;
     mouseDraggingRef.current = true;
+    updateHoverPreview(target, event.clientX);
     seekFromClientX(target, event.clientX);
 
     const handleMove = (moveEvent: MouseEvent) => {
       moveEvent.preventDefault();
+      updateHoverPreview(target, moveEvent.clientX);
       seekFromClientX(target, moveEvent.clientX);
     };
     const handleUp = (upEvent: MouseEvent) => {
       upEvent.preventDefault();
       seekFromClientX(target, upEvent.clientX);
       mouseDraggingRef.current = false;
+      updateHoverPreview(target, upEvent.clientX);
       ownerWindow.removeEventListener("mousemove", handleMove);
       ownerWindow.removeEventListener("mouseup", handleUp);
     };
 
     ownerWindow.addEventListener("mousemove", handleMove);
     ownerWindow.addEventListener("mouseup", handleUp);
-  }, [seekFromClientX]);
+  }, [seekFromClientX, updateHoverPreview]);
 
   const handleSeekTouchStart = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
     const ownerWindow = event.currentTarget.ownerDocument.defaultView || window;
@@ -2209,12 +2258,18 @@ function ProgressBar({
   }
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-3 pb-5">
       <div
         data-player-control="true"
-        className="group relative h-[3px] flex-1 cursor-pointer touch-none select-none rounded-full bg-white/20 transition-[height,background-color] hover:h-[5px] hover:bg-white/30"
+        className="group relative flex h-6 flex-1 cursor-pointer touch-none select-none items-center"
+        onPointerEnter={(event) => {
+          if (event.pointerType !== "touch") {
+            updateHoverPreview(event.currentTarget, event.clientX);
+          }
+        }}
         onPointerDown={handleSeekPointerDown}
         onPointerMove={handleSeekPointerMove}
+        onPointerLeave={hideHoverPreview}
         onPointerUp={handleSeekPointerEnd}
         onPointerCancel={handleSeekPointerEnd}
         onClick={handleSeekClick}
@@ -2225,16 +2280,135 @@ function ProgressBar({
         onTouchCancel={handleSeekTouchEnd}
       >
         <div
-          className="absolute inset-y-0 left-0 w-full origin-left rounded-full bg-accent transition-transform duration-100 ease-linear"
-          style={{ transform: `scaleX(${progressPct / 100})` }}
-        />
+          className={cn(
+            "absolute left-0 right-0 top-1/2 -translate-y-1/2 overflow-hidden rounded-full transition-[height,background-color] duration-150",
+            hoverPreview.visible ? "h-1.5 bg-white/28" : "h-[2px] bg-white/10"
+          )}
+        >
+          <div
+            className={cn(
+              "absolute inset-y-0 left-0 w-full origin-left rounded-full transition-[background-color,transform] duration-100 ease-linear",
+              hoverPreview.visible ? "bg-accent" : "bg-accent/80"
+            )}
+            style={{ transform: `scaleX(${progressPct / 100})` }}
+          />
+        </div>
         <div
-          className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-white opacity-0 shadow-md transition-opacity group-hover:opacity-100"
+          className={cn(
+            "absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-white shadow-md transition-opacity",
+            hoverPreview.visible ? "opacity-100" : "opacity-0"
+          )}
           style={{ left: `calc(${progressPct}% - 6px)` }}
         />
+        <AnimatePresence>
+          {hoverPreview.visible && duration > 0 && (
+            <>
+              <div
+                className="pointer-events-none absolute bottom-full z-50 mb-3"
+                style={{
+                  left: hoverPreview.x,
+                  transform: "translateX(-50%)",
+                }}
+              >
+                <motion.div
+                  initial={{ opacity: 0, y: 6, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 4, scale: 0.98 }}
+                  transition={{ duration: 0.14 }}
+                  className="overflow-hidden rounded-[8px] border border-white/14 bg-black/90 shadow-[0_14px_36px_rgba(0,0,0,0.42)]"
+                  style={{
+                    width: PROGRESS_PREVIEW_WIDTH,
+                    height: PROGRESS_PREVIEW_HEIGHT,
+                  }}
+                >
+                  <ProgressFramePreview
+                    src={previewSrc || ""}
+                    poster={previewPoster || ""}
+                    time={hoverPreview.time}
+                  />
+                </motion.div>
+              </div>
+              <div
+                className="pointer-events-none absolute top-full z-50 mt-2"
+                style={{
+                  left: hoverPreview.x,
+                  transform: "translateX(-50%)",
+                }}
+              >
+                <motion.div
+                  initial={{ opacity: 0, y: -3 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -3 }}
+                  transition={{ duration: 0.12 }}
+                  className="rounded-full bg-black/82 px-2 py-1 text-[0.68rem] font-bold tabular-nums text-white shadow-[0_8px_18px_rgba(0,0,0,0.32)]"
+                >
+                  {formatDuration(hoverPreview.time)}
+                </motion.div>
+              </div>
+            </>
+          )}
+        </AnimatePresence>
       </div>
       <TimeLabel currentTime={currentTime} duration={duration} />
     </div>
+  );
+}
+
+function ProgressFramePreview({
+  src,
+  poster,
+  time,
+}: {
+  src: string;
+  poster: string;
+  time: number;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const node = videoRef.current;
+    if (!node || !src) return;
+
+    const safeTime = Math.max(0, time);
+    const seekPreview = () => {
+      try {
+        if (Math.abs(node.currentTime - safeTime) > 0.08) {
+          node.currentTime = safeTime;
+        }
+      } catch {
+        // Preview seeking is best-effort; the main player owns actual playback.
+      }
+    };
+
+    if (node.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      seekPreview();
+      return;
+    }
+
+    node.addEventListener("loadedmetadata", seekPreview, { once: true });
+    return () => node.removeEventListener("loadedmetadata", seekPreview);
+  }, [src, time]);
+
+  if (!src) {
+    return poster ? (
+      <img src={poster} alt="" className="h-full w-full object-cover" draggable={false} />
+    ) : (
+      <div className="flex h-full w-full items-center justify-center bg-white/[0.04] text-[0.72rem] font-medium text-white/55">
+        暂无预览
+      </div>
+    );
+  }
+
+  return (
+    <video
+      ref={videoRef}
+      src={src}
+      poster={poster || undefined}
+      preload="metadata"
+      muted
+      playsInline
+      className="h-full w-full object-cover"
+    />
   );
 }
 
