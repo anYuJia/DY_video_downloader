@@ -45,6 +45,7 @@ export interface VideoData {
   width: number;
   height: number;
   duration: number;
+  duration_unit?: "seconds" | "milliseconds" | string | null;
   ratio: string;
   bit_rate?: BitRateInfo[] | null;
 }
@@ -68,6 +69,14 @@ export interface Statistics {
   share_count: number;
   collect_count: number;
   forward_count: number;
+}
+
+export interface VideoStatus {
+  is_delete?: boolean;
+  private_status?: number;
+  review_status?: number;
+  with_goods?: boolean;
+  is_prohibited?: boolean;
 }
 
 export interface MusicInfo {
@@ -99,6 +108,7 @@ export interface VideoInfo {
   is_image: boolean;
   media_type: string;
   raw_media_type?: string | number | null;
+  status?: VideoStatus | null;
   bgm_url?: string | null;
   cover_url?: string | null;
   music: MusicInfo | null;

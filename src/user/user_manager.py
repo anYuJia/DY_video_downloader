@@ -167,6 +167,16 @@ class DouyinUserManager:
         except (TypeError, ValueError):
             return 0
         return int(round(duration)) if duration > 0 else 0
+
+    def _extract_post_status(self, post: dict) -> dict:
+        status = post.get('status') or {}
+        return {
+            'is_delete': bool(status.get('is_delete', False)),
+            'private_status': int(status.get('private_status') or 0),
+            'review_status': int(status.get('review_status') or 0),
+            'with_goods': bool(status.get('with_goods', False)),
+            'is_prohibited': bool(status.get('is_prohibited', False)),
+        }
         
     async def get_user_videos(self, user_id: str, offset: int = 0, limit: int = 1000, on_batch=None) -> Union[List[dict], Dict]:
         """获取用户视频列表
@@ -515,6 +525,7 @@ class DouyinUserManager:
                 'desc': post.get('desc', ''),
                 'create_time': post.get('create_time', 0),
                 'duration': self._raw_duration_value(video_data.get('duration', 0)),
+                'duration_unit': 'milliseconds',
                 'digg_count': post.get('statistics', {}).get('digg_count', 0),
                 'comment_count': post.get('statistics', {}).get('comment_count', 0),
                 'share_count': post.get('statistics', {}).get('share_count', 0),
@@ -533,6 +544,7 @@ class DouyinUserManager:
                 'media_type': media_type,
                 'media_urls': urls,
                 'raw_media_type': media_type,
+                'status': self._extract_post_status(post),
                 'cover_url': self._first_url(video_data.get('cover')),
                 # 保留原始数据字段用于调试
                 'images': post.get('images'),
@@ -549,6 +561,7 @@ class DouyinUserManager:
                     'width': video_data.get('width', 0),
                     'height': video_data.get('height', 0),
                     'duration': self._raw_duration_value(video_data.get('duration', 0)),
+                    'duration_unit': 'milliseconds',
                     'ratio': video_data.get('ratio', ''),
                     'bit_rate': video_data.get('bit_rate') or [],
                 }
@@ -867,8 +880,10 @@ class DouyinUserManager:
                     'share_count': post.get('statistics', {}).get('share_count', 0),
                     'cover_url': cover_url,
                     'duration': duration,
+                    'duration_unit': 'milliseconds',
                     'media_type': media_type,
                     'raw_media_type': media_type,
+                    'status': self._extract_post_status(post),
                     'media_urls': media_urls,
                     'bgm_url': self._extract_bgm_url(post),
                     'statistics': {
@@ -890,6 +905,7 @@ class DouyinUserManager:
                         'width': video_data.get('width', 0),
                         'height': video_data.get('height', 0),
                         'duration': duration,
+                        'duration_unit': 'milliseconds',
                         'ratio': video_data.get('ratio', ''),
                         'bit_rate': video_data.get('bit_rate') or [],
                     },
@@ -937,8 +953,10 @@ class DouyinUserManager:
             'share_count': post.get('statistics', {}).get('share_count', 0),
             'cover_url': cover_url,
             'duration': duration,
+            'duration_unit': 'milliseconds',
             'media_type': media_type,
             'raw_media_type': media_type,
+            'status': self._extract_post_status(post),
             'media_urls': media_urls,
             'bgm_url': self._extract_bgm_url(post),
             'statistics': {
@@ -960,6 +978,7 @@ class DouyinUserManager:
                 'width': video_data.get('width', 0),
                 'height': video_data.get('height', 0),
                 'duration': duration,
+                'duration_unit': 'milliseconds',
                 'ratio': video_data.get('ratio', ''),
                 'bit_rate': video_data.get('bit_rate') or [],
             },

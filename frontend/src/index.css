@@ -17,7 +17,11 @@
 
   --color-text: #e8e8ed;
   --color-text-secondary: #9b9baa;
-  --color-text-muted: #5c5c6e;
+  --color-text-muted: #7a7a8e;
+
+  --color-setting-card: rgba(255, 255, 255, 0.04);
+  --color-subtle-bg: rgba(255, 255, 255, 0.06);
+  --color-toggle-track: rgba(255, 255, 255, 0.12);
 
   --color-accent: #FE2C55;
   --color-accent-soft: rgba(254, 44, 85, 0.1);
@@ -112,7 +116,10 @@
   --image-outline: rgba(0, 0, 0, 0.1);
   --color-text: #1d1d1f;
   --color-text-secondary: #6e6e73;
-  --color-text-muted: #8f8f98;
+  --color-text-muted: #86868b;
+  --color-setting-card: rgba(0, 0, 0, 0.03);
+  --color-subtle-bg: rgba(0, 0, 0, 0.04);
+  --color-toggle-track: rgba(0, 0, 0, 0.12);
   --shadow-sm: 0 1px 2px rgba(18, 18, 24, 0.06), 0 10px 30px rgba(18, 18, 24, 0.06);
   --shadow-md: 0 18px 55px rgba(18, 18, 24, 0.12), 0 4px 14px rgba(18, 18, 24, 0.06);
   --shadow-lg: 0 30px 90px rgba(18, 18, 24, 0.14), 0 8px 24px rgba(18, 18, 24, 0.06);

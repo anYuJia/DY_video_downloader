@@ -2725,6 +2725,7 @@ def get_user_videos():
                 'desc': video.get('desc', ''),
                 'create_time': video.get('create_time', 0),
                 'duration': _raw_duration_value((video.get('video') or {}).get('duration', 0)),
+                'duration_unit': 'milliseconds',
                 'digg_count': video.get('statistics', {}).get('digg_count', 0),
                 'comment_count': video.get('statistics', {}).get('comment_count', 0),
                 'share_count': video.get('statistics', {}).get('share_count', 0),
@@ -2752,6 +2753,7 @@ def get_user_videos():
                     'width': video_data.get('width', 0),
                     'height': video_data.get('height', 0),
                     'duration': _raw_duration_value(video_data.get('duration', 0)),
+                    'duration_unit': 'milliseconds',
                     'ratio': video_data.get('ratio', ''),
                     'bit_rate': video_data.get('bit_rate') or [],
                 },
@@ -3643,6 +3645,7 @@ def parse_link():
                 'desc': video_info.get('desc', ''),
                 'digg_count': video_info.get('digg_count', 0),
                 'duration': video_info.get('duration', 0),
+                'duration_unit': video_info.get('duration_unit', 'milliseconds'),
                 'media_type': video_info.get('media_type', ''),
                 'raw_media_type': video_info.get('raw_media_type', video_info.get('media_type', '')),
                 'media_urls': video_info.get('media_urls', []),
@@ -4206,6 +4209,17 @@ def _raw_duration_value(value):
     return int(round(duration_value)) if duration_value > 0 else 0
 
 
+def _extract_post_status(post):
+    status = (post or {}).get('status') or {}
+    return {
+        'is_delete': bool(status.get('is_delete', False)),
+        'private_status': _coerce_int(status.get('private_status'), 0, 0),
+        'review_status': _coerce_int(status.get('review_status'), 0, 0),
+        'with_goods': bool(status.get('with_goods', False)),
+        'is_prohibited': bool(status.get('is_prohibited', False)),
+    }
+
+
 def _extract_music_info(music_data):
     """提取统一的音乐信息结构。"""
     if not isinstance(music_data, dict):
@@ -4416,6 +4430,7 @@ def get_recommended_feed():
                         'play_count': (aweme.get('statistics') or {}).get('play_count', 0),
                         'collect_count': (aweme.get('statistics') or {}).get('collect_count', 0),
                     },
+                    'status': _extract_post_status(aweme),
                     'video': {
                         'cover': cover,
                         'dynamic_cover': dynamic_cover,
@@ -4428,6 +4443,7 @@ def get_recommended_feed():
                         'width': video_data.get('width', 0),
                         'height': video_data.get('height', 0),
                         'duration': _raw_duration_value(video_data.get('duration', 0)),
+                        'duration_unit': 'milliseconds',
                         'ratio': video_data.get('ratio', ''),
                         'bit_rate': video_data.get('bit_rate') or [],
                     },

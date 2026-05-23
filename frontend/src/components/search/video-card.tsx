@@ -74,7 +74,7 @@ export function VideoCard({
 
       {/* Body */}
       <div className="flex h-[120px] flex-col p-3">
-        <p className="mb-1.5 text-[0.82rem] leading-snug text-text line-clamp-2 min-h-[2.4em]">
+        <p className="mb-1.5 min-h-[2.75em] break-words text-[0.82rem] leading-[1.35] text-text line-clamp-2">
           {video.desc}
         </p>
 

@@ -9,6 +9,7 @@ import type {
   VideoData,
   VideoInfo,
   VideoMediaUrl,
+  VideoStatus,
 } from "./contracts";
 
 type LikedVideoMediaUrl = VideoMediaUrl;
@@ -28,8 +29,10 @@ interface LikedVideoItemRaw {
   share_count?: number;
   cover_url?: string;
   duration?: number;
+  duration_unit?: string | null;
   media_type?: string;
   raw_media_type?: string | number | null;
+  status?: VideoStatus | null;
   media_urls?: LikedVideoMediaUrl[];
   bgm_url?: string | null;
   statistics?: Partial<Statistics>;
@@ -50,6 +53,7 @@ function buildEmptyVideoData(): VideoData {
     width: 0,
     height: 0,
     duration: 0,
+    duration_unit: null,
     ratio: "",
     bit_rate: null,
   };
@@ -64,6 +68,33 @@ function buildEmptyStatistics(): Statistics {
     collect_count: 0,
     forward_count: 0,
   };
+}
+
+function normalizeStatus(value: unknown): VideoStatus | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  return {
+    is_delete: Boolean(source.is_delete),
+    private_status: Number(source.private_status || 0),
+    review_status: Number(source.review_status || 0),
+    with_goods: Boolean(source.with_goods),
+    is_prohibited: Boolean(source.is_prohibited),
+  };
+}
+
+function isUnavailableStatus(status: VideoStatus | null | undefined): boolean {
+  if (!status) return false;
+  return Boolean(status.is_delete || status.is_prohibited || Number(status.private_status || 0) !== 0);
+}
+
+function hasPlayableMedia(video: VideoInfo): boolean {
+  if (!video.aweme_id.trim()) return false;
+  if (isUnavailableStatus(video.status)) return false;
+  if (video.video.play_addr || video.video.preview_addr || video.video.download_addr) return true;
+  if (video.media_urls?.some((item) => item.url?.trim())) return true;
+  if (video.image_urls?.some((url) => url.trim()) || video.images?.some((url) => url.trim())) return true;
+  if (video.live_photo_urls?.some((url) => url.trim()) || video.live_photos?.some((url) => url.trim())) return true;
+  return false;
 }
 
 function extractUrl(value: unknown): string {
@@ -197,8 +228,7 @@ export function normalizeLikedVideo(item: unknown): VideoInfo | null {
 
   const candidate = item as Partial<VideoInfo> & LikedVideoItemRaw;
   if (candidate.aweme_id && candidate.video) {
-    const normalized = normalizeVideo(candidate);
-    return normalized || (candidate as VideoInfo);
+    return normalizeVideo(candidate);
   }
 
   const mediaUrls = uniqueMediaUrls(normalizeMediaUrls(candidate.media_urls));
@@ -208,8 +238,9 @@ export function normalizeLikedVideo(item: unknown): VideoInfo | null {
   const cover = candidate.cover_url || imageUrls[0] || "";
   const mediaType = String(candidate.media_type || (imageUrls.length > 0 ? "image" : "video"));
   const isImage = mediaType === "image" || mediaType === "mixed" || mediaType === "live_photo";
+  const status = normalizeStatus(candidate.status);
 
-  return {
+  const normalized: VideoInfo = {
     aweme_id: candidate.aweme_id || "",
     desc: candidate.desc || "",
     create_time: candidate.create_time || 0,
@@ -236,6 +267,7 @@ export function normalizeLikedVideo(item: unknown): VideoInfo | null {
       dynamic_cover: cover,
       origin_cover: cover,
       duration: Number(candidate.duration || 0),
+      duration_unit: candidate.duration_unit || candidate.video?.duration_unit || null,
     },
     statistics: {
       ...buildEmptyStatistics(),
@@ -250,6 +282,7 @@ export function normalizeLikedVideo(item: unknown): VideoInfo | null {
     has_live_photo: livePhotoUrls.length > 0,
     is_image: isImage,
     media_type: mediaType,
+    status,
     media_urls: mediaUrls.length > 0 ? mediaUrls : null,
     bgm_url: candidate.bgm_url || null,
     cover_url: cover || null,
@@ -263,6 +296,8 @@ export function normalizeLikedVideo(item: unknown): VideoInfo | null {
         }
       : null,
   };
+
+  return hasPlayableMedia(normalized) ? normalized : null;
 }
 
 function normalizeCount(value: unknown): number {
@@ -365,6 +400,7 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
       videoRecord.play_addr_h264
   );
   const duration = Number(source.duration || videoRecord.duration || 0);
+  const durationUnit = String(videoRecord.duration_unit || source.duration_unit || "").trim() || null;
   const musicSource = source.music && typeof source.music === "object" ? (source.music as Record<string, unknown>) : null;
   const musicPlayUrl = extractUrl(
     source.bgm_url ||
@@ -386,8 +422,9 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
     playAddr || previewAddr || livePhotoUrls[0] || "",
     mediaType
   );
+  const status = normalizeStatus(source.status);
 
-  return {
+  const normalized: VideoInfo = {
     aweme_id: String(source.aweme_id || ""),
     desc: String(source.desc || ""),
     create_time: Number(source.create_time || 0),
@@ -404,6 +441,7 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
       width: Number(videoRecord.width || source.width || 0),
       height: Number(videoRecord.height || source.height || 0),
       duration,
+      duration_unit: durationUnit,
       ratio: String(videoRecord.ratio || source.ratio || ""),
       bit_rate: bitRates,
     },
@@ -423,6 +461,7 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
     is_image: isImage,
     media_type: mediaType,
     raw_media_type: rawMediaType,
+    status,
     media_urls: normalizedMediaUrls.length > 0 ? normalizedMediaUrls : null,
     bgm_url: musicPlayUrl || null,
     cover_url: cover || null,
@@ -436,6 +475,8 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
         }
       : null,
   };
+
+  return hasPlayableMedia(normalized) ? normalized : null;
 }
 
 export function normalizeVideos(videos: unknown): VideoInfo[] {

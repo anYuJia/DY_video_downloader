@@ -795,29 +795,29 @@ export function SettingsView() {
       initial={false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
-      className="mx-auto w-full max-w-[1040px] p-6 lg:p-8"
+      className="mx-auto w-full max-w-[680px] p-6 lg:p-8"
     >
-      <h1 className="text-[1.4rem] font-bold text-text mb-1">设置</h1>
-      <p className="mb-6 text-[0.82rem] text-text-muted">
+      <h1 className="text-xl font-bold text-text mb-1">设置</h1>
+      <p className="mb-6 text-sm text-text-muted">
         更改后自动保存，无需手动提交
       </p>
 
-      <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
+      <div className="flex flex-col gap-5">
         {/* Cookie Section */}
         <SettingGroup icon={Key} label="Cookie 登录">
           {/* Already logged in */}
           {cookieLoggedIn && loginStatus === "idle" ? (
-            <div className="rounded-[14px] bg-success/[0.05] p-5">
+            <div className="rounded-xl bg-success/[0.05] p-5">
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-[12px] bg-success/10 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center">
                   <ShieldCheck className="w-5 h-5 text-success" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-[0.88rem] font-semibold text-success">
+                  <p className="text-sm font-semibold text-success">
                     已登录
                   </p>
                   {cookieNickname && (
-                    <p className="text-[0.78rem] text-text-muted mt-0.5">
+                    <p className="text-xs text-text-muted mt-0.5">
                       {cookieNickname}
                     </p>
                   )}
@@ -830,7 +830,7 @@ export function SettingsView() {
                   setCookieLoggedIn(false);
                   resetLogin();
                 }}
-                className="h-9 rounded-[10px] text-text-muted hover:text-text gap-1.5"
+                className="h-9 rounded-lg text-text-muted hover:text-text gap-1.5"
               >
                 <LogOut className="w-3.5 h-3.5" />
                 重新登录
@@ -838,16 +838,16 @@ export function SettingsView() {
             </div>
           ) : loginStatus === "idle" ? (
             /* Not logged in — show login card */
-            <div className="rounded-[14px] bg-white/[0.03] p-5">
+            <div className="rounded-xl bg-[var(--color-setting-card)] p-5">
               <div className="flex items-start gap-3 mb-4">
-                <div className="w-10 h-10 rounded-[12px] bg-accent/10 flex items-center justify-center shrink-0">
+                <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
                   <Globe className="w-5 h-5 text-accent" />
                 </div>
                 <div>
-                  <p className="text-[0.88rem] font-semibold text-text mb-1">
+                  <p className="text-sm font-semibold text-text mb-1">
                     浏览器自动登录
                   </p>
-                  <p className="text-[0.75rem] text-text-muted leading-relaxed">
+                  <p className="text-xs text-text-muted leading-relaxed">
                     打开浏览器窗口登录抖音，Cookie 将自动提取并保存
                   </p>
                 </div>
@@ -857,10 +857,10 @@ export function SettingsView() {
                 {["系统打开浏览器窗口", "在浏览器中登录抖音账号", "登录成功后 Cookie 自动保存"].map(
                   (step, i) => (
                     <div key={i} className="flex items-center gap-2.5">
-                      <span className="w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[0.6rem] font-bold text-text-muted">
+                      <span className="w-5 h-5 rounded-full bg-[var(--color-subtle-bg)] flex items-center justify-center text-[0.625rem] font-bold text-text-muted">
                         {i + 1}
                       </span>
-                      <span className="text-[0.78rem] text-text-secondary">
+                      <span className="text-xs text-text-secondary">
                         {step}
                       </span>
                     </div>
@@ -869,11 +869,11 @@ export function SettingsView() {
               </div>
 
               <div className="mb-4">
-                <p className="mb-2 text-[0.72rem] font-semibold uppercase tracking-wider text-text-muted">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-text-muted">
                   浏览器类型
                 </p>
                 <Select value={browserType} onValueChange={setBrowserType}>
-                  <SelectTrigger className="h-10 rounded-[10px]">
+                  <SelectTrigger className="h-10 rounded-lg">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -886,7 +886,7 @@ export function SettingsView() {
 
               <Button
                 onClick={startLogin}
-                className="w-full h-11 rounded-[12px] text-[0.88rem] font-bold gap-2"
+                className="w-full h-11 rounded-xl text-sm font-bold gap-2"
               >
                 <ExternalLink className="w-4 h-4" />
                 打开浏览器登录
@@ -894,15 +894,15 @@ export function SettingsView() {
             </div>
           ) : (
             /* Login in progress / result */
-            <div className="rounded-[14px] bg-white/[0.03] p-5">
+            <div className="rounded-xl bg-[var(--color-setting-card)] p-5">
               <div className="flex items-center gap-3 mb-4">
                 <div
                   className={cn(
-                    "w-10 h-10 rounded-[12px] flex items-center justify-center shrink-0",
+                    "w-10 h-10 rounded-lg flex items-center justify-center shrink-0",
                     (loginStatus === "starting" || loginStatus === "waiting") && "bg-info/10",
                     loginStatus === "success" && "bg-success/10",
                     loginStatus === "error" && "bg-danger/10",
-                    loginStatus === "cancelled" && "bg-white/[0.06]"
+                    loginStatus === "cancelled" && "bg-[var(--color-subtle-bg)]"
                   )}
                 >
                   {(loginStatus === "starting" || loginStatus === "waiting") && (
@@ -919,23 +919,23 @@ export function SettingsView() {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[0.88rem] font-semibold text-text">
+                  <p className="text-sm font-semibold text-text">
                     {loginStatus === "starting" && "正在启动..."}
                     {loginStatus === "waiting" && "等待登录"}
                     {loginStatus === "success" && "登录成功"}
                     {loginStatus === "error" && "登录失败"}
                     {loginStatus === "cancelled" && "已取消"}
                   </p>
-                  <p className="text-[0.75rem] text-text-muted mt-0.5">
+                  <p className="text-xs text-text-muted mt-0.5">
                     {loginMessage}
                   </p>
                 </div>
               </div>
 
               {loginStatus === "waiting" && countdown > 0 && (
-                <div className="flex items-center justify-between px-3 py-2 rounded-[10px] bg-white/[0.04] mb-3">
-                  <span className="text-[0.75rem] text-text-muted">剩余时间</span>
-                  <span className="text-[0.82rem] font-mono font-semibold text-text tabular-nums">
+                <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-[var(--color-setting-card)] mb-3">
+                  <span className="text-xs text-text-muted">剩余时间</span>
+                  <span className="text-sm font-mono font-semibold text-text tabular-nums">
                     {formatCountdown(countdown)}
                   </span>
                 </div>
@@ -946,7 +946,7 @@ export function SettingsView() {
                   <Button
                     variant="outline"
                     onClick={handleCancel}
-                    className="flex-1 h-10 rounded-[12px] text-danger hover:text-danger"
+                    className="flex-1 h-10 rounded-xl text-danger hover:text-danger"
                   >
                     取消
                   </Button>
@@ -955,7 +955,7 @@ export function SettingsView() {
                   <Button
                     variant="outline"
                     onClick={resetLogin}
-                    className="flex-1 h-10 rounded-[12px]"
+                    className="flex-1 h-10 rounded-xl"
                   >
                     {loginStatus === "success" ? "完成" : "重试"}
                   </Button>
@@ -967,7 +967,7 @@ export function SettingsView() {
           {/* Manual cookie input */}
           {!cookieLoggedIn && loginStatus === "idle" && (
             <div className="mt-4">
-              <p className="text-[0.75rem] text-text-muted mb-2">
+              <p className="text-xs text-text-muted mb-2">
                 或粘贴 Cookie，检测通过后自动保存
               </p>
               <Textarea
@@ -980,15 +980,15 @@ export function SettingsView() {
                 rows={4}
               />
               {savingCookie ? (
-                <p className="text-[0.72rem] text-info mt-1.5 flex items-center gap-1">
+                <p className="text-xs text-info mt-1.5 flex items-center gap-1">
                   <Loader2 className="w-3 h-3 animate-spin" /> 正在自动保存并校验
                 </p>
               ) : cookieInputStatus === "valid" ? (
-                <p className="text-[0.72rem] text-success mt-1.5 flex items-center gap-1">
+                <p className="text-xs text-success mt-1.5 flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3" /> 已检测到登录字段，将自动保存
                 </p>
               ) : cookieInputStatus === "invalid" ? (
-                <p className="text-[0.72rem] text-danger mt-1.5 flex items-center gap-1">
+                <p className="text-xs text-danger mt-1.5 flex items-center gap-1">
                   <XCircle className="w-3 h-3" />
                   {cookieValue.trim() === rejectedCookieRef.current
                     ? "Cookie 校验未通过，请重新获取"
@@ -996,7 +996,7 @@ export function SettingsView() {
                 </p>
               ) : null}
               {loginMessage && (
-                <p className="mt-2 text-[0.72rem] text-text-muted">{loginMessage}</p>
+                <p className="mt-2 text-xs text-text-muted">{loginMessage}</p>
               )}
             </div>
           )}
@@ -1004,7 +1004,7 @@ export function SettingsView() {
 
         {/* Theme */}
         <SettingGroup icon={Palette} label="外观主题" status={fieldStatus("theme")}>
-          <div className="flex gap-1.5 p-1 rounded-[12px] bg-white/[0.04]">
+          <div className="flex gap-1.5 p-1 rounded-xl bg-[var(--color-setting-card)]">
             {(
               [
                 { value: "light", icon: Sun, label: "亮色" },
@@ -1017,7 +1017,7 @@ export function SettingsView() {
                 onClick={() => void handleThemeChange(value as ThemeMode)}
                 disabled={savingFields.theme}
                 className={cn(
-                  "relative flex-1 flex items-center justify-center gap-2 h-10 rounded-[10px] text-[0.82rem] font-semibold transition-[background-color,color,box-shadow,transform,opacity] duration-200 cursor-pointer",
+                  "relative flex-1 flex items-center justify-center gap-2 h-10 rounded-lg text-sm font-semibold transition-[background-color,color,box-shadow,transform,opacity] duration-200 cursor-pointer",
                   savingFields.theme && "cursor-wait opacity-75",
                   theme === value
                     ? "text-text"
@@ -1027,7 +1027,7 @@ export function SettingsView() {
                 {theme === value && (
                   <motion.div
                     layoutId="theme-tab-bg"
-                    className="absolute inset-0 rounded-[10px] bg-accent/[0.12] shadow-[0_0_12px_rgba(254,44,85,0.08)]"
+                    className="absolute inset-0 rounded-lg bg-accent/[0.12] shadow-[0_0_12px_rgba(254,44,85,0.08)]"
                     transition={{ type: "spring", stiffness: 400, damping: 30 }}
                   />
                 )}
@@ -1068,7 +1068,7 @@ export function SettingsView() {
               {choosingDirectory ? "选择中" : savingFields.download_path ? "保存中" : "选择"}
             </Button>
           </div>
-          <p className="text-[0.75rem] text-text-muted mt-2">
+          <p className="text-xs text-text-muted mt-2">
             输入后自动保存，选择目录后立即生效。
           </p>
         </SettingGroup>
@@ -1109,7 +1109,7 @@ export function SettingsView() {
               }}
               disabled={savingFields.filename_template}
               placeholder="{title}_{aweme_id}"
-              className="h-10 font-mono text-[0.82rem]"
+              className="h-10 font-mono text-sm"
             />
 
             <div className="flex flex-wrap gap-1.5">
@@ -1119,14 +1119,14 @@ export function SettingsView() {
                   type="button"
                   onClick={() => appendFilenameToken(item.token)}
                   disabled={savingFields.filename_template}
-                  className="inline-flex h-7 items-center rounded-[8px] border border-border bg-white/[0.03] px-2 font-mono text-[0.7rem] text-text-secondary transition-[background-color,color,border-color,opacity] hover:border-accent/30 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
+                  className="inline-flex h-7 items-center rounded-lg border border-border bg-[var(--color-setting-card)] px-2 font-mono text-xs text-text-secondary transition-[background-color,color,border-color,opacity] hover:border-accent/30 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
                   title={item.label}
                 >
                   {item.token}
                 </button>
               ))}
             </div>
-            <p className="text-[0.75rem] text-text-muted">
+            <p className="text-xs text-text-muted">
               即使模板不包含作品ID，保存时也会自动补上，避免同名作品互相覆盖。
             </p>
           </div>
@@ -1136,27 +1136,30 @@ export function SettingsView() {
           <div className="space-y-3">
             <button
               type="button"
+              role="switch"
+              aria-checked={autoCreateFolder}
+              aria-label="按目录归档"
               onClick={() => void handleAutoCreateFolderChange(!autoCreateFolder)}
               disabled={savingFields.auto_create_folder}
               className={cn(
-                "flex h-10 w-full items-center justify-between rounded-[12px] border px-3 transition-[background-color,border-color,opacity]",
+                "flex h-10 w-full items-center justify-between rounded-xl border px-3 transition-[background-color,border-color,opacity,box-shadow] duration-200",
                 autoCreateFolder
-                  ? "border-accent/25 bg-accent/10"
-                  : "border-border bg-white/[0.03]",
+                  ? "border-accent/20 bg-accent/[0.07] shadow-[inset_0_0_0_1px_rgba(254,44,85,0.04)]"
+                  : "border-border bg-[var(--color-setting-card)]",
                 savingFields.auto_create_folder && "opacity-70"
               )}
             >
-              <span className="text-[0.82rem] font-semibold text-text">按目录归档</span>
+              <span className="text-sm font-semibold text-text">按目录归档</span>
               <span
                 className={cn(
-                  "relative h-5 w-9 rounded-full transition-colors",
-                  autoCreateFolder ? "bg-accent" : "bg-white/[0.12]"
+                  "relative h-5 w-9 rounded-full transition-colors duration-200",
+                  autoCreateFolder ? "bg-accent" : "bg-[var(--color-toggle-track)]"
                 )}
               >
                 <span
                   className={cn(
-                    "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform",
-                    autoCreateFolder ? "translate-x-4" : "translate-x-0.5"
+                    "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
+                    autoCreateFolder ? "translate-x-[18px]" : "translate-x-0"
                   )}
                 />
               </span>
@@ -1173,7 +1176,7 @@ export function SettingsView() {
               }}
               disabled={!autoCreateFolder || savingFields.folder_name_template}
               placeholder="{author}"
-              className="h-10 font-mono text-[0.82rem]"
+              className="h-10 font-mono text-sm"
             />
 
             <div className="flex flex-wrap gap-1.5">
@@ -1183,7 +1186,7 @@ export function SettingsView() {
                   type="button"
                   onClick={() => appendFolderToken(item.token)}
                   disabled={!autoCreateFolder || savingFields.folder_name_template}
-                  className="inline-flex h-7 items-center rounded-[8px] border border-border bg-white/[0.03] px-2 font-mono text-[0.7rem] text-text-secondary transition-[background-color,color,border-color,opacity] hover:border-accent/30 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
+                  className="inline-flex h-7 items-center rounded-lg border border-border bg-[var(--color-setting-card)] px-2 font-mono text-xs text-text-secondary transition-[background-color,color,border-color,opacity] hover:border-accent/30 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
                   title={item.label}
                 >
                   {item.token}
@@ -1206,7 +1209,7 @@ export function SettingsView() {
               <SelectItem value="smallest">最小体积</SelectItem>
             </SelectContent>
           </Select>
-          <p className="text-[0.75rem] text-text-muted mt-2">
+          <p className="text-xs text-text-muted mt-2">
             只影响视频作品；图片、图集和 Live Photo 会按原始媒体下载。
           </p>
         </SettingGroup>
@@ -1228,39 +1231,39 @@ export function SettingsView() {
         </SettingGroup>
 
         {/* Divider */}
-        <div className="h-px bg-white/[0.06] lg:hidden" />
+        <div className="h-px bg-[var(--color-subtle-bg)]" />
 
         {/* About */}
         <SettingGroup icon={Info} label="关于">
-          <div className="flex items-center justify-between py-3 px-4 rounded-[12px] bg-white/[0.03]">
-            <span className="text-[0.82rem] text-text-muted">当前版本</span>
-            <span className="text-[0.82rem] text-text font-mono font-semibold">
+          <div className="flex items-center justify-between py-3 px-4 rounded-xl bg-[var(--color-setting-card)]">
+            <span className="text-sm text-text-muted">当前版本</span>
+            <span className="text-sm text-text font-mono font-semibold">
               {appVersion ? `v${appVersion}` : "读取中"}
             </span>
           </div>
           {updateMessage && (
             <div
               className={cn(
-                "mt-3 rounded-[12px] border px-3 py-2 text-[0.78rem]",
+                "mt-3 rounded-xl border px-3 py-2 text-xs",
                 updateStatus === "error"
                   ? "border-danger/20 bg-danger-soft text-danger"
                   : updateStatus === "available"
                     ? "border-info/20 bg-info/10 text-info"
                     : updateStatus === "ready"
                       ? "border-success/20 bg-success-soft text-success"
-                      : "border-border bg-white/[0.03] text-text-muted"
+                      : "border-border bg-[var(--color-setting-card)] text-text-muted"
               )}
             >
               {updateMessage}
             </div>
           )}
           {updateInfo?.notes && (
-            <div className="mt-3 max-h-[160px] overflow-y-auto rounded-[12px] border border-border bg-white/[0.03] p-3 text-[0.76rem] leading-relaxed text-text-secondary whitespace-pre-wrap">
+            <div className="mt-3 max-h-[160px] overflow-y-auto rounded-xl border border-border bg-[var(--color-setting-card)] p-3 text-xs leading-relaxed text-text-secondary whitespace-pre-wrap">
               {updateInfo.notes}
             </div>
           )}
           {updateAssetName(updateInfo) && updateStatus === "available" && (
-            <div className="mt-3 flex items-center justify-between gap-3 rounded-[12px] border border-border bg-white/[0.03] px-3 py-2 text-[0.74rem] text-text-muted">
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-border bg-[var(--color-setting-card)] px-3 py-2 text-xs text-text-muted">
               <span className="min-w-0 truncate">{updateAssetName(updateInfo)}</span>
               {formatBytes(updateInfo?.asset_size) && (
                 <span className="shrink-0 font-mono tabular-nums">{formatBytes(updateInfo?.asset_size)}</span>
@@ -1269,12 +1272,12 @@ export function SettingsView() {
           )}
           {updateStatus === "downloading" && (
             <div className="mt-3">
-              <div className="mb-1 flex items-center justify-between text-[0.72rem] text-text-muted">
+              <div className="mb-1 flex items-center justify-between text-xs text-text-muted">
                 <span>下载进度</span>
                 <span className="font-mono tabular-nums">{Math.round(updateProgress)}%</span>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
-                <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${updateProgress}%` }} />
+              <div className="h-2 overflow-hidden rounded-full bg-[var(--color-subtle-bg)]">
+                <div className="h-full rounded-full bg-gradient-to-r from-accent to-info transition-[width] duration-300" style={{ width: `${updateProgress}%` }} />
               </div>
             </div>
           )}
@@ -1282,7 +1285,7 @@ export function SettingsView() {
             variant="outline"
             onClick={handleCheckUpdate}
             disabled={updateStatus === "checking" || updateStatus === "downloading"}
-            className="w-full h-10 rounded-[12px] mt-3"
+            className="w-full h-10 rounded-xl mt-3"
           >
             <RefreshCw className={cn("w-4 h-4", updateStatus === "checking" && "animate-spin")} />
             {updateStatus === "checking" ? "检查中..." : "检查更新"}
@@ -1291,7 +1294,7 @@ export function SettingsView() {
             <Button
               variant="default"
               onClick={handleDownloadUpdate}
-              className="mt-2 w-full h-10 rounded-[12px]"
+              className="mt-2 w-full h-10 rounded-xl"
             >
               <RefreshCw className="w-4 h-4" />
               下载更新
@@ -1301,7 +1304,7 @@ export function SettingsView() {
             <Button
               variant="default"
               onClick={handleRestart}
-              className="mt-2 w-full h-10 rounded-[12px]"
+              className="mt-2 w-full h-10 rounded-xl"
             >
               <RefreshCw className="w-4 h-4" />
               重启应用
@@ -1327,10 +1330,12 @@ function SettingGroup({
   children: React.ReactNode;
 }) {
   return (
-    <div className={className}>
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <label className="flex items-center gap-2 text-[0.85rem] font-semibold text-text">
-          <Icon className="w-4 h-4 text-text-muted" />
+    <div className={cn("rounded-2xl border border-border bg-surface-solid/50 p-5 transition-colors", className)}>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <label className="flex items-center gap-2.5 text-sm font-semibold text-text">
+          <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
+            <Icon className="w-4 h-4 text-accent" />
+          </div>
           {label}
         </label>
         {status && <SettingStatusPill status={status} />}
@@ -1366,7 +1371,7 @@ function SettingStatusPill({ status }: { status: SettingStatus }) {
       exit={{ opacity: 0, y: -2 }}
       transition={{ duration: 0.16, ease: [0.2, 0, 0, 1] }}
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[0.68rem] font-semibold tabular-nums",
+        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2 text-xs font-semibold tabular-nums",
         config.className
       )}
     >

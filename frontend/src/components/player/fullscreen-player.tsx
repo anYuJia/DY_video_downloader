@@ -988,6 +988,7 @@ export function FullscreenPlayer({
     loadTimeoutTimerRef.current = window.setTimeout(() => {
       const node = videoRef.current;
       if (!currentMedia || !isVideoLikeMedia(currentMedia)) return;
+      if (!desiredPlayingRef.current || node?.paused) return;
       if (node && node.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return;
       void handleMediaFailure();
     }, PLAYER_VIDEO_LOAD_TIMEOUT_MS);
@@ -999,6 +1000,7 @@ export function FullscreenPlayer({
     }
     bufferingTimerRef.current = window.setTimeout(() => {
       const node = videoRef.current;
+      if (!desiredPlayingRef.current || node?.paused) return;
       if (node && node.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return;
       setLoadState("loading");
       setShowLoadStatus(true);
@@ -1571,9 +1573,12 @@ export function FullscreenPlayer({
                         return;
                       }
 	                      if (!mediaSwitchingRef.current) {
+                        clearLoadTimers();
 	                        playingRef.current = false;
 	                        setPlaying(false);
 	                        desiredPlayingRef.current = false;
+                        setShowLoadStatus(false);
+                        setLoadState("ready");
 	                      }
 		                    }}
                     onRateChange={(event) => {
@@ -1675,7 +1680,7 @@ export function FullscreenPlayer({
           </div>
 
           <div
-            className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-2 pb-1 pt-24 text-white"
+            className="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-3 pb-2 pt-20 text-white"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex min-w-0 items-center justify-between gap-3">
@@ -2035,7 +2040,7 @@ export function FullscreenPlayer({
               </div>
             </div>
 
-            <div className="mt-1.5">
+            <div className="mt-0.5">
               <ProgressBar
                 duration={duration}
                 currentTime={currentTime}
@@ -2043,12 +2048,11 @@ export function FullscreenPlayer({
                 mediaItems={mediaItems}
                 mediaIndex={mediaIndex}
                 previewSrc={currentMedia && isVideoLikeMedia(currentMedia) ? currentMediaSrc : ""}
-                previewPoster={currentPosterSrc}
                 onSeek={handleSeek}
                 onSelectMedia={switchToMedia}
               />
 
-              <p className="mt-1.5 line-clamp-2 text-[0.82rem] leading-[1.3] text-white/90 drop-shadow-md">
+              <p className="mt-1 line-clamp-2 text-[0.82rem] leading-[1.32] text-white/90 drop-shadow-md">
                 {currentVideo.desc || "无描述"}
               </p>
             </div>
@@ -2075,7 +2079,6 @@ function ProgressBar({
   mediaItems,
   mediaIndex,
   previewSrc,
-  previewPoster,
   onSeek,
   onSelectMedia,
 }: {
@@ -2085,7 +2088,6 @@ function ProgressBar({
   mediaItems: VideoMediaItem[];
   mediaIndex: number;
   previewSrc?: string;
-  previewPoster?: string;
   onSeek: (time: number) => void;
   onSelectMedia: (index: number) => void;
 }) {
@@ -2258,7 +2260,7 @@ function ProgressBar({
   }
 
   return (
-    <div className="flex items-center gap-3 pb-5">
+    <div className="flex items-center gap-3">
       <div
         data-player-control="true"
         className="group relative flex h-6 flex-1 cursor-pointer touch-none select-none items-center"
@@ -2300,54 +2302,36 @@ function ProgressBar({
           )}
           style={{ left: `calc(${progressPct}% - 6px)` }}
         />
-        <AnimatePresence>
-          {hoverPreview.visible && duration > 0 && (
-            <>
-              <div
-                className="pointer-events-none absolute bottom-full z-50 mb-3"
-                style={{
-                  left: hoverPreview.x,
-                  transform: "translateX(-50%)",
-                }}
-              >
-                <motion.div
-                  initial={{ opacity: 0, y: 6, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 4, scale: 0.98 }}
-                  transition={{ duration: 0.14 }}
-                  className="overflow-hidden rounded-[8px] border border-white/14 bg-black/90 shadow-[0_14px_36px_rgba(0,0,0,0.42)]"
-                  style={{
-                    width: PROGRESS_PREVIEW_WIDTH,
-                    height: PROGRESS_PREVIEW_HEIGHT,
-                  }}
-                >
-                  <ProgressFramePreview
-                    src={previewSrc || ""}
-                    poster={previewPoster || ""}
-                    time={hoverPreview.time}
-                  />
-                </motion.div>
-              </div>
-              <div
-                className="pointer-events-none absolute top-full z-50 mt-2"
-                style={{
-                  left: hoverPreview.x,
-                  transform: "translateX(-50%)",
-                }}
-              >
-                <motion.div
-                  initial={{ opacity: 0, y: -3 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -3 }}
-                  transition={{ duration: 0.12 }}
-                  className="rounded-full bg-black/82 px-2 py-1 text-[0.68rem] font-bold tabular-nums text-white shadow-[0_8px_18px_rgba(0,0,0,0.32)]"
-                >
+        {duration > 0 && previewSrc && (
+          <div
+            className={cn(
+              "pointer-events-none absolute bottom-full z-50 mb-3 transition-[opacity,transform] duration-150",
+              hoverPreview.visible ? "opacity-100" : "opacity-0"
+            )}
+            style={{
+              left: hoverPreview.visible ? hoverPreview.x : 0,
+              transform: `translateX(-50%) translateY(${hoverPreview.visible ? "0" : "6px"})`,
+            }}
+          >
+            <div
+              className="relative overflow-hidden rounded-[8px] border border-white/14 bg-black/90 shadow-[0_14px_36px_rgba(0,0,0,0.42)]"
+              style={{
+                width: PROGRESS_PREVIEW_WIDTH,
+                height: PROGRESS_PREVIEW_HEIGHT,
+              }}
+            >
+              <ProgressFramePreview
+                src={previewSrc || ""}
+                time={hoverPreview.time}
+              />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-black/78 to-transparent px-2 pb-1.5 pt-5">
+                <span className="rounded-full bg-black/72 px-2 py-0.5 text-[0.68rem] font-bold tabular-nums text-white shadow-[0_8px_18px_rgba(0,0,0,0.28)]">
                   {formatDuration(hoverPreview.time)}
-                </motion.div>
+                </span>
               </div>
-            </>
-          )}
-        </AnimatePresence>
+            </div>
+          </div>
+        )}
       </div>
       <TimeLabel currentTime={currentTime} duration={duration} />
     </div>
@@ -2356,43 +2340,153 @@ function ProgressBar({
 
 function ProgressFramePreview({
   src,
-  poster,
   time,
 }: {
   src: string;
-  poster: string;
   time: number;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [frameReady, setFrameReady] = useState(false);
+
+  useEffect(() => {
+    setFrameReady(false);
+  }, [src]);
 
   useEffect(() => {
     const node = videoRef.current;
     if (!node || !src) return;
 
-    const safeTime = Math.max(0, time);
+    let cancelled = false;
+    let playFallbackTimer: ReturnType<typeof window.setTimeout> | null = null;
+    let animationFrame: number | null = null;
+
+    const drawFrame = () => {
+      if (cancelled) return false;
+      const canvas = canvasRef.current;
+      if (!canvas || !node.videoWidth || !node.videoHeight || node.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        return false;
+      }
+
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const canvasWidth = Math.round(PROGRESS_PREVIEW_WIDTH * dpr);
+      const canvasHeight = Math.round(PROGRESS_PREVIEW_HEIGHT * dpr);
+      if (canvas.width !== canvasWidth) canvas.width = canvasWidth;
+      if (canvas.height !== canvasHeight) canvas.height = canvasHeight;
+
+      const sourceAspect = node.videoWidth / node.videoHeight;
+      const targetAspect = canvasWidth / canvasHeight;
+      let sourceX = 0;
+      let sourceY = 0;
+      let sourceWidth = node.videoWidth;
+      let sourceHeight = node.videoHeight;
+
+      if (sourceAspect > targetAspect) {
+        sourceWidth = node.videoHeight * targetAspect;
+        sourceX = (node.videoWidth - sourceWidth) / 2;
+      } else {
+        sourceHeight = node.videoWidth / targetAspect;
+        sourceY = (node.videoHeight - sourceHeight) / 2;
+      }
+
+      try {
+        const context = canvas.getContext("2d");
+        if (!context) return false;
+        context.clearRect(0, 0, canvasWidth, canvasHeight);
+        context.drawImage(
+          node,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          0,
+          0,
+          canvasWidth,
+          canvasHeight
+        );
+        setFrameReady(true);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
     const seekPreview = () => {
+      const duration = finiteMediaTime(node.duration);
+      const safeTime = duration > 0
+        ? Math.min(Math.max(0, time), Math.max(0, duration - 0.05))
+        : Math.max(0, time);
       try {
         if (Math.abs(node.currentTime - safeTime) > 0.08) {
           node.currentTime = safeTime;
+          return;
         }
+        drawFrame();
       } catch {
         // Preview seeking is best-effort; the main player owns actual playback.
       }
     };
+    const requestDraw = () => {
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+      animationFrame = window.requestAnimationFrame(() => {
+        animationFrame = null;
+        drawFrame();
+      });
+    };
+    const triggerMutedDecode = () => {
+      if (drawFrame()) return;
+      const playResult = node.play();
+      if (playResult && typeof playResult.then === "function") {
+        playResult
+          .then(() => {
+            node.pause();
+            requestDraw();
+          })
+          .catch(() => {
+            requestDraw();
+          });
+      }
+    };
+
+    node.muted = true;
+    node.playsInline = true;
+
+    node.addEventListener("loadedmetadata", seekPreview);
+    node.addEventListener("loadeddata", requestDraw);
+    node.addEventListener("canplay", requestDraw);
+    node.addEventListener("seeked", requestDraw);
 
     if (node.readyState >= HTMLMediaElement.HAVE_METADATA) {
       seekPreview();
-      return;
+    } else {
+      try {
+        node.load();
+      } catch {
+        // Loading the preview node is opportunistic.
+      }
     }
 
-    node.addEventListener("loadedmetadata", seekPreview, { once: true });
-    return () => node.removeEventListener("loadedmetadata", seekPreview);
+    playFallbackTimer = window.setTimeout(triggerMutedDecode, 180);
+
+    return () => {
+      cancelled = true;
+      if (playFallbackTimer !== null) {
+        window.clearTimeout(playFallbackTimer);
+      }
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+      node.removeEventListener("loadedmetadata", seekPreview);
+      node.removeEventListener("loadeddata", requestDraw);
+      node.removeEventListener("canplay", requestDraw);
+      node.removeEventListener("seeked", requestDraw);
+    };
   }, [src, time]);
 
   if (!src) {
-    return poster ? (
-      <img src={poster} alt="" className="h-full w-full object-cover" draggable={false} />
-    ) : (
+    return (
       <div className="flex h-full w-full items-center justify-center bg-white/[0.04] text-[0.72rem] font-medium text-white/55">
         暂无预览
       </div>
@@ -2400,15 +2494,27 @@ function ProgressFramePreview({
   }
 
   return (
-    <video
-      ref={videoRef}
-      src={src}
-      poster={poster || undefined}
-      preload="metadata"
-      muted
-      playsInline
-      className="h-full w-full object-cover"
-    />
+    <div className="relative h-full w-full bg-black">
+      <canvas
+        ref={canvasRef}
+        className={cn("h-full w-full transition-opacity duration-100", frameReady ? "opacity-100" : "opacity-0")}
+      />
+      {!frameReady && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white/[0.04] text-[0.72rem] font-medium text-white/55">
+          正在预览
+        </div>
+      )}
+      <video
+        ref={videoRef}
+        src={src}
+        preload="auto"
+        muted
+        playsInline
+        crossOrigin="anonymous"
+        aria-hidden="true"
+        className="pointer-events-none absolute h-px w-px opacity-0"
+      />
+    </div>
   );
 }
 

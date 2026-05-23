@@ -188,6 +188,9 @@ export function getVideoBgmUrl(video: VideoInfo | null | undefined): string {
 export function getVideoDurationSeconds(video: VideoInfo | null | undefined): number {
   const duration = Number(video?.video?.duration || 0);
   if (!Number.isFinite(duration) || duration <= 0) return 0;
+  const unit = String(video?.video?.duration_unit || "").toLowerCase();
+  if (unit === "seconds" || unit === "second" || unit === "s") return duration;
+  if (unit === "milliseconds" || unit === "millisecond" || unit === "ms") return duration / 1000;
   return duration > 1000 ? duration / 1000 : duration;
 }
 
