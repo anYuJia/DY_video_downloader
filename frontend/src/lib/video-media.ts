@@ -115,39 +115,44 @@ export function collectVideoQualityOptions(
 
   const videoData = video.video || {};
   const fallback = readUrl(fallbackUrl || videoData.preview_addr || videoData.play_addr);
-  const candidates: VideoQualityOption[] = [];
+  const autoOption: VideoQualityOption | null = fallback
+    ? {
+        key: "auto",
+        label: "自动",
+        detail: "当前播放线路",
+        url: fallback,
+        codec: "",
+        isAuto: true,
+        width: Number(videoData.width || 0),
+        height: Number(videoData.height || 0),
+        bitRate: 0,
+        dataSize: 0,
+        qualityType: 0,
+      }
+    : null;
   const seenUrls = new Set<string>();
+  const qualityMap = new Map<string, VideoQualityOption>();
 
-  const pushOption = (option: VideoQualityOption) => {
+  const pushQualityOption = (option: VideoQualityOption) => {
     const url = option.url.trim();
     if (!url || seenUrls.has(url)) return;
     seenUrls.add(url);
-    candidates.push({ ...option, url });
-  };
 
-  if (fallback) {
-    pushOption({
-      key: "auto",
-      label: "自动",
-      detail: "当前播放线路",
-      url: fallback,
-      codec: "",
-      isAuto: true,
-      width: Number(videoData.width || 0),
-      height: Number(videoData.height || 0),
-      bitRate: 0,
-      dataSize: 0,
-      qualityType: 0,
-    });
-  }
+    const normalized = { ...option, url };
+    const key = qualityGroupKey(normalized);
+    const existing = qualityMap.get(key);
+    if (!existing || qualityRank(normalized) > qualityRank(existing)) {
+      qualityMap.set(key, normalized);
+    }
+  };
 
   const bitRates = Array.isArray(videoData.bit_rate) ? videoData.bit_rate : [];
   bitRates
     .flatMap((bitRate, index) => buildQualityCandidates(bitRate, index))
-    .sort((a, b) => qualityRank(b) - qualityRank(a))
-    .forEach(pushOption);
+    .forEach(pushQualityOption);
 
-  return candidates;
+  const qualityOptions = Array.from(qualityMap.values()).sort((a, b) => qualityRank(b) - qualityRank(a));
+  return autoOption ? [...qualityOptions, autoOption] : qualityOptions;
 }
 
 export function getVideoCover(video: VideoInfo | null | undefined): string {
@@ -337,8 +342,17 @@ function formatDataSize(value: number): string {
 }
 
 function qualityRank(option: VideoQualityOption): number {
-  const resolution = option.height > 0 ? option.height * 10_000 + option.width : 0;
-  return resolution || option.dataSize || option.bitRate || option.qualityType;
+  const resolution = option.height > 0 ? option.height * 10_000_000 + option.width * 1_000 : 0;
+  return resolution + option.dataSize + option.bitRate + option.qualityType;
+}
+
+function qualityGroupKey(option: VideoQualityOption): string {
+  if (option.height > 0) return `height:${option.height}`;
+
+  const label = option.label.trim().toLowerCase();
+  if (label) return `label:${label}`;
+
+  return `quality:${option.qualityType || option.key}`;
 }
 
 function readUrl(value: unknown): string {
