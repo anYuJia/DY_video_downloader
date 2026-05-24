@@ -33,6 +33,7 @@ import {
   LogOut,
   FileText,
   FolderTree,
+  Download as DownloadIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -773,7 +774,7 @@ export function SettingsView() {
         setUpdateStatus("ready");
       }
       setUpdateCanRestart(!autoClosing && Boolean(result.restart_required ?? true));
-      setUpdateMessage(result.message || "更新下载完成");
+      setUpdateMessage(result.message || "安装包已准备完成，重启后使用新版本");
       setUpdateProgress(100);
     } catch (error) {
       setUpdateStatus("error");
@@ -1245,7 +1246,7 @@ export function SettingsView() {
           {updateMessage && (
             <div
               className={cn(
-                "mt-3 rounded-xl border px-3 py-2 text-xs",
+                "mt-3 rounded-xl border px-3 py-2.5 text-xs leading-relaxed",
                 updateStatus === "error"
                   ? "border-danger/20 bg-danger-soft text-danger"
                   : updateStatus === "available"
@@ -1297,19 +1298,28 @@ export function SettingsView() {
               onClick={handleDownloadUpdate}
               className="mt-2 w-full h-10 rounded-xl"
             >
-              <RefreshCw className="w-4 h-4" />
-              下载更新
+              <DownloadIcon className="w-4 h-4" />
+              立即更新
             </Button>
           )}
           {updateStatus === "ready" && updateCanRestart && (
-            <Button
-              variant="default"
-              onClick={handleRestart}
-              className="mt-2 w-full h-10 rounded-xl"
-            >
-              <RefreshCw className="w-4 h-4" />
-              重启应用
-            </Button>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setUpdateCanRestart(false)}
+                className="h-10 rounded-xl"
+              >
+                稍后重启
+              </Button>
+              <Button
+                variant="default"
+                onClick={handleRestart}
+                className="h-10 rounded-xl"
+              >
+                <RefreshCw className="w-4 h-4" />
+                立即重启
+              </Button>
+            </div>
           )}
         </SettingGroup>
       </div>

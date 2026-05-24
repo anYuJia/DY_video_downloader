@@ -50,6 +50,26 @@ class DouyinUserManager:
 
         return ''
 
+    def _clean_video_download_url(self, url: str) -> str:
+        normalized_url = str(url or '').strip()
+        if not normalized_url:
+            return ''
+        return (
+            normalized_url
+            .replace('watermark=1', 'watermark=0')
+            .replace('playwm', 'play')
+        )
+
+    def _is_watermark_url(self, url: str) -> bool:
+        normalized_url = str(url or '').strip().lower()
+        if not normalized_url:
+            return False
+        return (
+            'playwm' in normalized_url
+            or 'watermark=1' in normalized_url
+            or '/aweme/v1/playwm' in normalized_url
+        )
+
     def _video_download_quality(self) -> str:
         quality = str(getattr(Config, 'DOWNLOAD_QUALITY', 'auto') or 'auto').strip().lower()
         if quality not in ('auto', 'highest', 'h264', 'smallest'):
@@ -77,7 +97,8 @@ class DouyinUserManager:
         seen = set()
 
         def push_candidate(url: str, metric: int, is_h264: bool = False, is_download_addr: bool = False, is_lowbr: bool = False) -> None:
-            normalized_url = str(url or '').strip()
+            is_watermark = self._is_watermark_url(url)
+            normalized_url = self._clean_video_download_url(url)
             if not normalized_url or normalized_url in seen:
                 return
             seen.add(normalized_url)
@@ -87,6 +108,7 @@ class DouyinUserManager:
                 'is_h264': bool(is_h264),
                 'is_download_addr': bool(is_download_addr),
                 'is_lowbr': bool(is_lowbr),
+                'is_watermark': is_watermark or self._is_watermark_url(normalized_url),
             })
 
         push_candidate(self._first_url(video_data.get('download_addr')), 0, False, True, False)
@@ -116,40 +138,41 @@ class DouyinUserManager:
         if not candidates:
             return ''
 
-        download_addr = next((candidate for candidate in candidates if candidate['is_download_addr']), None)
+        clean_candidates = [candidate for candidate in candidates if not candidate['is_watermark']]
+        if not clean_candidates:
+            return ''
+
+        download_addr = next((candidate for candidate in clean_candidates if candidate['is_download_addr']), None)
         h264_candidates = [
-            candidate for candidate in candidates
+            candidate for candidate in clean_candidates
             if candidate['is_h264'] and not candidate['is_lowbr']
         ]
         h264_best = max(h264_candidates, key=lambda item: item['metric'], default=None)
         quality_candidates = [
-            candidate for candidate in candidates
+            candidate for candidate in clean_candidates
             if candidate['metric'] > 0 and not candidate['is_download_addr'] and not candidate['is_lowbr']
         ]
         highest_metric = max(quality_candidates, key=lambda item: item['metric'], default=None)
-        lowbr = next((candidate for candidate in candidates if candidate['is_lowbr']), None)
-        metric_candidates = [candidate for candidate in candidates if candidate['metric'] > 0]
+        lowbr = next((candidate for candidate in clean_candidates if candidate['is_lowbr']), None)
+        metric_candidates = [candidate for candidate in clean_candidates if candidate['metric'] > 0]
         smallest_metric = min(metric_candidates, key=lambda item: item['metric'], default=None)
-        first = candidates[0] if candidates else None
+        first = clean_candidates[0] if clean_candidates else None
 
         quality = self._video_download_quality()
         if quality == 'highest':
-            selected = highest_metric or download_addr or h264_best or first
+            selected = highest_metric or h264_best or download_addr or first
         elif quality == 'h264':
-            selected = h264_best or download_addr or highest_metric or first
+            selected = h264_best or highest_metric or download_addr or first
         elif quality == 'smallest':
             selected = lowbr or smallest_metric or h264_best or first
         else:
-            selected = download_addr or h264_best or highest_metric or first
+            selected = h264_best or highest_metric or download_addr or first
 
         return selected['url'] if selected else ''
 
     def _build_video_media_urls(self, video_data: dict) -> list[dict]:
         video_data = video_data or {}
-        # 播放器优先使用抖音的动态 play_addr。它和 Rust 版一致，更适合浏览器通过
-        # 本地代理进行 Range 寻址；下载质量选择仍保留在 _select_video_url 中作为兜底。
-        play_url = self._first_url(video_data.get('play_addr'))
-        selected_url = play_url or self._select_video_url(video_data)
+        selected_url = self._select_video_url(video_data)
         return [{'type': 'video', 'url': selected_url}] if selected_url else []
 
     def _normalize_duration_seconds(self, value) -> int:
@@ -518,7 +541,7 @@ class DouyinUserManager:
             media_type, urls = self.get_media_info(post)
             video_data = post.get('video') or {}
             play_url = self._first_url(video_data.get('play_addr'))
-            selected_video_url = play_url or self._select_video_url(video_data)
+            selected_video_url = self._select_video_url(video_data)
             # 构建详情信息
             detail = {
                 'aweme_id': post.get('aweme_id', ''),
@@ -688,9 +711,6 @@ class DouyinUserManager:
         user_id = user_info['sec_uid']
         nickname = user_info.get('nickname', 'unknown')
         
-        # 获取已下载记录
-        downloaded = self.downloader._load_download_record(nickname)
-        
         # 获取视频列表
         posts = await self.get_user_videos(user_id, limit=200)
         if isinstance(posts, dict):
@@ -708,8 +728,11 @@ class DouyinUserManager:
                 print(f"\033[91m{error_msg}\033[0m")
             raise Exception(error_msg)
 
-        # 过滤出未下载的作品
-        new_posts = [post for post in posts if post['aweme_id'] not in downloaded]
+        # 过滤出磁盘上仍然存在的已下载作品；如果用户删除了文件，允许重新下载。
+        new_posts = [
+            post for post in posts
+            if not self.downloader._is_aweme_downloaded(post['aweme_id'], nickname)
+        ]
         
         if not new_posts:
             info_msg = f"用户 {nickname} 没有新作品需要下载"

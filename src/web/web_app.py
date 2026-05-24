@@ -687,6 +687,48 @@ def normalize_media_urls(media_urls, raw_media_type='video'):
     return normalized_urls
 
 
+def clean_video_download_url(url: str) -> str:
+    return (
+        str(url or '').strip()
+        .replace('watermark=1', 'watermark=0')
+        .replace('playwm', 'play')
+    )
+
+
+def is_watermark_video_url(url: str) -> bool:
+    normalized_url = str(url or '').strip().lower()
+    return bool(
+        normalized_url
+        and (
+            'playwm' in normalized_url
+            or 'watermark=1' in normalized_url
+            or '/aweme/v1/playwm' in normalized_url
+        )
+    )
+
+
+def normalize_download_media_urls(media_urls, raw_media_type='video'):
+    normalized_urls = normalize_media_urls(media_urls, raw_media_type) if media_urls else []
+    cleaned_urls = []
+    seen = set()
+
+    for item in normalized_urls:
+        url = item.get('url', '')
+        media_type = item.get('type') or infer_media_type_from_url(url, raw_media_type)
+        if media_type == 'video':
+            if is_watermark_video_url(url):
+                continue
+            url = clean_video_download_url(url)
+            if is_watermark_video_url(url):
+                continue
+        if not url or (media_type, url) in seen:
+            continue
+        seen.add((media_type, url))
+        cleaned_urls.append({'url': url, 'type': media_type})
+
+    return cleaned_urls
+
+
 def is_allowed_media_url(url: str) -> bool:
     """只允许代理明确属于抖音/字节媒体域名的 http(s) URL。"""
     try:
@@ -3114,7 +3156,7 @@ def download_single_video():
         if not user_manager or not downloader:
             return jsonify({'success': False, 'message': '服务未完全初始化'}), 500
 
-        media_urls = normalize_media_urls(media_urls, raw_media_type) if media_urls else []
+        media_urls = normalize_download_media_urls(media_urls, raw_media_type)
 
         should_refresh_video_media = (
             raw_media_type == 'video'
@@ -3134,7 +3176,7 @@ def download_single_video():
 
             if detail:
                 detail_media_type = detail.get('raw_media_type') or detail.get('media_type') or raw_media_type
-                detail_media_urls = normalize_media_urls(detail.get('media_urls', []), detail_media_type)
+                detail_media_urls = normalize_download_media_urls(detail.get('media_urls', []), detail_media_type)
                 if detail_media_urls:
                     media_urls = detail_media_urls
                     raw_media_type = detail_media_type
@@ -3235,6 +3277,9 @@ def download_single_video():
                             None,
                             socketio,
                             task_id,
+                            None,
+                            None,
+                            False,
                         )
                     else:
                         success = await asyncio.to_thread(
@@ -3244,6 +3289,10 @@ def download_single_video():
                             aweme_id,
                             socketio,
                             task_id,
+                            None,
+                            None,
+                            None,
+                            False,
                         )
                     
                     if success:
@@ -3371,9 +3420,6 @@ def download_user_video():
                     'message': f'开始下载 {_nickname} 的 {aweme_count} 个作品'
                 })
                 
-                # 获取已下载记录
-                downloaded = user_manager.downloader._load_all_download_records()
-                
                 # 增量下载队列
                 download_queue = asyncio.Queue()
                 fetching_done = asyncio.Event()
@@ -3430,7 +3476,7 @@ def download_user_video():
                     if cancel_event.is_set():
                         return
                     for post in batch:
-                        if post['aweme_id'] in downloaded:
+                        if user_manager.downloader._is_aweme_downloaded(post['aweme_id']):
                             total_processed[0] += 1
                             total_skipped[0] += 1
                             # 发送跳过进度更新
@@ -4830,7 +4876,7 @@ def download_video_by_aweme_id():
 
         # 获取媒体信息
         media_type = detail.get('media_type', 'video')
-        media_urls = normalize_media_urls(detail.get('media_urls', []), media_type)
+        media_urls = normalize_download_media_urls(detail.get('media_urls', []), media_type)
 
         if not media_urls:
             return jsonify({'success': False, 'message': '无法获取视频下载地址'}), 500
@@ -4853,6 +4899,9 @@ def download_video_by_aweme_id():
                         asyncio.Event(),
                         socketio,
                         task_id,
+                        None,
+                        None,
+                        False,
                     )
                 else:
                     success = await asyncio.to_thread(
@@ -4863,6 +4912,9 @@ def download_video_by_aweme_id():
                         socketio,
                         task_id,
                         asyncio.Event(),
+                        None,
+                        None,
+                        False,
                     )
 
                 if success:

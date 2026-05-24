@@ -31,8 +31,6 @@ interface ToastStore {
   update: (id: number, patch: Partial<Toast>) => void;
 }
 
-const MAX_VISIBLE_TOASTS = 4;
-
 export const useToastStore = create<ToastStore>((set) => ({
   toasts: [],
   nextId: 1,
@@ -42,10 +40,7 @@ export const useToastStore = create<ToastStore>((set) => ({
       id = s.nextId;
       return {
         nextId: s.nextId + 1,
-        toasts: [
-          ...s.toasts,
-          { id, message, type, title, action, duration: type === "loading" ? 0 : 4500 },
-        ].slice(-MAX_VISIBLE_TOASTS),
+        toasts: [{ id, message, type, title, action, duration: type === "loading" ? 0 : 4500 }],
       };
     });
     return id;

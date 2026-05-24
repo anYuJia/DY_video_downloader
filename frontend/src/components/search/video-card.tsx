@@ -18,6 +18,11 @@ interface VideoCardProps {
   animate?: boolean;
 }
 
+export const VIDEO_CARD_GRID_CLASS = "grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3";
+export const VIDEO_CARD_HEIGHT_CLASS = "h-[412px]";
+export const VIDEO_CARD_COVER_CLASS = "h-[280px]";
+export const VIDEO_CARD_BODY_CLASS = "h-[132px]";
+
 export function VideoCard({
   video,
   index = 0,
@@ -54,12 +59,6 @@ export function VideoCard({
             transition: { delay: index * 0.05, type: "spring" as const, stiffness: 350, damping: 28 },
           }
         : {})}
-      className={cn(
-        "group relative h-[400px] cursor-pointer overflow-hidden rounded-[var(--radius-lg)] bg-surface-solid/90 shadow-sm",
-        "border border-transparent transition-[box-shadow,border-color,background-color] duration-[var(--duration-base)] ease-[var(--ease-spring)]",
-        "hover:border-border-strong hover:shadow-md",
-        selected && "border-accent shadow-[var(--shadow-glow)]"
-      )}
       style={{ breakInside: "avoid" }}
       onClick={handleCardClick}
       onKeyDown={(event) => {
@@ -69,11 +68,18 @@ export function VideoCard({
         }
       }}
       tabIndex={0}
+      className={cn(
+        "group relative cursor-pointer overflow-hidden rounded-[var(--radius-lg)] bg-surface-solid/90 shadow-sm",
+        VIDEO_CARD_HEIGHT_CLASS,
+        "border border-transparent transition-[box-shadow,border-color,background-color] duration-[var(--duration-base)] ease-[var(--ease-spring)]",
+        "hover:border-border-strong hover:shadow-md",
+        selected && "border-accent shadow-[var(--shadow-glow)]"
+      )}
     >
-      <VideoCover video={video} className="h-[280px]" showPlayOverlay={false} allowVideoFallback />
+      <VideoCover video={video} className={VIDEO_CARD_COVER_CLASS} showPlayOverlay={false} allowVideoFallback />
 
       {/* Body */}
-      <div className="flex h-[120px] flex-col p-3">
+      <div className={cn("flex flex-col p-3", VIDEO_CARD_BODY_CLASS)}>
         <p className="mb-1.5 min-h-[2.75em] break-words text-[0.82rem] leading-[1.35] text-text line-clamp-2">
           {video.desc}
         </p>

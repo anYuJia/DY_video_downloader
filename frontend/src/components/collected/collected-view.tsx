@@ -12,7 +12,13 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { VideoCard } from "@/components/search/video-card";
+import {
+  VideoCard,
+  VIDEO_CARD_BODY_CLASS,
+  VIDEO_CARD_COVER_CLASS,
+  VIDEO_CARD_GRID_CLASS,
+  VIDEO_CARD_HEIGHT_CLASS,
+} from "@/components/search/video-card";
 import { VideoDetailModal } from "@/components/modals/video-detail";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import { useDownloads } from "@/hooks/use-downloads";
@@ -40,7 +46,7 @@ import { cn, formatNumber, formatTime } from "@/lib/utils";
 type CollectedTab = "videos" | "mixes";
 
 const PAGE_SIZE = 20;
-const ORIGINAL_VIDEO_GRID_CLASS = "grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3";
+const ORIGINAL_VIDEO_GRID_CLASS = VIDEO_CARD_GRID_CLASS;
 
 function uniqueVideos(existing: VideoInfo[], incoming: VideoInfo[]) {
   const seen = new Set(existing.map((video) => video.aweme_id));
@@ -657,9 +663,9 @@ function LoadingGrid() {
   return (
     <div className={ORIGINAL_VIDEO_GRID_CLASS}>
       {Array.from({ length: 8 }).map((_, index) => (
-        <div key={index} className="h-[400px] overflow-hidden rounded-[var(--radius-lg)] border border-border bg-surface-solid/70">
-          <div className="h-[280px] bg-white/[0.05] animate-pulse" />
-          <div className="h-[120px] p-3">
+        <div key={index} className={`${VIDEO_CARD_HEIGHT_CLASS} overflow-hidden rounded-[var(--radius-lg)] border border-border bg-surface-solid/70`}>
+          <div className={`${VIDEO_CARD_COVER_CLASS} bg-white/[0.05] animate-pulse`} />
+          <div className={`${VIDEO_CARD_BODY_CLASS} p-3`}>
             <div className="mb-2 h-4 rounded bg-white/[0.05] animate-pulse" />
             <div className="mb-3 h-3 w-1/2 rounded bg-white/[0.05] animate-pulse" />
             <div className="mt-auto grid grid-cols-3 gap-1.5">

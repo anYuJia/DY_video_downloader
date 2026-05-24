@@ -19,7 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CompletionInput, type CompletionInputOption } from "@/components/ui/completion-input";
-import { VideoCard } from "@/components/search/video-card";
+import { VideoCard, VIDEO_CARD_GRID_CLASS } from "@/components/search/video-card";
 import { VideoDetailModal } from "@/components/modals/video-detail";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import { useDownloads } from "@/hooks/use-downloads";
@@ -249,7 +249,7 @@ export function LinkView() {
                 <Badge variant="outline">{videos.length} 个作品</Badge>
               </div>
             </div>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3">
+            <div className={VIDEO_CARD_GRID_CLASS}>
               {videos.map((video, index) => (
                 <VideoCard
                   key={video.aweme_id || `${video.desc}-${index}`}

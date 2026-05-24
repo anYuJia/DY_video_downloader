@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { VideoCard } from "@/components/search/video-card";
+import {
+  VideoCard,
+  VIDEO_CARD_BODY_CLASS,
+  VIDEO_CARD_COVER_CLASS,
+  VIDEO_CARD_GRID_CLASS,
+  VIDEO_CARD_HEIGHT_CLASS,
+} from "@/components/search/video-card";
 import { Sparkles, RefreshCw, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useRecommended } from "@/hooks/use-recommended";
@@ -11,7 +17,7 @@ import { useSearchStore } from "@/stores/search-store";
 import type { VideoInfo } from "@/lib/tauri";
 import { videoAuthorToUserInfo } from "@/lib/video-author";
 
-const ORIGINAL_VIDEO_GRID_CLASS = "grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3";
+const ORIGINAL_VIDEO_GRID_CLASS = VIDEO_CARD_GRID_CLASS;
 
 export function RecommendedFeed() {
   const { videos, loading, loadingMore, hasMore, loadFeed, loadMore, refresh } = useRecommended();
@@ -189,10 +195,10 @@ function RecommendedSkeletonGrid() {
       {Array.from({ length: 8 }).map((_, index) => (
         <div
           key={index}
-          className="h-[380px] overflow-hidden rounded-[var(--radius-lg)] border border-border bg-surface-solid/70 shadow-[var(--shadow-sm)]"
+          className={`${VIDEO_CARD_HEIGHT_CLASS} overflow-hidden rounded-[var(--radius-lg)] border border-border bg-surface-solid/70 shadow-[var(--shadow-sm)]`}
         >
-          <div className="h-[260px] bg-white/[0.05] animate-pulse" />
-          <div className="h-[120px] p-3">
+          <div className={`${VIDEO_CARD_COVER_CLASS} bg-white/[0.05] animate-pulse`} />
+          <div className={`${VIDEO_CARD_BODY_CLASS} p-3`}>
             <div className="mb-2 h-4 rounded bg-white/[0.06] animate-pulse" />
             <div className="mb-3 h-3 w-2/3 rounded bg-white/[0.05] animate-pulse" />
             <div className="grid grid-cols-3 gap-1.5">

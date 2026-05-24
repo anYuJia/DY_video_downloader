@@ -268,14 +268,33 @@ class DouyinDownloader:
                 print(f"\033[91m[Downloader] 加载全局下载记录失败: {str(e)}\033[0m")
         return records
 
+    def _downloaded_file_exists(self, aweme_id: str) -> bool:
+        normalized_aweme_id = str(aweme_id or '').strip()
+        if not normalized_aweme_id:
+            return False
+
+        for root in self._record_roots():
+            if not os.path.isdir(root):
+                continue
+            for dirpath, _, filenames in os.walk(root):
+                for filename in filenames:
+                    if filename == "download_record.json" or filename.startswith('.'):
+                        continue
+                    if normalized_aweme_id in filename:
+                        candidate = os.path.join(dirpath, filename)
+                        if os.path.isfile(candidate) and os.path.getsize(candidate) > 0:
+                            return True
+        return False
+
     def _is_aweme_downloaded(self, aweme_id: str, user_dir: str = '') -> bool:
         normalized_aweme_id = str(aweme_id or '').strip()
         if not normalized_aweme_id:
             return False
-        return (
+        recorded = (
             normalized_aweme_id in self._load_download_record(user_dir)
             or normalized_aweme_id in self._load_all_download_records()
         )
+        return recorded and self._downloaded_file_exists(normalized_aweme_id)
 
     def _save_download_record(self, user_dir: str, aweme_id: str):
         """保存下载记录"""
@@ -446,7 +465,7 @@ class DouyinDownloader:
             self._sanitize_filename(raw_filename, '未命名作品'),
         )
         
-    def download_media_group(self, urls: List[dict], name: str, aweme_id: str = None, socketio=None, task_id=None, cancel_event=None, progress_callback=None, pause_event=None) -> bool:
+    def download_media_group(self, urls: List[dict], name: str, aweme_id: str = None, socketio=None, task_id=None, cancel_event=None, progress_callback=None, pause_event=None, check_existing: bool = True) -> bool:
         """下载一组媒体文件（图片、视频或Live Photo）
         Args:
             urls: [{'url': 'https://example.com/file.mp4', 'type': 'video'|'image'|'live_photo'}]
@@ -477,7 +496,7 @@ class DouyinDownloader:
                 print(f"\033[93m[Downloader] 用户目录: {user_dir}, 文件名: {filename}\033[0m")
 
             # 只有当提供了aweme_id时才检查下载记录
-            if aweme_id and self._is_aweme_downloaded(aweme_id, user_dir):
+            if check_existing and aweme_id and self._is_aweme_downloaded(aweme_id, user_dir):
                 if self.debug_mode:
                     print(f"\033[93m[Downloader] 作品已在下载记录中: {aweme_id}\033[0m")
                 print(f"\033[93m作品已下载，跳过：{user_dir}/{filename}\033[0m")
@@ -743,7 +762,7 @@ class DouyinDownloader:
 
 
 
-    def download_video(self, url: str, name: str, aweme_id: str, cancel_event=None, socketio=None, task_id=None, progress_callback=None, pause_event=None) -> bool:
+    def download_video(self, url: str, name: str, aweme_id: str, cancel_event=None, socketio=None, task_id=None, progress_callback=None, pause_event=None, check_existing: bool = True) -> bool:
         """下载视频
         Args:
             url: 视频URL
@@ -758,7 +777,7 @@ class DouyinDownloader:
             user_dir, filename = self._split_download_name(name)
 
             # 检查是否已下载
-            if self._is_aweme_downloaded(aweme_id, user_dir):
+            if check_existing and self._is_aweme_downloaded(aweme_id, user_dir):
                 if self.debug_mode:
                     print(f"\033[93m[Downloader] 作品已在下载记录中: {aweme_id}\033[0m")
                 print(f"\033[93m作品已下载，跳过：{user_dir}/{filename}\033[0m")
@@ -888,7 +907,7 @@ class DouyinDownloader:
             if response is not None:
                 response.close()
 
-    def download_image(self, url: str, name: str, aweme_id: str, is_live: bool = False) -> bool:
+    def download_image(self, url: str, name: str, aweme_id: str, is_live: bool = False, check_existing: bool = True) -> bool:
         """下载图片或Live Photo
         Returns:
             bool: 下载是否成功
@@ -899,7 +918,7 @@ class DouyinDownloader:
             user_dir, filename = self._split_download_name(name)
             
             # 检查是否已下载
-            if self._is_aweme_downloaded(aweme_id, user_dir):
+            if check_existing and self._is_aweme_downloaded(aweme_id, user_dir):
                 if self.debug_mode:
                     print(f"\033[93m[Downloader] 作品已在下载记录中: {aweme_id}\033[0m")
                 print(f"\033[93m作品已下载，跳过：{user_dir}/{filename}\033[0m")

@@ -2118,6 +2118,7 @@ function ProgressBar({
   const [hoverPreview, setHoverPreview] = useState({
     visible: false,
     x: 0,
+    width: 0,
     time: 0,
   });
 
@@ -2136,9 +2137,17 @@ function ProgressBar({
     setHoverPreview({
       visible,
       x: rawX,
+      width: rect.width,
       time: ratio * duration,
     });
   }, [duration]);
+
+  const previewX = hoverPreview.width > 0
+    ? Math.min(
+        Math.max(hoverPreview.x, PROGRESS_PREVIEW_WIDTH / 2),
+        Math.max(PROGRESS_PREVIEW_WIDTH / 2, hoverPreview.width - PROGRESS_PREVIEW_WIDTH / 2)
+      )
+    : hoverPreview.x;
 
   const hideHoverPreview = useCallback(() => {
     if (pointerDraggingRef.current || mouseDraggingRef.current || touchDraggingRef.current) return;
@@ -2330,7 +2339,7 @@ function ProgressBar({
               hoverPreview.visible ? "opacity-100" : "opacity-0"
             )}
             style={{
-              left: hoverPreview.visible ? hoverPreview.x : 0,
+              left: hoverPreview.visible ? previewX : 0,
               transform: `translateX(-50%) translateY(${hoverPreview.visible ? "0" : "6px"})`,
             }}
           >
