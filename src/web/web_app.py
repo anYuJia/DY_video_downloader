@@ -3649,6 +3649,7 @@ def download_user_video():
                                 )
 
                             if media_type == 'video' and len(urls) == 1:
+                                fallback_urls = user_manager.get_video_download_urls((post.get('video') or {}))
                                 success = await asyncio.to_thread(
                                     user_manager.downloader.download_video,
                                     urls[0]['url'],
@@ -3659,6 +3660,7 @@ def download_user_video():
                                     None,
                                     progress_callback,
                                     pause_control,
+                                    fallback_urls=fallback_urls,
                                 )
                             else:
                                 success = await asyncio.to_thread(

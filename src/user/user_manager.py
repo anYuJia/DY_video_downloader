@@ -842,11 +842,13 @@ class DouyinUserManager:
                         print(f"\033[91m{error_msg}\033[0m")
                 
             elif media_type == 'video':
+                fallback_urls = self.get_video_download_urls(post.get('video') or {})
                 success = await asyncio.to_thread(
                     self.downloader.download_video,
                     urls[0]['url'],
                     name,
                     aweme_id,
+                    fallback_urls=fallback_urls,
                 )
                 if success:
                     success_msg = f"作品 {name} 下载完成"
@@ -1207,11 +1209,13 @@ class DouyinUserManager:
 
                 async with semaphore:
                     if media_type == 'video' and len(media_urls) == 1:
+                        fallback_urls = self.get_video_download_urls((video.get('video') or {}))
                         success = await asyncio.to_thread(
                             self.downloader.download_video,
                             media_urls[0]['url'],
                             name,
                             aweme_id,
+                            fallback_urls=fallback_urls,
                         )
                     else:
                         success = await asyncio.to_thread(
