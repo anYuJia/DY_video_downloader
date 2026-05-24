@@ -142,6 +142,7 @@ export function VideoDetailModal({ video, open, onOpenChange, onDownload }: Vide
                     <div className="absolute bottom-3 left-1/2 flex max-w-[90%] -translate-x-1/2 flex-wrap justify-center gap-0.5 rounded-full bg-black/35 px-1.5 py-1 backdrop-blur-md">
                       {mediaItems.map((item, index) => (
                         <button
+                          type="button"
                           key={`${item.type}-${item.url}-${index}`}
                           onClick={() => {
                             setActiveTab("media");
@@ -242,6 +243,7 @@ export function VideoDetailModal({ video, open, onOpenChange, onDownload }: Vide
                             {link.url}
                           </span>
                           <button
+                            type="button"
                             onClick={() => copyLink(link)}
                             className="inline-flex h-7 shrink-0 items-center gap-1 rounded-[8px] px-2 text-[0.68rem] text-text-muted transition-[background-color,color] hover:bg-surface-raised hover:text-accent"
                             aria-label={`复制${link.label}链接`}

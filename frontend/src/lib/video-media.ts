@@ -27,11 +27,14 @@ type VideoLikeSource = VideoInfo & {
   bgm_url?: string | null;
   images?: string[] | null;
   live_photos?: string[] | null;
+  bit_rate?: BitRateInfo[] | null;
   media_urls?: Array<VideoMediaUrl | string> | null;
   video?: VideoInfo["video"] & {
     media_urls?: Array<VideoMediaUrl | string> | null;
   };
 };
+
+const MAX_REASONABLE_VIDEO_DURATION_SECONDS = 24 * 60 * 60;
 
 export function normalizeVideoMediaType(type: unknown): VideoMediaType {
   if (type === 1 || type === "1") return "image";
@@ -189,9 +192,16 @@ export function getVideoDurationSeconds(video: VideoInfo | null | undefined): nu
   const duration = Number(video?.video?.duration || 0);
   if (!Number.isFinite(duration) || duration <= 0) return 0;
   const unit = String(video?.video?.duration_unit || "").toLowerCase();
-  if (unit === "seconds" || unit === "second" || unit === "s") return duration;
-  if (unit === "milliseconds" || unit === "millisecond" || unit === "ms") return duration / 1000;
-  return duration > 1000 ? duration / 1000 : duration;
+  const bitRateDuration = estimateDurationSecondsFromBitRates(video);
+
+  if (unit === "seconds" || unit === "second" || unit === "s") {
+    return pickReliableDuration(duration, bitRateDuration);
+  }
+  if (unit === "milliseconds" || unit === "millisecond" || unit === "ms") {
+    return pickReliableDuration(duration / 1000, bitRateDuration);
+  }
+
+  return pickReliableDuration(duration > 1000 ? duration / 1000 : duration, bitRateDuration);
 }
 
 export function getVideoMediaLabel(video: VideoInfo | null | undefined): string {
@@ -359,6 +369,42 @@ function formatDataSize(value: number): string {
   if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
   if (value >= 1024) return `${Math.round(value / 1024)} KB`;
   return `${value} B`;
+}
+
+function estimateDurationSecondsFromBitRates(video: VideoInfo | null | undefined): number {
+  const source = video as VideoLikeSource | null | undefined;
+  const bitRates = source?.video?.bit_rate || source?.bit_rate || [];
+  if (!Array.isArray(bitRates)) return 0;
+
+  const estimates = bitRates
+    .map((bitRate) => {
+      const bitsPerSecond = Number(bitRate?.bit_rate || 0);
+      const bytes = Number(bitRate?.data_size || 0);
+      if (!Number.isFinite(bitsPerSecond) || !Number.isFinite(bytes) || bitsPerSecond <= 0 || bytes <= 0) {
+        return 0;
+      }
+      return (bytes * 8) / bitsPerSecond;
+    })
+    .filter((seconds) => seconds > 0 && seconds <= MAX_REASONABLE_VIDEO_DURATION_SECONDS)
+    .sort((a, b) => a - b);
+
+  if (estimates.length === 0) return 0;
+  return estimates[Math.floor(estimates.length / 2)];
+}
+
+function pickReliableDuration(primarySeconds: number, bitRateSeconds: number): number {
+  if (!Number.isFinite(primarySeconds) || primarySeconds <= 0) return bitRateSeconds || 0;
+  if (!Number.isFinite(bitRateSeconds) || bitRateSeconds <= 0) return primarySeconds;
+
+  const diff = Math.abs(primarySeconds - bitRateSeconds);
+  const closeEnough = diff <= Math.max(2, bitRateSeconds * 0.2);
+  if (closeEnough) return primarySeconds;
+
+  if (primarySeconds < 10 && bitRateSeconds >= 30) {
+    return bitRateSeconds;
+  }
+
+  return primarySeconds;
 }
 
 function qualityRank(option: VideoQualityOption): number {

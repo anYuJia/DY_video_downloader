@@ -52,8 +52,10 @@ interface FullscreenPlayerProps {
 const IMAGE_DURATION_SECONDS = 1.5;
 const LOAD_MORE_THRESHOLD = 3;
 const PLAYER_VIDEO_MAX_AUTO_RETRIES = 1;
-const PLAYER_VIDEO_BUFFERING_DELAY_MS = 450;
+const PLAYER_VIDEO_INITIAL_STATUS_DELAY_MS = 450;
+const PLAYER_VIDEO_REBUFFER_STATUS_DELAY_MS = 1400;
 const PLAYER_VIDEO_LOAD_TIMEOUT_MS = 18_000;
+const PLAYER_NEXT_VIDEO_PRELOAD_AHEAD_SECONDS = 10;
 const MAX_PRELOADED_MEDIA_NODES = 24;
 const MEDIA_TRANSITION_DISTANCE = 34;
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
@@ -197,7 +199,7 @@ export function FullscreenPlayer({
   const surfaceTapStartRef = useRef<{ x: number; y: number; at: number } | null>(null);
   const lastSurfaceToggleAtRef = useRef(0);
   const pendingQualitySeekRef = useRef<number | null>(null);
-  const preloadedMediaRef = useRef(new Set<string>());
+  const preloadedMediaRef = useRef(new Map<string, boolean>());
   const preloadedNodesRef = useRef<Array<HTMLImageElement | HTMLVideoElement>>([]);
 
   const rawCurrentVideo = videos[currentIndex] || null;
@@ -1001,10 +1003,10 @@ export function FullscreenPlayer({
     bufferingTimerRef.current = window.setTimeout(() => {
       const node = videoRef.current;
       if (!desiredPlayingRef.current || node?.paused) return;
-      if (node && node.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return;
+      if (node && node.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return;
       setLoadState("loading");
       setShowLoadStatus(true);
-    }, PLAYER_VIDEO_BUFFERING_DELAY_MS);
+    }, PLAYER_VIDEO_REBUFFER_STATUS_DELAY_MS);
   }, []);
 
   const preloadMediaItem = useCallback((media: VideoMediaItem | null | undefined, full = false) => {
@@ -1012,8 +1014,11 @@ export function FullscreenPlayer({
 
     const proxiedUrl = mediaProxyUrl(media.url, getMediaProxyType(media));
     const key = `${media.type}::${proxiedUrl}`;
-    if (!proxiedUrl || preloadedMediaRef.current.has(key)) return;
-    preloadedMediaRef.current.add(key);
+    if (!proxiedUrl) return;
+
+    const existingFullPreload = preloadedMediaRef.current.get(key);
+    if (existingFullPreload || (!full && preloadedMediaRef.current.has(key))) return;
+    preloadedMediaRef.current.set(key, full);
 
     if (media.type === "image") {
       const image = new Image();
@@ -1040,6 +1045,13 @@ export function FullscreenPlayer({
       }
     }
   }, []);
+
+  const preloadVideoAtIndex = useCallback((index: number, full = true) => {
+    const video = videos[index];
+    if (!video) return;
+    const firstMedia = collectVideoMedia(video)[0];
+    preloadMediaItem(firstMedia, full);
+  }, [preloadMediaItem, videos]);
 
   useEffect(() => {
     if (!open) return;
@@ -1157,8 +1169,10 @@ export function FullscreenPlayer({
 
     if (currentMedia && isVideoLikeMedia(currentMedia)) {
       loadStatusTimerRef.current = window.setTimeout(() => {
+        const node = videoRef.current;
+        if (node && node.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return;
         setShowLoadStatus(true);
-      }, PLAYER_VIDEO_BUFFERING_DELAY_MS);
+      }, PLAYER_VIDEO_INITIAL_STATUS_DELAY_MS);
       scheduleLoadTimeout();
       if (mediaItems.length > 1) {
         const nextIndex = (mediaIndex + 1) % mediaItems.length;
@@ -1190,6 +1204,13 @@ export function FullscreenPlayer({
     loadMoreRequestedForLength.current = videos.length;
     onLoadMore();
   }, [currentIndex, onLoadMore, open, videos.length]);
+
+  useEffect(() => {
+    if (!open || !currentMedia || !isVideoLikeMedia(currentMedia)) return;
+    if (duration <= 0 || currentTime <= 0) return;
+    if (duration - currentTime > PLAYER_NEXT_VIDEO_PRELOAD_AHEAD_SECONDS) return;
+    preloadVideoAtIndex(currentIndex + 1, true);
+  }, [currentIndex, currentMedia, currentTime, duration, open, preloadVideoAtIndex]);
 
   useEffect(() => {
     preloadedMediaRef.current.clear();

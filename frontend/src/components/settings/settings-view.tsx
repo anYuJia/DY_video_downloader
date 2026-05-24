@@ -1013,6 +1013,7 @@ export function SettingsView() {
               ] as const
             ).map(({ value, icon: Icon, label }) => (
               <button
+                type="button"
                 key={value}
                 onClick={() => void handleThemeChange(value as ThemeMode)}
                 disabled={savingFields.theme}
