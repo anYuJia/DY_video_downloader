@@ -762,7 +762,7 @@ class DouyinDownloader:
 
 
 
-    def download_video(self, url: str, name: str, aweme_id: str, cancel_event=None, socketio=None, task_id=None, progress_callback=None, pause_event=None, check_existing: bool = True) -> bool:
+    def download_video(self, url: str, name: str, aweme_id: str, cancel_event=None, socketio=None, task_id=None, progress_callback=None, pause_event=None, check_existing: bool = True, fallback_urls: Optional[List[str]] = None) -> bool:
         """下载视频
         Args:
             url: 视频URL
@@ -789,14 +789,38 @@ class DouyinDownloader:
                 return False
 
             headers = self._get_download_headers()
-            response = _get_session().get(url, headers=headers, stream=True, timeout=(10, 120))
-            response.raise_for_status()
+            candidate_urls = []
+            for candidate_url in [url, *(fallback_urls or [])]:
+                candidate_url = str(candidate_url or '').strip()
+                if candidate_url and candidate_url not in candidate_urls:
+                    candidate_urls.append(candidate_url)
+
+            last_error = None
+            selected_url = url
+            for candidate_url in candidate_urls:
+                if response is not None:
+                    response.close()
+                    response = None
+                try:
+                    response = _get_session().get(candidate_url, headers=headers, stream=True, timeout=(10, 120))
+                    response.raise_for_status()
+                    selected_url = candidate_url
+                    break
+                except Exception as request_error:
+                    last_error = request_error
+                    if response is not None:
+                        response.close()
+                        response = None
+                    if self.debug_mode:
+                        print(f"\033[91m[Downloader] 视频地址不可用，尝试下一个: {request_error}\033[0m")
+            if response is None:
+                raise last_error or RuntimeError("没有可用的视频下载地址")
             response_size = self._get_response_size(response)
             file_started_at = time.monotonic()
 
             user_path = os.path.join(self.download_dir, user_dir)
             os.makedirs(user_path, exist_ok=True)
-            filepath = self._unique_filepath(user_path, filename, self._extension_for_media('video', url, response))
+            filepath = self._unique_filepath(user_path, filename, self._extension_for_media('video', selected_url, response))
 
             if self.debug_mode:
                 print(f"\033[93m[Downloader] 开始下载视频: {filepath}\033[0m")

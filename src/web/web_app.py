@@ -716,8 +716,6 @@ def normalize_download_media_urls(media_urls, raw_media_type='video'):
         url = item.get('url', '')
         media_type = item.get('type') or infer_media_type_from_url(url, raw_media_type)
         if media_type == 'video':
-            if is_watermark_video_url(url):
-                continue
             url = clean_video_download_url(url)
             if is_watermark_video_url(url):
                 continue
@@ -3157,6 +3155,7 @@ def download_single_video():
             return jsonify({'success': False, 'message': '服务未完全初始化'}), 500
 
         media_urls = normalize_download_media_urls(media_urls, raw_media_type)
+        video_fallback_urls = []
 
         should_refresh_video_media = (
             raw_media_type == 'video'
@@ -3182,6 +3181,7 @@ def download_single_video():
                     raw_media_type = detail_media_type
                     video_desc = detail.get('desc') or video_desc
                     author_name = detail.get('author', {}).get('nickname') or author_name
+                    video_fallback_urls = user_manager.get_video_download_urls((detail.get('video') or {}))
 
         if not media_urls:
             return jsonify({'success': False, 'message': '没有可用的媒体URL'}), 400
@@ -3280,6 +3280,7 @@ def download_single_video():
                             None,
                             None,
                             False,
+                            fallback_urls=video_fallback_urls,
                         )
                     else:
                         success = await asyncio.to_thread(
@@ -4877,6 +4878,7 @@ def download_video_by_aweme_id():
         # 获取媒体信息
         media_type = detail.get('media_type', 'video')
         media_urls = normalize_download_media_urls(detail.get('media_urls', []), media_type)
+        video_fallback_urls = user_manager.get_video_download_urls((detail.get('video') or {}))
 
         if not media_urls:
             return jsonify({'success': False, 'message': '无法获取视频下载地址'}), 500
@@ -4902,6 +4904,7 @@ def download_video_by_aweme_id():
                         None,
                         None,
                         False,
+                        fallback_urls=video_fallback_urls,
                     )
                 else:
                     success = await asyncio.to_thread(

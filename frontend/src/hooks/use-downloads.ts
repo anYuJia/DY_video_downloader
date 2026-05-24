@@ -42,6 +42,7 @@ export function useDownloads() {
 
       updateTask({
         id: taskId,
+        awemeId: video.aweme_id,
         filename: displayName,
         progress: 0,
         status: "downloading",
@@ -80,6 +81,7 @@ export function useDownloads() {
           const taskId = await addDownloadTask(video);
           updateTask({
             id: taskId || video.aweme_id,
+            awemeId: video.aweme_id,
             filename: `${video.author.nickname}_${video.aweme_id}`,
             progress: 0,
             status: "pending",
@@ -168,6 +170,70 @@ export function useDownloads() {
     [updateTask, addLog, getTaskLabel, toast]
   );
 
+  const retryDownload = useCallback(
+    async (taskId: string) => {
+      const task = useDownloadStore.getState().tasks[taskId];
+      const awemeId = (task?.awemeId || task?.currentAwemeId || (!looksLikeUuid(taskId) ? taskId : "")).trim();
+
+      if (!task || !awemeId) {
+        const msg = "无法重试：缺少作品ID";
+        addLog(msg, "error");
+        toast(msg, "error");
+        return;
+      }
+
+      const label = task.currentName || task.filename || awemeId;
+      addLog(`重新下载: ${label}`, "info");
+      toast(`重新下载: ${label}`, "info");
+
+      try {
+        try {
+          await removeDownloadTask(taskId);
+        } catch {
+          // The old backend task may already be gone; retry should still create a fresh task.
+        }
+        removeTask(taskId);
+
+        const retryVideo = {
+          aweme_id: awemeId,
+          desc: task.currentName || task.filename || "",
+          author: { nickname: "" },
+          media_type: task.mediaType || "video",
+          raw_media_type: task.mediaType || "video",
+          media_urls: [],
+        } as unknown as VideoInfo;
+
+        const nextTaskId = await addDownloadTask(retryVideo);
+        const id = nextTaskId || awemeId;
+        updateTask({
+          id,
+          awemeId,
+          filename: label,
+          progress: 0,
+          status: "pending",
+          startTime: Date.now(),
+          errorMessage: undefined,
+        });
+        if (nextTaskId) {
+          await startDownload(nextTaskId);
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "重试下载失败";
+        updateTask({
+          id: taskId,
+          awemeId,
+          filename: label,
+          progress: 0,
+          status: "error",
+          errorMessage: msg,
+        });
+        addLog(msg, "error");
+        toast(msg, "error");
+      }
+    },
+    [updateTask, removeTask, addLog, toast]
+  );
+
   const removeDownload = useCallback(
     async (taskId: string) => {
       try {
@@ -221,6 +287,7 @@ export function useDownloads() {
     cancelDownload,
     pauseTask,
     resumeTask,
+    retryDownload,
     removeTask: removeDownload,
     clearCompleted,
     openDownloadsDirectory,
@@ -295,4 +362,8 @@ function normalizeTimestamp(value: unknown) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return undefined;
   return n > 10_000_000_000 ? n : n * 1000;
+}
+
+function looksLikeUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }

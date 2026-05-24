@@ -97,7 +97,6 @@ class DouyinUserManager:
         seen = set()
 
         def push_candidate(url: str, metric: int, is_h264: bool = False, is_download_addr: bool = False, is_lowbr: bool = False) -> None:
-            is_watermark = self._is_watermark_url(url)
             normalized_url = self._clean_video_download_url(url)
             if not normalized_url or normalized_url in seen:
                 return
@@ -108,7 +107,7 @@ class DouyinUserManager:
                 'is_h264': bool(is_h264),
                 'is_download_addr': bool(is_download_addr),
                 'is_lowbr': bool(is_lowbr),
-                'is_watermark': is_watermark or self._is_watermark_url(normalized_url),
+                'is_watermark': self._is_watermark_url(normalized_url),
             })
 
         push_candidate(self._first_url(video_data.get('download_addr')), 0, False, True, False)
@@ -134,13 +133,28 @@ class DouyinUserManager:
         return candidates
 
     def _select_video_url(self, video_data: dict) -> str:
+        urls = self.get_video_download_urls(video_data)
+        return urls[0] if urls else ''
+
+    def get_video_download_urls(self, video_data: dict) -> list[str]:
         candidates = self._collect_video_candidates(video_data or {})
         if not candidates:
-            return ''
+            return []
 
         clean_candidates = [candidate for candidate in candidates if not candidate['is_watermark']]
         if not clean_candidates:
-            return ''
+            return []
+
+        ordered = []
+        seen = set()
+
+        def push(candidate) -> None:
+            if not candidate:
+                return
+            url = candidate.get('url', '')
+            if url and url not in seen:
+                seen.add(url)
+                ordered.append(url)
 
         download_addr = next((candidate for candidate in clean_candidates if candidate['is_download_addr']), None)
         h264_candidates = [
@@ -160,15 +174,22 @@ class DouyinUserManager:
 
         quality = self._video_download_quality()
         if quality == 'highest':
-            selected = highest_metric or h264_best or download_addr or first
+            for candidate in (highest_metric, h264_best, download_addr, first):
+                push(candidate)
         elif quality == 'h264':
-            selected = h264_best or highest_metric or download_addr or first
+            for candidate in (h264_best, highest_metric, download_addr, first):
+                push(candidate)
         elif quality == 'smallest':
-            selected = lowbr or smallest_metric or h264_best or first
+            for candidate in (lowbr, smallest_metric, h264_best, first):
+                push(candidate)
         else:
-            selected = h264_best or highest_metric or download_addr or first
+            for candidate in (h264_best, highest_metric, download_addr, first):
+                push(candidate)
 
-        return selected['url'] if selected else ''
+        for candidate in sorted(clean_candidates, key=lambda item: item['metric'], reverse=True):
+            push(candidate)
+
+        return ordered
 
     def _build_video_media_urls(self, video_data: dict) -> list[dict]:
         video_data = video_data or {}

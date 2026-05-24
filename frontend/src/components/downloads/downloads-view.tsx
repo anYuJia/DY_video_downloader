@@ -74,6 +74,7 @@ export function DownloadsView() {
     cancelDownload,
     pauseTask,
     resumeTask,
+    retryDownload,
     removeTask,
     openDownloadsDirectory,
     openTaskLocation,
@@ -427,6 +428,11 @@ export function DownloadsView() {
               }
             }
             const deletedIds = new Set(targets.map((item) => item.id));
+            const deletedPaths = new Set(targets.map((item) => item.path).filter(Boolean));
+            const isDeletedItem = (item: HistoryItem) => deletedIds.has(item.id) || deletedPaths.has(item.path);
+            setDiskFiles((current) => current.filter((item) => !isDeletedItem(item)));
+            setWorkDiskFiles((current) => current.filter((item) => !isDeletedItem(item)));
+            setDiskTotal((current) => Math.max(0, current - targets.length));
             setSelectedFiles((current) => {
               const next = new Set([...current].filter((id) => !deletedIds.has(id)));
               return next;
@@ -640,6 +646,7 @@ export function DownloadsView() {
                 <TaskCard
                   key={task.id}
                   task={task}
+                  onRetry={retryDownload}
                   onOpen={openTaskLocation}
                   onRemove={removeTask}
                 />
