@@ -30,7 +30,7 @@ import shlex
 import requests as http_requests
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 # 配置日志
 logging.basicConfig(level=logging.DEBUG if os.environ.get('DEBUG_MODE', '').lower() in ('true', '1') else logging.INFO,
@@ -431,6 +431,7 @@ def _search_user_payload(user_info: dict, item: dict | None = None) -> dict:
         item.get('user_info') or {},
     ]
     return {
+        'uid': user_info.get('uid', ''),
         'nickname': user_info.get('nickname', ''),
         'unique_id': user_info.get('unique_id', ''),
         'follower_count': _first_count(sources, ('follower_count', 'follower_count_str', 'follower_count_text', 'fans_count', 'fans_count_str', 'fans_count_text')),
@@ -441,7 +442,10 @@ def _search_user_payload(user_info: dict, item: dict | None = None) -> dict:
         'signature': user_info.get('signature', ''),
         'sec_uid': user_info.get('sec_uid', ''),
         'avatar_thumb': user_info.get('avatar_thumb', {}).get('url_list', [''])[0] if user_info.get('avatar_thumb') else '',
-        'avatar_larger': user_info.get('avatar_larger', {}).get('url_list', [''])[0] if user_info.get('avatar_larger') else ''
+        'avatar_medium': user_info.get('avatar_medium', {}).get('url_list', [''])[0] if user_info.get('avatar_medium') else '',
+        'avatar_larger': user_info.get('avatar_larger', {}).get('url_list', [''])[0] if user_info.get('avatar_larger') else '',
+        'is_follow': bool(user_info.get('is_follow', False)),
+        'verify_status': _count_value(user_info.get('verify_status'), 0),
     }
 
 
@@ -570,6 +574,131 @@ def _api_message(payload, fallback='请求失败'):
             if isinstance(value, str) and value.strip():
                 return value.strip()
     return fallback
+
+
+def _media_first_url(value):
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        url_list = value.get('url_list')
+        if isinstance(url_list, list):
+            for item in url_list:
+                if isinstance(item, str) and item.strip():
+                    return item.strip()
+        for key in ('main_url', 'backup_url', 'fallback_url', 'play_addr', 'play_url', 'download_addr', 'url'):
+            url = _media_first_url(value.get(key))
+            if url:
+                return url
+    if isinstance(value, list):
+        for item in value:
+            url = _media_first_url(item)
+            if url:
+                return url
+    return ''
+
+
+def _clean_no_watermark_url(url):
+    cleaned = str(url or '').strip()
+    if not cleaned:
+        return ''
+    cleaned = cleaned.replace('playwm', 'play')
+    try:
+        parsed = urlparse(cleaned)
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        if 'watermark' in query:
+            query['watermark'] = '0'
+        return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
+    except Exception:
+        return cleaned.replace('watermark=1', 'watermark=0')
+
+
+def _looks_watermarked_url(url):
+    text = str(url or '').lower()
+    return 'watermark=1' in text or 'playwm' in text or 'logo_name=' in text
+
+
+def _select_recommended_video_url(video_data, fallback=''):
+    video_data = video_data or {}
+    candidates = []
+
+    def push_candidate(url, metric):
+        normalized_url = _media_first_url(url)
+        if normalized_url:
+            candidates.append((metric, normalized_url))
+
+    def metric(bit_rate):
+        if not isinstance(bit_rate, dict):
+            return 0
+        for key in ('data_size', 'bit_rate', 'quality_type'):
+            try:
+                value = int(bit_rate.get(key) or 0)
+            except (TypeError, ValueError):
+                value = 0
+            if value > 0:
+                return value
+        try:
+            width = int(bit_rate.get('width') or 0)
+            height = int(bit_rate.get('height') or 0)
+        except (TypeError, ValueError):
+            return 0
+        return width * height if width > 0 and height > 0 else 0
+
+    for bit_rate in video_data.get('bit_rate') or []:
+        item_metric = metric(bit_rate)
+        push_candidate((bit_rate or {}).get('play_addr'), 9_000_000 + item_metric)
+        push_candidate((bit_rate or {}).get('play_addr_h264'), 8_000_000 + item_metric)
+
+    push_candidate(fallback, 7_000_000)
+    push_candidate(video_data.get('play_addr_h264'), 6_000_000)
+    push_candidate(video_data.get('play_addr'), 5_000_000)
+    push_candidate(video_data.get('play_addr_lowbr'), 1_000_000)
+    push_candidate(video_data.get('download_addr'), 500_000)
+
+    selected = ''
+    for _, url in sorted(candidates, key=lambda item: item[0], reverse=True):
+        if not _looks_watermarked_url(url):
+            selected = url
+            break
+    if not selected and candidates:
+        selected = max(candidates, key=lambda item: item[0])[1]
+    return _clean_no_watermark_url(selected)
+
+
+def _select_dash_video_url(video_data):
+    """优先选择推荐流里的 h264 DASH 分片源，用于播放器 seek。"""
+    video_data = video_data or {}
+    for bit_rate in video_data.get('bit_rate') or []:
+        if not isinstance(bit_rate, dict):
+            continue
+        if str(bit_rate.get('format') or '').lower() != 'dash':
+            continue
+        if bool(bit_rate.get('is_h265')):
+            continue
+        urls = ((bit_rate.get('play_addr') or {}).get('url_list') or [])
+        if not isinstance(urls, list):
+            continue
+        for url in urls:
+            url = str(url or '').strip()
+            if url and 'media-video-avc1' in url:
+                return url
+        for url in urls:
+            url = str(url or '').strip()
+            if url:
+                return url
+    return ''
+
+
+def _select_dash_audio_url(video_data):
+    """选择与 DASH 视频配套的音频源。"""
+    video_data = video_data or {}
+    for audio_rate in video_data.get('bit_rate_audio') or []:
+        if not isinstance(audio_rate, dict):
+            continue
+        audio_meta = audio_rate.get('audio_meta') or {}
+        url = _media_first_url(audio_meta.get('url_list'))
+        if url:
+            return url
+    return ''
 
 
 def _verify_error_response(payload, fallback='需要完成抖音验证', verify_url=None):
@@ -2418,6 +2547,23 @@ def media_proxy():
             except Exception:
                 pass
         return f'Proxy error: {str(e)}', 502
+
+
+@app.route('/api/debug/seek')
+def debug_seek():
+    logger.info(
+        '[player_seek] phase=%s target=%s before=%s after=%s duration=%s ready_state=%s network_state=%s paused=%s src=%s',
+        request.args.get('phase', ''),
+        request.args.get('target', ''),
+        request.args.get('before', ''),
+        request.args.get('after', ''),
+        request.args.get('duration', ''),
+        request.args.get('ready_state', ''),
+        request.args.get('network_state', ''),
+        request.args.get('paused', ''),
+        request.args.get('src', '')[:160],
+    )
+    return 'ok'
 
 
 @app.route('/api/download_music')
@@ -4709,14 +4855,13 @@ def get_recommended_feed():
             try:
                 # 提取视频播放地址
                 video_data = aweme.get('video', {})
-                play_addr_data = video_data.get('play_addr', {})
-                if isinstance(play_addr_data, dict):
-                    play_addr = play_addr_data.get('url_list', [''])[0]
-                else:
-                    play_addr = play_addr_data if play_addr_data else ''
+                play_addr = _media_first_url(video_data.get('play_addr'))
+                selected_video_url = _select_recommended_video_url(video_data, play_addr)
+                dash_video_url = _select_dash_video_url(video_data)
+                dash_audio_url = _select_dash_audio_url(video_data)
 
                 # 跳过没有播放地址的视频
-                if not play_addr:
+                if not selected_video_url:
                     skipped_count += 1
                     logger.debug(f"跳过视频 {aweme.get('aweme_id')}: 无播放地址")
                     continue
@@ -4788,6 +4933,11 @@ def get_recommended_feed():
                     'aweme_id': aweme.get('aweme_id', ''),
                     'desc': aweme.get('desc', ''),
                     'create_time': aweme.get('create_time', 0),
+                    'media_type': 'video',
+                    'raw_media_type': 'video',
+                    'media_urls': [{'type': 'video', 'url': selected_video_url}],
+                    'bgm_url': dash_audio_url or _extract_music_info(aweme.get('music') or {}).get('play_url', ''),
+                    'cover_url': cover,
                     'author': {
                         'uid': author_data.get('uid', ''),
                         'nickname': author_data.get('nickname', ''),
@@ -4806,11 +4956,13 @@ def get_recommended_feed():
                         'cover': cover,
                         'dynamic_cover': dynamic_cover,
                         'origin_cover': origin_cover or cover,
-                        'preview_addr': play_addr_lowbr or play_addr_h264 or play_addr,
-                        'play_addr': play_addr,
-                        'play_addr_h264': play_addr_h264,
-                        'play_addr_lowbr': play_addr_lowbr,
-                        'download_addr': download_addr,
+                        'play_addr': selected_video_url,
+                        'dash_addr': dash_video_url,
+                        'audio_addr': dash_audio_url,
+                        'preview_addr': _media_first_url(video_data.get('preview_addr')) or selected_video_url,
+                        'play_addr_h264': _media_first_url(video_data.get('play_addr_h264')),
+                        'play_addr_lowbr': _media_first_url(video_data.get('play_addr_lowbr')),
+                        'download_addr': _media_first_url(video_data.get('download_addr')),
                         'width': video_data.get('width', 0),
                         'height': video_data.get('height', 0),
                         'duration': _raw_duration_value(video_data.get('duration', 0)),
