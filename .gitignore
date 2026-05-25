@@ -84,6 +84,12 @@ temp/
 *.m4a
 *.mp3
 
+# README 展示图片需要提交
+!img/
+!img/*.jpg
+!img/preview/
+!img/preview/*.jpg
+
 # 备份文件
 *.bak
 *.backup

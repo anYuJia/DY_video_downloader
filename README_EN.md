@@ -2,57 +2,79 @@
 
 <img src="animated_icon.svg" width="128" height="128" alt="DY Video Downloader Logo">
 
-<a href="README.md">简体中文</a> | <a href="README_EN.md">English</a>
-
 # DY Video Downloader
 
-A desktop-grade Douyin Web downloader and local archive manager with a native window and local Web UI for searching creators, parsing share links, browsing recommended / collected / liked content, downloading media in bulk, and managing local works.
+A local Douyin downloader and archive manager for searching creators, parsing links, downloading media, previewing feeds, and managing saved works.
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-2ea44f.svg?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-555.svg?style=flat-square)]()
-[![Stars](https://img.shields.io/github/stars/anYuJia/DY_video_downloader?style=flat-square&logo=github)](../../stargazers)
+<p>
+  <a href="README.md">简体中文</a> | <a href="README_EN.md">English</a>
+</p>
 
-[Core Capabilities](#core-capabilities) • [Screenshots](#screenshots) • [Quick Start](#quick-start) • [Configuration](#configuration) • [FAQ](#faq) • [Project Structure](#project-structure)
+<p>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python"></a>
+  <a href="https://github.com/anYuJia/DY_video_downloader/releases/latest"><img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-555?style=flat-square" alt="Platform"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2ea44f?style=flat-square" alt="License"></a>
+</p>
+
+[Download](../../releases/latest) · [Screenshots](#screenshots) · [Quick Start](#quick-start) · [FAQ](#faq)
 
 </div>
 
 ---
 
-## Overview
+## Which Version Should I Use?
 
-DY Video Downloader combines Douyin Web access, Cookie acquisition, batch downloading, task scheduling, and local archiving into a visual desktop application. The backend uses Flask + Socket.IO, while pywebview wraps the local UI into a native window. It supports both packaged desktop builds and source-based runs.
+There are two related projects:
 
-It is suitable for personal backup, media organization, and research into Web-side download workflows. It is not intended for commercial collection, large-scale scraping, or any use that violates platform rules.
-
-## Core Capabilities
-
-| Capability | Description |
+| Version | Best for |
 |:---|:---|
-| User search | Dedicated search page with search history, input completion, pagination, per-item deletion, and clear-all |
-| User profile | Search results, player author names, and other entry points open the same profile page while preserving context across navigation |
-| Batch download | Fetch creator works and queue user works, collected works, liked works, videos, image posts, and some Live Photo assets |
-| Single-item parsing | Dedicated link parsing page with history completion, keyboard up/down selection, work details, and direct download |
-| Download quality | Highest quality, compatibility-first, and smallest-size strategies for single-item and batch downloads |
-| Local management | File mode and work mode, full-library search, playback, folder locating, and local file deletion |
-| Player | Author-name navigation, debounced mouse-wheel switching, and local work playback |
-| Real-time progress | Push task state, logs, speed, and progress through Socket.IO |
-| Task control | Pause, resume, and cancel long-running queues |
-| Cookie helpers | Browser login, browser Cookie import, and temporary Cookie generation |
-| Desktop startup | Open a pywebview native window instead of requiring a browser tab |
+| **Python version** | Easier source-level customization and Python-based workflows |
+| **Rust / Tauri version** | Recommended for daily desktop use, smaller builds, and smoother local playback |
+
+Rust version: [douyin-downloader-rust](https://github.com/anYuJia/douyin-downloader-rust).
+
+## Features
+
+- Search Douyin creators and open creator profiles
+- Parse a shared link and download a single work
+- Batch download videos, image posts, and some Live Photo assets
+- Preview recommended feeds and download from the player
+- Manage local downloads in file mode or work mode
+- Search, play, locate, and delete saved files
+- Skip works that have already been downloaded
+- Configure Cookie through built-in login, browser import, or manual paste
+- Keep Cookie, settings, history, and downloaded files on your own machine
 
 ## Screenshots
 
 <p align="center">
-  <img src="img/index.png" alt="Main interface">
+  <a href="img/index.jpg"><img src="img/preview/index.jpg" width="100%" alt="Main interface"></a>
+  <br>
+  <strong>Main interface</strong>
 </p>
 
 <p align="center">
-  <img src="img/get_user.png" alt="User search">
+  <a href="img/get_user.jpg"><img src="img/preview/get_user.jpg" width="100%" alt="User search"></a>
+  <br>
+  <strong>User search</strong>
 </p>
 
 <p align="center">
-  <img src="img/downloading.png" alt="Download monitor">
+  <a href="img/user_detail.jpg"><img src="img/preview/user_detail.jpg" width="100%" alt="Creator profile"></a>
+  <br>
+  <strong>Creator profile / batch download</strong>
+</p>
+
+<p align="center">
+  <a href="img/recommend.jpg"><img src="img/preview/recommend.jpg" width="100%" alt="Recommended feed"></a>
+  <br>
+  <strong>Recommended feed</strong>
+</p>
+
+<p align="center">
+  <a href="img/playvideo.jpg"><img src="img/preview/playvideo.jpg" width="100%" alt="Immersive player"></a>
+  <br>
+  <strong>Immersive player</strong>
 </p>
 
 ## Quick Start
@@ -61,11 +83,13 @@ It is suitable for personal backup, media organization, and research into Web-si
 
 Download the package for your platform from [Releases](../../releases/latest), extract it, and run the application.
 
-Current release outputs roughly include:
+Common choices:
 
-- macOS: `.app` and `.dmg`
-- Windows: portable `.zip` and installer `.exe`
-- Linux: `.tar.gz`
+| Platform | Recommended file |
+|:---|:---|
+| Windows | `.exe` installer or portable `.zip` |
+| macOS | `.dmg` or `.app` |
+| Linux | `.tar.gz` |
 
 Release builds start the local service and open the desktop window automatically.
 
@@ -92,135 +116,78 @@ npm run build
 cd ..
 ```
 
-#### Desktop mode
+Desktop mode:
 
 ```bash
 python main.py
 ```
 
-Notes:
-
-- This starts the local Flask + Socket.IO service.
-- It automatically chooses an available port between `5001` and `5010`.
-- It opens a pywebview native window rather than a normal browser tab.
-
-#### Browser / headless mode
+Browser / headless mode:
 
 ```bash
 python -m src.web.web_app
 ```
 
-Notes:
+## First Use
 
-- The default bind address is `127.0.0.1:5001`.
-- You can override bind address and port with environment variables:
+1. Open the app and configure Cookie and download directory in Settings.
+2. Set Cookie through built-in login, browser Cookie import, or manual paste.
+3. Search a creator or parse a shared link.
+4. Download a single work, or batch download from creator, collected, or liked lists.
+5. Monitor progress in the bottom task panel and manage saved files in "My Downloads".
 
-```bash
-HOST=127.0.0.1 PORT=5001 python -m src.web.web_app
-```
+## Cookie, Data, and Privacy
 
-#### Cookie acquisition
-
-Current supported methods:
-
-- built-in login window
-- importing Cookie from a local browser
-- manually pasting a Cookie
-
-## Usage Flow
-
-1. Start the application and configure Cookie and download directory in Settings.
-2. Set Cookie through browser login, browser Cookie import, or manual paste.
-3. Search a target user from the user search page, or open a single work from the link parsing page.
-4. Start download tasks from user works, single-item detail, recommended videos, collected videos, liked videos, or liked authors.
-5. Monitor progress in the bottom task panel and manage local content in "My Downloads" with file mode or work mode.
-
-## Configuration
-
-The application creates `config.json` in the runtime directory. Main fields:
-
-| Field | Description |
-|:---|:---|
-| `cookie` | Douyin Cookie. Some features are unavailable without it |
-| `base_dir` | Current download directory |
-| `history_dirs` | Historical download directories shown in the unified downloads view |
-
-Useful environment variables:
-
-| Environment Variable | Purpose |
-|:---|:---|
-| `DOUYIN_COOKIE` | Inject Cookie on startup |
-| `DOUYIN_BASE_DIR` | Set the download root directory |
-| `HOST` | Bind address for browser / headless mode |
-| `PORT` | Port for browser / headless mode |
-| `DEBUG_MODE=true` | Enable more verbose backend and Socket.IO logs |
-
-## Tech Stack
-
-| Module | Technology |
-|:---|:---|
-| Desktop shell | pywebview |
-| Web service | Flask, Flask-SocketIO |
-| Download concurrency | asyncio, aiohttp, requests |
-| Browser capability | pywebview, browser-cookie3 |
-| Frontend | React, Vite, TypeScript, Tailwind CSS |
-| Packaging | PyInstaller |
-
-## Project Structure
-
-```text
-.
-├── main.py                  # Desktop entrypoint and worker dispatcher
-├── src/
-│   ├── api/                 # Douyin APIs, signing, Cookie, and browser fallback
-│   ├── config/              # Config loading, persistence, and resource paths
-│   ├── downloader/          # Media downloads, progress callbacks, and dedupe records
-│   ├── user/                # User search, works list, and content parsing
-│   ├── utils/               # Generic utilities
-│   └── web/                 # Flask routes, Socket.IO, and React build output
-├── frontend/                # React/Vite frontend source
-├── lib/js/                  # Web signing scripts
-├── scripts/                 # Installer and helper scripts
-├── icons/                   # Application icons
-└── img/                     # README assets
-```
+- Cookie is only used for local requests to Douyin-related APIs
+- Cookie, settings, history, cache, and downloaded files stay on your machine
+- Download directory can be changed in Settings
+- Recommended feed, collected works, liked works, and some batch features require a valid Cookie
+- If an API suddenly stops working, check whether Cookie has expired, the account needs verification, or the network can access Douyin domains
 
 ## FAQ
 
-### What if the Cookie expires or works cannot be fetched
+### What if Cookie expires or works cannot be fetched?
 
-Douyin Web Cookies expire and can also be affected by account state, platform risk control, or API changes. Refresh the Cookie and confirm that the account can access the target content in a normal browser session.
+Refresh Cookie and confirm that the account can access the target content in a normal browser session.
 
-### What if downloads are slow or fail
+### What if downloads are slow or fail?
 
-Speed depends on network conditions, resource availability, and platform responses. Try another network, reduce concurrent tasks, refresh the Cookie, or retry later.
+Speed depends on network conditions, resource availability, and platform responses. Try another network, reduce concurrency, refresh Cookie, or retry later.
 
-### Why does changing download quality sometimes produce the same file size
+### Why does changing quality sometimes produce a similar file size?
 
-Some works only expose one downloadable media URL, or multiple transcoded URLs can be very close in size. The quality strategy selects from the available candidates, but whether distinct qualities exist depends on what the platform API returns.
+Some works only expose one downloadable media URL, or different transcoded URLs are close in size. Available quality depends on what the platform returns.
 
-### Why are already-downloaded works skipped
+### Why are already-downloaded works skipped?
 
-The project stores download records inside creator directories to avoid downloading the same work repeatedly. If you moved files or changed download directories manually, verify the active directory configuration in "My Downloads".
+The app records downloaded works and checks local files to avoid duplicate downloads. If you moved files or changed directories manually, verify the active directory in "My Downloads".
 
-### Can it run on a Linux server
+### Can it run on a Linux server?
 
-Yes. Browser / headless mode is more appropriate than desktop mode. If you expose it remotely, handle reverse proxying, access control, and Cookie exposure risks yourself.
+Yes. Browser / headless mode is more suitable than desktop mode. If you expose it remotely, handle access control, reverse proxying, and Cookie exposure risks yourself.
 
-## Related Projects
+## Development
 
-[Rust rewrite](https://github.com/anYuJia/douyin-downloader-rust): a smaller and higher-performance implementation direction.
+| Area | Technology |
+|:---|:---|
+| Desktop window | pywebview |
+| Local service | Flask, Flask-SocketIO |
+| Downloading | asyncio, aiohttp, requests |
+| Frontend | React, Vite, TypeScript, Tailwind CSS |
+| Packaging | PyInstaller |
 
 ## Disclaimer
 
-This project is for personal learning, research, and content backup only. Users are responsible for ensuring that their usage complies with applicable laws, platform terms, and copyright requirements. Any consequences caused by misuse, commercial collection, large-scale scraping, or infringement of third-party rights are solely the user's responsibility.
+This project is for personal learning, research, and content backup only. Please follow applicable laws, platform rules, and copyright requirements. Do not use it for commercial collection or large-scale scraping. Users are responsible for the consequences of misuse.
+
+## Star History
+
+<p align="center">
+  <a href="https://star-history.com/#anYuJia/DY_video_downloader&Date">
+    <img src="https://api.star-history.com/svg?repos=anYuJia/DY_video_downloader&type=Date" width="100%" alt="DY_video_downloader Star History Chart">
+  </a>
+</p>
 
 ---
 
 <p align="center">If this project helps you, a Star is appreciated.</p>
-
-<p align="center">
-  <a href="https://star-history.com/#anYuJia/DY_video_downloader&Date">
-    <img src="https://api.star-history.com/svg?repos=anYuJia/DY_video_downloader&type=Date" alt="Star History Chart">
-  </a>
-</p>
