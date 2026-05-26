@@ -63,8 +63,8 @@ LATEST_RELEASE_API_URL = 'https://api.github.com/repos/anYuJia/DY_video_download
 LATEST_RELEASE_PAGE_URL = 'https://github.com/anYuJia/DY_video_downloader/releases/latest'
 UPDATER_METADATA_URL = 'https://github.com/anYuJia/DY_video_downloader/releases/latest/download/latest.json'
 UPDATER_PUBLIC_KEY = (
-    'dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZEM0QzRUE5RDAyQjlEQjgK'
-    'UldTNG5TdlFxVDQ5L2RFcVIydi9xU1YzUVhLb1lwWmRZTlc3V1NQOEIrSDZNenIraTRTZ1NFeU8K'
+    'dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ4N0YyNERCNDcxNjlGRgpS'
+    'V1QvYVhHMFRmS0hEZmpYNEdhWEFnUExoU1dqUHFiYXhnU2UzWm1Rblo5UUc4MnM0cE13RXFiNAo='
 )
 MEDIA_PROXY_REDIRECT_CACHE = {}
 
