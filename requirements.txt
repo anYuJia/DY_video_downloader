@@ -23,5 +23,8 @@ gevent-websocket>=0.10.1  # WebSocket协议支持
 # 浏览器 Cookie 读取
 browser-cookie3>=0.19.1
 
+# 更新包签名校验
+PyNaCl>=1.5.0
+
 # 原生窗口
 pywebview>=5.0

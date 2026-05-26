@@ -109,6 +109,12 @@ def _neutralize_path_separators(value: str) -> str:
     return re.sub(r'[\\/]+', '_', str(value or ''))
 
 
+def _sanitize_template_component(value: str, default: str) -> str:
+    sanitized = re.sub(r'[\\/:*?"<>|\x00-\x1f]', '_', str(value or ''))
+    sanitized = ' '.join(sanitized.split()).strip(' ._')
+    return sanitized if sanitized not in ('', '.', '..') else default
+
+
 def build_download_title(
     desc: str,
     aweme_id: str,
@@ -158,8 +164,7 @@ def build_download_name(
         fields,
         '{author}',
     )
-    folder = _neutralize_path_separators(folder)
-    folder = ' '.join(folder.split()).strip(' ._') or fields['author'] or '未知作者'
+    folder = _sanitize_template_component(_neutralize_path_separators(folder), fields['author'] or '未知作者')
     title = build_download_title(
         desc,
         aweme_id,
@@ -1212,11 +1217,7 @@ class DouyinDownloader:
             print(f"\033[93m[Downloader] 清理文件名: {name}\033[0m")
             
         # 移除非法字符
-        sanitized = re.sub(r'[\\/:*?"<>|\x00-\x1f]', '_', str(name or ''))
-        # 移除多余空格
-        sanitized = ' '.join(sanitized.split()).strip(' ._')
-        if sanitized in ('', '.', '..'):
-            sanitized = default
+        sanitized = _sanitize_template_component(name, default)
         result = _truncate_filename_text(
             sanitized,
             default,

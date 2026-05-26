@@ -343,11 +343,42 @@ jobs:
     needs: build
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
           merge-multiple: true
+
+      - name: Install Rust stable for updater signatures
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri CLI for updater signatures
+        run: cargo install tauri-cli --version "^2"
+
+      - name: Sign release assets
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY is required to publish signed updater assets" >&2
+            exit 1
+          fi
+
+          while IFS= read -r -d '' asset; do
+            echo "Signing ${asset}"
+            cargo tauri signer sign "$asset"
+          done < <(find release-assets -type f \
+            ! -name '*.sig' \
+            ! -name '*.json' \
+            -print0 | sort -z)
+
+          find release-assets -type f -name '*.sig' -print | sort
 
       - name: Resolve release metadata
         id: meta
@@ -373,6 +404,18 @@ jobs:
           echo "release_name=$release_name" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
+
+      - name: Generate updater metadata
+        env:
+          VERSION: ${{ steps.meta.outputs.tag_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd release-assets
+            node ../scripts/finalize-updater-metadata.mjs
+          )
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2

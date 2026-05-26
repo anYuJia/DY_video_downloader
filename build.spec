@@ -4,7 +4,7 @@ import sys
 
 # 获取项目根目录，以便于寻址
 project_root = os.path.abspath('.')
-raw_app_version = os.environ.get('APP_VERSION') or os.environ.get('GITHUB_REF_NAME') or '1.0.18'
+raw_app_version = os.environ.get('APP_VERSION') or os.environ.get('GITHUB_REF_NAME') or '1.0.19'
 app_version = raw_app_version[1:] if raw_app_version.startswith('v') else raw_app_version
 import webview as _pywebview
 pywebview_hooks = os.path.join(_pywebview.__path__[0], 'pkg')
@@ -145,7 +145,7 @@ if sys.platform == 'darwin':
         upx_exclude=[],
         name='DY Video Downloader.app',
         icon=icon_path,
-        bundle_identifier='com.douyin.downloader',
+        bundle_identifier='com.anyujia.dy-video-downloader.python',
         info_plist={
             'NSPrincipalClass': 'NSApplication',
             'NSHighResolutionCapable': 'True',

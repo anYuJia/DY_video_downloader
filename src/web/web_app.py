@@ -15,6 +15,7 @@ import asyncio
 import threading
 import sys
 import json
+import base64
 import uuid
 import logging
 import subprocess
@@ -60,6 +61,11 @@ MEDIA_PROXY_REDIRECT_CACHE_MAX_SIZE = 256
 DOWNLOAD_TASK_HISTORY_MAX_SIZE = 200
 LATEST_RELEASE_API_URL = 'https://api.github.com/repos/anYuJia/DY_video_downloader/releases/latest'
 LATEST_RELEASE_PAGE_URL = 'https://github.com/anYuJia/DY_video_downloader/releases/latest'
+UPDATER_METADATA_URL = 'https://github.com/anYuJia/DY_video_downloader/releases/latest/download/latest.json'
+UPDATER_PUBLIC_KEY = (
+    'dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZEM0QzRUE5RDAyQjlEQjgK'
+    'UldTNG5TdlFxVDQ5L2RFcVIydi9xU1YzUVhLb1lwWmRZTlc3V1NQOEIrSDZNenIraTRTZ1NFeU8K'
+)
 MEDIA_PROXY_REDIRECT_CACHE = {}
 
 # 添加项目根目录到Python路径
@@ -984,6 +990,26 @@ def _fetch_latest_release() -> dict:
     return payload
 
 
+def _fetch_updater_metadata() -> dict | None:
+    try:
+        response = http_requests.get(
+            UPDATER_METADATA_URL,
+            headers={
+                'Accept': 'application/json',
+                'User-Agent': f'DY-Video-Downloader/{_get_current_app_version()}',
+            },
+            timeout=(5, 15),
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        payload = response.json()
+        return payload if isinstance(payload, dict) else None
+    except Exception as exc:
+        logger.debug(f"读取更新签名元数据失败，回退到 GitHub Release API: {exc}")
+        return None
+
+
 def _linux_package_family() -> str:
     """Best-effort Linux package family detection for release asset selection."""
     os_release = Path('/etc/os-release')
@@ -1000,6 +1026,48 @@ def _linux_package_family() -> str:
     if any(token in text for token in ('id_like="rhel fedora"', 'id_like=fedora', 'id=fedora', 'id=rhel', 'id=centos', 'id=opensuse', 'id=sles')):
         return 'rpm'
     return 'generic'
+
+
+def _platform_update_targets() -> list[tuple[str, bool]]:
+    machine = platform.machine().lower()
+    if IS_WINDOWS:
+        return [
+            ('windows-x86_64', False),
+            ('windows-x86_64-nsis', False),
+            ('windows-x86_64-portable', True),
+        ]
+    if IS_MACOS:
+        if 'arm' in machine or 'aarch64' in machine:
+            return [
+                ('darwin-aarch64', False),
+                ('darwin-aarch64-portable', True),
+            ]
+        return [
+            ('darwin-x86_64', False),
+            ('darwin-x86_64-portable', True),
+        ]
+
+    package_family = _linux_package_family()
+    if package_family == 'deb':
+        return [
+            ('linux-x86_64-deb', False),
+            ('linux-x86_64', True),
+            ('linux-x86_64-tar', True),
+            ('linux-x86_64-rpm', False),
+        ]
+    if package_family == 'rpm':
+        return [
+            ('linux-x86_64-rpm', False),
+            ('linux-x86_64', True),
+            ('linux-x86_64-tar', True),
+            ('linux-x86_64-deb', False),
+        ]
+    return [
+        ('linux-x86_64', True),
+        ('linux-x86_64-tar', True),
+        ('linux-x86_64-deb', False),
+        ('linux-x86_64-rpm', False),
+    ]
 
 
 def _infer_update_install_mode(asset_name: str, portable: bool) -> str:
@@ -1019,6 +1087,31 @@ def _infer_update_install_mode(asset_name: str, portable: bool) -> str:
     return 'download'
 
 
+def _metadata_asset_payload(metadata: dict | None) -> dict | None:
+    if not metadata:
+        return None
+    platforms = metadata.get('platforms') if isinstance(metadata.get('platforms'), dict) else {}
+    for target, portable in _platform_update_targets():
+        item = platforms.get(target)
+        if not isinstance(item, dict) or not item.get('url'):
+            continue
+        url = str(item.get('url') or '')
+        name = Path(urlparse(url).path).name
+        if not name:
+            continue
+        return {
+            'name': name,
+            'url': url,
+            'size': int(item.get('size') or 0),
+            'digest': str(item.get('digest') or ''),
+            'signature': str(item.get('signature') or ''),
+            'portable': portable,
+            'install_mode': _infer_update_install_mode(name, portable),
+            'source': 'metadata',
+        }
+    return None
+
+
 def _release_asset_payload(asset: dict | None, portable: bool = False, fallback_url: str = '') -> dict:
     if not asset:
         return {
@@ -1035,8 +1128,10 @@ def _release_asset_payload(asset: dict | None, portable: bool = False, fallback_
         'url': str(asset.get('browser_download_url') or fallback_url),
         'size': int(asset.get('size') or 0),
         'digest': str(asset.get('digest') or ''),
+        'signature': str(asset.get('signature') or ''),
         'portable': portable,
         'install_mode': _infer_update_install_mode(name, portable),
+        'source': 'release',
     }
 
 
@@ -1121,6 +1216,15 @@ def _select_release_asset(release: dict) -> tuple[str, bool]:
     return str(asset.get('url') or ''), bool(asset.get('portable'))
 
 
+def _select_update_asset(release: dict | None = None, metadata: dict | None = None) -> dict:
+    signed_asset = _metadata_asset_payload(metadata)
+    if signed_asset:
+        return signed_asset
+    if release is None:
+        release = _fetch_latest_release()
+    return _select_release_asset_info(release)
+
+
 def _safe_update_filename(asset_name: str, release_version: str, download_url: str) -> str:
     filename = asset_name.strip()
     if not filename:
@@ -1160,7 +1264,62 @@ def _emit_update_event(event: str, payload: dict) -> None:
         logger.debug(f"发送更新事件失败 {event}: {exc}")
 
 
-def _download_update_asset(download_url: str, asset_name: str, release_version: str, expected_digest: str = '') -> Path:
+def _decode_tauri_public_key() -> tuple[bytes, bytes]:
+    decoded = base64.b64decode(UPDATER_PUBLIC_KEY).decode('utf-8')
+    lines = [line.strip() for line in decoded.splitlines() if line.strip()]
+    if len(lines) < 2:
+        raise ValueError('更新公钥格式无效')
+    raw = base64.b64decode(lines[1])
+    if len(raw) != 42 or raw[:2] != b'Ed':
+        raise ValueError('更新公钥不是受支持的 Ed25519 minisign 公钥')
+    return raw[2:10], raw[10:]
+
+
+def _decode_tauri_signature(signature_text: str) -> tuple[bytes, bytes]:
+    text = str(signature_text or '').strip()
+    if not text:
+        raise ValueError('更新包缺少签名信息')
+
+    try:
+        decoded_text = base64.b64decode(text, validate=True).decode('utf-8')
+    except Exception:
+        decoded_text = text
+
+    lines = [line.strip() for line in decoded_text.splitlines() if line.strip()]
+    if len(lines) < 2:
+        raise ValueError('更新包签名格式无效')
+    raw = base64.b64decode(lines[1])
+    if len(raw) != 74 or raw[:2] != b'ED':
+        raise ValueError('更新包签名不是受支持的 Ed25519 minisign 签名')
+    return raw[2:10], raw[10:]
+
+
+def _verify_update_signature(file_path: Path, signature_text: str) -> None:
+    expected_key_id, public_key = _decode_tauri_public_key()
+    signature_key_id, signature = _decode_tauri_signature(signature_text)
+    if signature_key_id != expected_key_id:
+        raise ValueError('更新包签名密钥不匹配')
+
+    try:
+        from nacl.signing import VerifyKey
+        from nacl.exceptions import BadSignatureError
+    except Exception as exc:
+        raise RuntimeError('缺少 PyNaCl，无法验证更新包签名') from exc
+
+    try:
+        digest = hashlib.blake2b(file_path.read_bytes(), digest_size=64).digest()
+        VerifyKey(public_key).verify(digest, signature)
+    except BadSignatureError as exc:
+        raise ValueError('更新包签名校验失败，请稍后重试') from exc
+
+
+def _download_update_asset(
+    download_url: str,
+    asset_name: str,
+    release_version: str,
+    expected_digest: str = '',
+    expected_signature: str = '',
+) -> Path:
     if not download_url:
         raise ValueError('没有可下载的更新资源')
 
@@ -1222,6 +1381,16 @@ def _download_update_asset(download_url: str, asset_name: str, release_version: 
             except Exception:
                 pass
             raise ValueError('更新包校验失败，请稍后重试')
+
+    if expected_signature:
+        try:
+            _verify_update_signature(destination, expected_signature)
+        except Exception:
+            try:
+                destination.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise
 
     if destination.suffix.lower() == '.appimage':
         try:
@@ -1852,23 +2021,30 @@ def check_update():
     current_version = _get_current_app_version()
 
     try:
-        release = _fetch_latest_release()
-        latest_version = _normalize_version_text(release.get('tag_name') or release.get('name') or '')
+        metadata = _fetch_updater_metadata()
+        release = None if metadata else _fetch_latest_release()
+        latest_version = _normalize_version_text(
+            (metadata or {}).get('version') or
+            (release or {}).get('tag_name') or
+            (release or {}).get('name') or
+            ''
+        )
         has_update = bool(latest_version) and _is_newer_version(latest_version, current_version)
-        asset = _select_release_asset_info(release)
+        asset = _select_update_asset(release, metadata)
 
         return jsonify({
             'success': True,
             'has_update': has_update,
             'current_version': current_version,
             'version': latest_version or current_version,
-            'notes': release.get('body') or '暂无更新说明',
-            'html_url': release.get('html_url') or LATEST_RELEASE_PAGE_URL,
+            'notes': (metadata or {}).get('notes') or (release or {}).get('body') or '暂无更新说明',
+            'html_url': (release or {}).get('html_url') or LATEST_RELEASE_PAGE_URL,
             'download_url': asset.get('url'),
             'asset_name': asset.get('name'),
             'asset_size': asset.get('size'),
             'portable': asset.get('portable'),
             'install_mode': asset.get('install_mode'),
+            'signed': bool(asset.get('signature')),
         })
     except Exception as e:
         logger.error(f"检查更新失败: {e}")
@@ -1884,20 +2060,26 @@ def check_update():
 def download_update():
     """在应用内下载对应平台的发布资源，并打开安装包或所在目录。"""
     try:
-        release = _fetch_latest_release()
+        metadata = _fetch_updater_metadata()
+        release = None if metadata else _fetch_latest_release()
         current_version = _get_current_app_version()
-        latest_version = _normalize_version_text(release.get('tag_name') or release.get('name') or _get_current_app_version())
+        latest_version = _normalize_version_text(
+            (metadata or {}).get('version') or
+            (release or {}).get('tag_name') or
+            (release or {}).get('name') or
+            _get_current_app_version()
+        )
         if latest_version and not _is_newer_version(latest_version, current_version):
             return jsonify({
                 'success': False,
                 'message': '当前已是最新版本'
             }), 409
 
-        asset = _select_release_asset_info(release)
+        asset = _select_update_asset(release, metadata)
         download_url = str(asset.get('url') or '')
 
         if not download_url or asset.get('install_mode') == 'browser':
-            target_url = download_url or str(release.get('html_url') or LATEST_RELEASE_PAGE_URL)
+            target_url = download_url or str((release or {}).get('html_url') or LATEST_RELEASE_PAGE_URL)
             if not _open_external_target(target_url):
                 return jsonify({
                     'success': False,
@@ -1916,6 +2098,7 @@ def download_update():
             str(asset.get('name') or ''),
             latest_version,
             str(asset.get('digest') or ''),
+            str(asset.get('signature') or ''),
         )
         install_mode = str(asset.get('install_mode') or 'download')
 
