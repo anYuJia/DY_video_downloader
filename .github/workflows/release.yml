@@ -166,7 +166,17 @@ jobs:
           mkdir -p "$dmg_temp"
           cp -R "dist/$APP_NAME" "$dmg_temp/"
           ln -s /Applications "$dmg_temp/Applications"
-          /usr/bin/hdiutil create -volname "DY Video Downloader" -srcfolder "$dmg_temp" -ov -format UDZO "${dmg_name}.dmg"
+          for attempt in 1 2 3 4 5; do
+            if /usr/bin/hdiutil create -volname "DY Video Downloader" -srcfolder "$dmg_temp" -ov -format UDZO "${dmg_name}.dmg"; then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "Failed to create DMG after ${attempt} attempts" >&2
+              exit 1
+            fi
+            echo "hdiutil create failed, retrying in ${attempt}s..."
+            sleep "$attempt"
+          done
           rm -rf "$dmg_temp"
           echo "Created DMG: ${dmg_name}.dmg"
           ls -lh "${dmg_name}.dmg"
