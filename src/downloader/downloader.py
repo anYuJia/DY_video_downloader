@@ -128,16 +128,17 @@ def build_download_title(
     fields = _template_fields(desc, aweme_id, author=author, media_type=media_type)
     normalized_desc = fields['title']
     normalized_aweme_id = fields['aweme_id']
-    fallback = f'{default_prefix}_{normalized_aweme_id}' if normalized_aweme_id else default_prefix
+    fallback = default_prefix
+    template_text = template if template is not None else getattr(Config, 'FILENAME_TEMPLATE', '{title}')
     base = _render_template(
-        template if template is not None else getattr(Config, 'FILENAME_TEMPLATE', '{title}_{aweme_id}'),
+        template_text,
         {**fields, 'title': normalized_desc or default_prefix},
-        '{title}_{aweme_id}',
+        '{title}',
     )
     base = _neutralize_path_separators(base)
     base = ' '.join(base.split()).strip(' ._') or fallback
     protected_suffix = ''
-    if normalized_aweme_id:
+    if normalized_aweme_id and '{aweme_id}' in str(template_text or ''):
         protected_suffix = normalized_aweme_id if base.endswith(normalized_aweme_id) else f'_{normalized_aweme_id}'
     candidate = base
     if protected_suffix and not base.endswith(protected_suffix):
