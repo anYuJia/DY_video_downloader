@@ -1912,7 +1912,7 @@ def get_config():
         'cookie_preview': f"{Config.COOKIE[:12]}..." if Config.COOKIE else '',
         'download_quality': getattr(Config, 'DOWNLOAD_QUALITY', 'auto'),
         'max_concurrent': getattr(Config, 'MAX_CONCURRENT', 3),
-        'filename_template': getattr(Config, 'FILENAME_TEMPLATE', '{title}_{aweme_id}'),
+        'filename_template': getattr(Config, 'FILENAME_TEMPLATE', '{title}'),
         'folder_name_template': getattr(Config, 'FOLDER_NAME_TEMPLATE', '{author}'),
         'auto_create_folder': getattr(Config, 'AUTO_CREATE_FOLDER', True),
         'app_version': _get_current_app_version(),
@@ -1939,7 +1939,7 @@ def set_config():
         if 'filename_template' in data:
             Config.FILENAME_TEMPLATE = Config.normalize_filename_template(
                 data.get('filename_template'),
-                '{title}_{aweme_id}',
+                '{title}',
             )
         if 'folder_name_template' in data:
             Config.FOLDER_NAME_TEMPLATE = Config.normalize_filename_template(

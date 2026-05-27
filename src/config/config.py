@@ -27,7 +27,7 @@ class Config:
     
     # Cookie设置
     COOKIE = ""
-    APP_VERSION = (os.environ.get("APP_VERSION") or os.environ.get("GITHUB_REF_NAME") or "1.0.20").lstrip("v")
+    APP_VERSION = (os.environ.get("APP_VERSION") or os.environ.get("GITHUB_REF_NAME") or "1.0.21").lstrip("v")
 
     # 文件保存路径默认在执行文件旁边
     BASE_DIR = os.path.join(APP_EXEC_DIR, "douyin_download")
@@ -90,7 +90,7 @@ class Config:
     # 文件命名设置
     MAX_FILENAME_LENGTH = 180  # 文件名最大字符数
     MAX_FILENAME_BYTES = 230  # 预留扩展名和自动去重后缀空间，避免超过常见文件系统限制
-    FILENAME_TEMPLATE = "{title}_{aweme_id}"
+    FILENAME_TEMPLATE = "{title}"
     FOLDER_NAME_TEMPLATE = "{author}"
     AUTO_CREATE_FOLDER = True
     

@@ -626,7 +626,7 @@ export async function getConfig(): Promise<AppConfig> {
     return {
       download_path: String(result.download_path || result.download_dir || ""),
       download_dir: String(result.download_dir || result.download_path || ""),
-      filename_template: String(result.filename_template || "{title}_{aweme_id}"),
+      filename_template: String(result.filename_template || "{title}"),
       max_concurrent: Number(result.max_concurrent || 3) || 3,
       download_quality: String(result.download_quality || "auto"),
       auto_create_folder: Boolean(result.auto_create_folder ?? true),
@@ -649,7 +649,7 @@ export async function saveConfig(config: Partial<AppConfig>): Promise<{ success:
       download_dir: config.download_path ?? config.download_dir ?? current.download_path ?? current.download_dir ?? "",
       download_quality: config.download_quality ?? current.download_quality ?? "auto",
       max_concurrent: config.max_concurrent ?? current.max_concurrent ?? 3,
-      filename_template: config.filename_template ?? current.filename_template ?? "{title}_{aweme_id}",
+      filename_template: config.filename_template ?? current.filename_template ?? "{title}",
       folder_name_template: config.folder_name_template ?? current.folder_name_template ?? "{author}",
       auto_create_folder: config.auto_create_folder ?? current.auto_create_folder ?? true,
       proxy: config.proxy ?? current.proxy ?? null,
@@ -666,7 +666,7 @@ export async function saveConfig(config: Partial<AppConfig>): Promise<{ success:
   const current = await getConfig().catch(() => ({} as Partial<AppConfig>));
   const nextConfig: AppConfig = {
     download_path: config.download_path ?? config.download_dir ?? current.download_path ?? current.download_dir ?? "",
-    filename_template: config.filename_template ?? current.filename_template ?? "{title}_{aweme_id}",
+    filename_template: config.filename_template ?? current.filename_template ?? "{title}",
     max_concurrent: config.max_concurrent ?? current.max_concurrent ?? 3,
     download_quality: config.download_quality ?? current.download_quality ?? "auto",
     auto_create_folder: config.auto_create_folder ?? current.auto_create_folder ?? true,

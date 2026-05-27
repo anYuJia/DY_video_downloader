@@ -86,10 +86,10 @@ const TEMPLATE_VARIABLES = [
 ];
 
 const FILENAME_PRESETS = [
+  { value: "{title}", label: "只写标题" },
   { value: "{title}_{aweme_id}", label: "标题 + 作品ID" },
   { value: "{author}_{title}_{aweme_id}", label: "作者 + 标题 + 作品ID" },
   { value: "{date}_{title}_{aweme_id}", label: "日期 + 标题 + 作品ID" },
-  { value: "{title}", label: "只写标题，自动补ID" },
 ];
 
 export function SettingsView() {
@@ -120,7 +120,7 @@ export function SettingsView() {
   const [downloadPath, setDownloadPath] = useState("");
   const [downloadQuality, setDownloadQuality] = useState("auto");
   const [maxConcurrent, setMaxConcurrent] = useState("3");
-  const [filenameTemplate, setFilenameTemplate] = useState("{title}_{aweme_id}");
+  const [filenameTemplate, setFilenameTemplate] = useState("{title}");
   const [folderNameTemplate, setFolderNameTemplate] = useState("{author}");
   const [autoCreateFolder, setAutoCreateFolder] = useState(true);
   const [choosingDirectory, setChoosingDirectory] = useState(false);
@@ -132,7 +132,7 @@ export function SettingsView() {
     downloadPath: "",
     downloadQuality: "auto",
     maxConcurrent: "3",
-    filenameTemplate: "{title}_{aweme_id}",
+    filenameTemplate: "{title}",
     folderNameTemplate: "{author}",
     autoCreateFolder: true,
     theme,
@@ -175,7 +175,7 @@ export function SettingsView() {
         const nextDownloadPath = config.download_path || config.download_dir || "";
         const nextDownloadQuality = config.download_quality || "auto";
         const nextMaxConcurrent = String(config.max_concurrent || 3);
-        const nextFilenameTemplate = config.filename_template || "{title}_{aweme_id}";
+        const nextFilenameTemplate = config.filename_template || "{title}";
         const nextFolderNameTemplate = config.folder_name_template || "{author}";
         const nextAutoCreateFolder = config.auto_create_folder ?? true;
         setDownloadPath(nextDownloadPath);
@@ -588,7 +588,7 @@ export function SettingsView() {
   };
 
   const saveFilenameTemplate = async (value: string) => {
-    const nextTemplate = normalizeTemplate(value, "{title}_{aweme_id}");
+    const nextTemplate = normalizeTemplate(value, "{title}");
     const previousTemplate = savedSettingsRef.current.filenameTemplate;
     if (nextTemplate === previousTemplate || savingFields.filename_template) {
       return;
@@ -699,7 +699,7 @@ export function SettingsView() {
   }, [downloadPath, savingFields.download_path]);
 
   useEffect(() => {
-    const nextTemplate = normalizeTemplate(filenameTemplate, "{title}_{aweme_id}");
+    const nextTemplate = normalizeTemplate(filenameTemplate, "{title}");
     if (nextTemplate === savedSettingsRef.current.filenameTemplate || savingFields.filename_template) {
       return;
     }
@@ -1110,7 +1110,7 @@ export function SettingsView() {
                 }
               }}
               disabled={savingFields.filename_template}
-              placeholder="{title}_{aweme_id}"
+              placeholder="{title}"
               className="h-10 font-mono text-sm"
             />
 
