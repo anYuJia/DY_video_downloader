@@ -2,6 +2,13 @@ import os
 
 from src.config.config import Config
 from src.downloader.downloader import DouyinDownloader, build_download_name
+from src.user.user_manager import DouyinUserManager
+
+
+def _user_manager():
+    manager = DouyinUserManager.__new__(DouyinUserManager)
+    manager.debug_mode = False
+    return manager
 
 
 def test_dedupe_extracts_only_protected_aweme_suffix(tmp_path):
@@ -55,3 +62,53 @@ def test_author_name_with_asterisk_is_sanitized_before_download(tmp_path):
         assert filename == "标题_正文_7380011223344556677"
     finally:
         Config.DOWNLOAD_DIR = original_dir
+
+
+def test_video_selection_skips_watermarked_play_addr_for_list_items():
+    manager = _user_manager()
+    previous_quality = Config.DOWNLOAD_QUALITY
+    Config.DOWNLOAD_QUALITY = "auto"
+    try:
+        post = {
+            "aweme_id": "1234567890123456789",
+            "desc": "liked video",
+            "video": {
+                "play_addr": {"url_list": ["https://example.com/aweme/v1/playwm/?watermark=1"]},
+                "download_addr": {"url_list": ["https://example.com/clean.mp4"]},
+                "duration": 1000,
+            },
+            "statistics": {},
+            "author": {},
+        }
+
+        result = manager._build_collection_video_item(post)
+
+        assert result["media_urls"] == [{"type": "video", "url": "https://example.com/clean.mp4"}]
+        assert result["video"]["play_addr"] == "https://example.com/clean.mp4"
+    finally:
+        Config.DOWNLOAD_QUALITY = previous_quality
+
+
+def test_video_selection_honors_smallest_quality_for_list_items():
+    manager = _user_manager()
+    previous_quality = Config.DOWNLOAD_QUALITY
+    Config.DOWNLOAD_QUALITY = "smallest"
+    try:
+        video_data = {
+            "play_addr": {"url_list": ["https://example.com/default.mp4"]},
+            "play_addr_lowbr": {"url_list": ["https://example.com/low.mp4"]},
+            "bit_rate": [
+                {
+                    "data_size": 500,
+                    "play_addr": {"url_list": ["https://example.com/high.mp4"]},
+                    "play_addr_h264": {"url_list": ["https://example.com/high-h264.mp4"]},
+                }
+            ],
+        }
+
+        assert manager._select_video_url(video_data) == "https://example.com/low.mp4"
+        assert manager._build_video_media_urls(video_data) == [
+            {"type": "video", "url": "https://example.com/low.mp4"}
+        ]
+    finally:
+        Config.DOWNLOAD_QUALITY = previous_quality

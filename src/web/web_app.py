@@ -3397,6 +3397,7 @@ def get_user_videos():
             media_type, media_urls = user_manager.get_media_info(video)
             video_data = video.get('video') or {}
             play_addr = safe_get_url(video_data.get('play_addr'))
+            selected_video_url = user_manager._select_video_url(video_data) or play_addr
             play_addr_h264 = safe_get_url(video_data.get('play_addr_h264'))
             play_addr_lowbr = safe_get_url(video_data.get('play_addr_lowbr'))
             download_addr = safe_get_url(video_data.get('download_addr'))
@@ -3436,8 +3437,8 @@ def get_user_videos():
                     'cover': cover_url,
                     'dynamic_cover': dynamic_cover,
                     'origin_cover': origin_cover,
-                    'preview_addr': play_addr_lowbr or play_addr_h264 or play_addr or (media_urls[0].get('url') if media_urls else ''),
-                    'play_addr': play_addr or (media_urls[0].get('url') if media_urls else ''),
+                    'preview_addr': selected_video_url or play_addr_lowbr or play_addr_h264 or (media_urls[0].get('url') if media_urls else ''),
+                    'play_addr': selected_video_url or (media_urls[0].get('url') if media_urls else ''),
                     'play_addr_h264': play_addr_h264,
                     'play_addr_lowbr': play_addr_lowbr,
                     'download_addr': download_addr,
