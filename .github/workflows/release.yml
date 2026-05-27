@@ -451,3 +451,4 @@ jobs:
           generate_release_notes: true
           files: release-assets/*
           fail_on_unmatched_files: true
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
