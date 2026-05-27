@@ -319,6 +319,14 @@ class DouyinUserManager:
         selected_url = self._select_video_url(video_data)
         return [{'type': 'video', 'url': selected_url}] if selected_url else []
 
+    def _video_display_url(self, video_data: dict, media_urls: list[dict] | None = None) -> str:
+        selected_url = self._select_video_url(video_data or {})
+        if selected_url:
+            return selected_url
+        if media_urls:
+            return str((media_urls[0] or {}).get('url') or '').strip()
+        return ''
+
     def _normalize_duration_seconds(self, value) -> int:
         try:
             duration = float(value or 0)
@@ -720,7 +728,7 @@ class DouyinUserManager:
                 'videos': urls,
                 'video': {
                     'play_addr': selected_video_url,
-                    'preview_addr': play_url or self._first_url(video_data.get('preview_addr')) or selected_video_url,
+                    'preview_addr': selected_video_url or self._first_url(video_data.get('preview_addr')) or play_url,
                     'play_addr_h264': self._first_url(video_data.get('play_addr_h264')),
                     'play_addr_lowbr': self._first_url(video_data.get('play_addr_lowbr')),
                     'download_addr': self._first_url(video_data.get('download_addr')),
@@ -1036,6 +1044,7 @@ class DouyinUserManager:
                 media_type, media_urls = self.get_media_info(post)
                 video_data = post.get('video') or {}
                 play_url = self._first_url(video_data.get('play_addr'))
+                selected_video_url = self._video_display_url(video_data, media_urls)
                 duration = self._raw_duration_value(video_data.get('duration', 0))
                 cover_url = ""
                 if video_data.get('cover'):
@@ -1065,8 +1074,8 @@ class DouyinUserManager:
                         'collect_count': post.get('statistics', {}).get('collect_count', 0),
                     },
                     'video': {
-                        'play_addr': play_url or (media_urls[0].get('url') if media_urls else ''),
-                        'preview_addr': play_url or (media_urls[0].get('url') if media_urls else ''),
+                        'play_addr': selected_video_url,
+                        'preview_addr': selected_video_url or play_url,
                         'play_addr_h264': self._first_url(video_data.get('play_addr_h264')),
                         'play_addr_lowbr': self._first_url(video_data.get('play_addr_lowbr')),
                         'download_addr': self._first_url(video_data.get('download_addr')),
@@ -1108,6 +1117,7 @@ class DouyinUserManager:
         media_type, media_urls = self.get_media_info(post)
         video_data = post.get('video') or {}
         play_url = self._first_url(video_data.get('play_addr'))
+        selected_video_url = self._video_display_url(video_data, media_urls)
         duration = self._raw_duration_value(video_data.get('duration', 0))
         cover_url = ""
         if video_data.get('cover'):
@@ -1138,8 +1148,8 @@ class DouyinUserManager:
                 'collect_count': post.get('statistics', {}).get('collect_count', 0),
             },
             'video': {
-                'play_addr': play_url or (media_urls[0].get('url') if media_urls else ''),
-                'preview_addr': play_url or (media_urls[0].get('url') if media_urls else ''),
+                'play_addr': selected_video_url,
+                'preview_addr': selected_video_url or play_url,
                 'play_addr_h264': self._first_url(video_data.get('play_addr_h264')),
                 'play_addr_lowbr': self._first_url(video_data.get('play_addr_lowbr')),
                 'download_addr': self._first_url(video_data.get('download_addr')),

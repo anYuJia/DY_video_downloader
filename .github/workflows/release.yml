@@ -31,6 +31,18 @@ permissions:
 env:
   APP_NAME: douyin_downloader
   PYTHON_VERSION: "3.10"
+  RELEASE_BODY: |
+    ## 下载建议
+
+    - Windows 安装版（推荐大多数用户）：下载 `DY-Video-Downloader-v*-windows-x64-installer.exe`
+    - Windows 便携版（免安装）：下载 `DY-Video-Downloader-v*-windows-x64-portable.zip`，解压后运行里面的 exe
+    - macOS Apple Silicon / M 系列：下载 `DY-Video-Downloader-v*-macos-arm64.dmg`
+    - macOS Intel：下载 `DY-Video-Downloader-v*-macos-x64.dmg`
+    - Linux Debian/Ubuntu：下载 `DY-Video-Downloader-v*-linux-x64.deb`
+    - Linux Fedora/openSUSE/RHEL：下载 `DY-Video-Downloader-v*-linux-x64.rpm`
+    - Linux 通用便携：下载 `DY-Video-Downloader-v*-linux-x64.tar.gz`
+
+    `.sig` 和 `latest.json` / `windows.json` / `darwin.json` / `linux.json` 主要用于自动更新和签名校验，普通安装通常不需要手动下载。
 
 jobs:
   build:
@@ -435,6 +447,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           draft: ${{ steps.meta.outputs.draft == 'true' }}
           prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          body: ${{ env.RELEASE_BODY }}
           generate_release_notes: true
           files: release-assets/*
           fail_on_unmatched_files: true
