@@ -27,7 +27,14 @@ import {
   X,
 } from "lucide-react";
 import { cn, formatDuration, formatNumber } from "@/lib/utils";
-import { copyTextToClipboard, getVideoDetail, mediaProxyUrl, type VideoInfo } from "@/lib/tauri";
+import {
+  copyTextToClipboard,
+  getVideoDetail,
+  mediaProxyUrl,
+  setVideoCollected,
+  setVideoLiked,
+  type VideoInfo,
+} from "@/lib/tauri";
 import {
   collectVideoMedia,
   collectVideoQualityOptions,
@@ -154,6 +161,7 @@ export function FullscreenPlayer({
   const [playing, setPlaying] = useState(false);
   const [liked, setLiked] = useState(false);
   const [favorited, setFavorited] = useState(false);
+  const [relationSubmitting, setRelationSubmitting] = useState<"like" | "collect" | null>(null);
   const [volume, setVolume] = useState(100);
   const [muted, setMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
@@ -240,10 +248,18 @@ export function FullscreenPlayer({
   const authorName =
     currentVideo?.author?.nickname || currentVideo?.author?.unique_id || "用户";
   const canOpenAuthor = Boolean(onAuthor && currentVideo?.author?.sec_uid);
-  const likeCount = (currentVideo?.statistics?.digg_count || 0) + (liked ? 1 : 0);
-  const favoriteBaseCount =
-    currentVideo?.statistics?.collect_count || currentVideo?.statistics?.digg_count || 0;
-  const favoriteCount = favoriteBaseCount + (favorited ? 1 : 0);
+  const likeBaseCount = currentVideo?.statistics?.digg_count || 0;
+  const favoriteBaseCount = currentVideo?.statistics?.collect_count || 0;
+  const likeCount = Math.max(
+    0,
+    likeBaseCount + (liked && !currentVideo?.is_liked ? 1 : !liked && currentVideo?.is_liked ? -1 : 0)
+  );
+  const favoriteCount =
+    Math.max(
+      0,
+      favoriteBaseCount +
+        (favorited && !currentVideo?.is_collected ? 1 : !favorited && currentVideo?.is_collected ? -1 : 0)
+    );
   const musicUrl = getVideoBgmUrl(currentVideo);
   const bgmProxyUrl = musicUrl ? mediaProxyUrl(musicUrl, "audio") : "";
   const effectiveVolume = muted ? 0 : volume;
@@ -254,6 +270,12 @@ export function FullscreenPlayer({
   );
   const showQualityControl = currentMedia?.type === "video";
   const hasQualityChoices = currentMedia?.type === "video" && qualityOptions.length > 1;
+
+  useEffect(() => {
+    setLiked(Boolean(currentVideo?.is_liked));
+    setFavorited(Boolean(currentVideo?.is_collected));
+    setRelationSubmitting(null);
+  }, [currentVideo?.aweme_id, currentVideo?.is_liked, currentVideo?.is_collected]);
 
   const stopVideoProgressLoop = useCallback(() => {
     if (videoProgressRafRef.current === null) return;
@@ -338,6 +360,86 @@ export function FullscreenPlayer({
       navigationNoticeTimerRef.current = null;
     }, 1400);
   }, []);
+
+  const patchCurrentVideoRelation = useCallback((awemeId: string, patch: Partial<VideoInfo>) => {
+    setVideoOverrides((current) => {
+      const base = current[awemeId] || videos.find((video) => video.aweme_id === awemeId);
+      if (!base) return current;
+      return {
+        ...current,
+        [awemeId]: {
+          ...base,
+          ...patch,
+          statistics: patch.statistics
+            ? {
+                ...base.statistics,
+                ...patch.statistics,
+              }
+            : base.statistics,
+        },
+      };
+    });
+  }, [videos]);
+
+  const toggleLike = useCallback(async () => {
+    const awemeId = currentVideo?.aweme_id;
+    if (!awemeId || relationSubmitting) return;
+
+    const previousLiked = liked;
+    const nextLiked = !previousLiked;
+    const nextCount = Math.max(0, likeBaseCount + (nextLiked ? 1 : -1));
+    setRelationSubmitting("like");
+    setLiked(nextLiked);
+    patchCurrentVideoRelation(awemeId, {
+      is_liked: nextLiked,
+      statistics: { ...currentVideo.statistics, digg_count: nextCount },
+    });
+
+    try {
+      const result = await setVideoLiked(awemeId, nextLiked);
+      if (!result.success) throw new Error(result.message || "点赞失败");
+      showNavigationNotice(nextLiked ? "已点赞" : "已取消点赞");
+    } catch (error) {
+      setLiked(previousLiked);
+      patchCurrentVideoRelation(awemeId, {
+        is_liked: previousLiked,
+        statistics: currentVideo.statistics,
+      });
+      showNavigationNotice(error instanceof Error ? error.message : "点赞失败");
+    } finally {
+      setRelationSubmitting(null);
+    }
+  }, [currentVideo, likeBaseCount, liked, patchCurrentVideoRelation, relationSubmitting, showNavigationNotice]);
+
+  const toggleCollect = useCallback(async () => {
+    const awemeId = currentVideo?.aweme_id;
+    if (!awemeId || relationSubmitting) return;
+
+    const previousCollected = favorited;
+    const nextCollected = !previousCollected;
+    const nextCount = Math.max(0, favoriteBaseCount + (nextCollected ? 1 : -1));
+    setRelationSubmitting("collect");
+    setFavorited(nextCollected);
+    patchCurrentVideoRelation(awemeId, {
+      is_collected: nextCollected,
+      statistics: { ...currentVideo.statistics, collect_count: nextCount },
+    });
+
+    try {
+      const result = await setVideoCollected(awemeId, nextCollected);
+      if (!result.success) throw new Error(result.message || "收藏失败");
+      showNavigationNotice(nextCollected ? "已收藏" : "已取消收藏");
+    } catch (error) {
+      setFavorited(previousCollected);
+      patchCurrentVideoRelation(awemeId, {
+        is_collected: previousCollected,
+        statistics: currentVideo.statistics,
+      });
+      showNavigationNotice(error instanceof Error ? error.message : "收藏失败");
+    } finally {
+      setRelationSubmitting(null);
+    }
+  }, [currentVideo, favoriteBaseCount, favorited, patchCurrentVideoRelation, relationSubmitting, showNavigationNotice]);
 
   const playNextVideo = useCallback(() => {
     if (currentIndex < videos.length - 1) {
@@ -1759,12 +1861,17 @@ export function FullscreenPlayer({
                   count={likeCount}
                   active={liked}
                   activeClassName="fill-accent text-accent"
+                  disabled={relationSubmitting !== null}
                   onClick={(event) => {
                     event.stopPropagation();
-                    setLiked((value) => !value);
+                    void toggleLike();
                   }}
                 >
-                  <Heart className={cn("h-4 w-4", liked && "fill-accent text-accent")} />
+                  {relationSubmitting === "like" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Heart className={cn("h-4 w-4", liked && "fill-accent text-accent")} />
+                  )}
                 </InlinePlayerButton>
 
                 <InlinePlayerButton
@@ -1772,12 +1879,17 @@ export function FullscreenPlayer({
                   count={favoriteCount}
                   active={favorited}
                   activeClassName="fill-warning text-warning"
+                  disabled={relationSubmitting !== null}
                   onClick={(event) => {
                     event.stopPropagation();
-                    setFavorited((value) => !value);
+                    void toggleCollect();
                   }}
                 >
-                  <Star className={cn("h-4 w-4", favorited && "fill-warning text-warning")} />
+                  {relationSubmitting === "collect" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Star className={cn("h-4 w-4", favorited && "fill-warning text-warning")} />
+                  )}
                 </InlinePlayerButton>
 
                 <div
@@ -2573,6 +2685,7 @@ function InlinePlayerButton({
   count,
   active,
   activeClassName,
+  disabled,
   onClick,
 }: {
   children: ReactNode;
@@ -2580,6 +2693,7 @@ function InlinePlayerButton({
   count: number;
   active?: boolean;
   activeClassName?: string;
+  disabled?: boolean;
   onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
 }) {
   return (
@@ -2587,8 +2701,9 @@ function InlinePlayerButton({
       <button
         type="button"
         onClick={onClick}
+        disabled={disabled}
         className={cn(
-          "flex h-8 w-8 items-center justify-center rounded-full bg-transparent text-white transition-[background-color,transform,color] hover:scale-[1.08] hover:bg-white/10 active:scale-95",
+          "flex h-8 w-8 items-center justify-center rounded-full bg-transparent text-white transition-[background-color,transform,color,opacity] hover:scale-[1.08] hover:bg-white/10 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100",
           active && activeClassName
         )}
         aria-label={label}

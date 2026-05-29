@@ -4282,6 +4282,76 @@ def get_video_detail():
         logger.error(f'获取视频详情异常: {str(e)}', exc_info=True)
         return jsonify({'success': False, 'message': f'获取视频详情失败: {str(e)}'}), 500
 
+@app.route('/api/video_like', methods=['POST'])
+def set_video_liked_api():
+    """点赞或取消点赞作品"""
+    try:
+        data = _request_json()
+        aweme_id = str(data.get('aweme_id') or '').strip()
+        liked = bool(data.get('liked'))
+
+        if not aweme_id:
+            return jsonify({'success': False, 'message': '作品ID不能为空'}), 400
+        if not user_manager:
+            return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
+
+        result = run_async(user_manager.set_video_liked(aweme_id, liked))
+        if isinstance(result, dict):
+            if result.get('_need_verify'):
+                return jsonify(_verify_error_response(result, '点赞失败，请完成验证后重试'))
+            if result.get('_need_login'):
+                return jsonify(_login_error_response(result))
+            if result.get('_error') or result.get('status_code', 0) not in (0, None):
+                return jsonify({
+                    'success': False,
+                    'message': _api_message(result, '点赞失败，请检查 Cookie 或稍后重试'),
+                })
+
+        return jsonify({
+            'success': True,
+            'aweme_id': aweme_id,
+            'is_liked': liked,
+            'message': '点赞成功' if liked else '已取消点赞',
+        })
+    except Exception as e:
+        logger.error(f'设置点赞状态异常: {str(e)}', exc_info=True)
+        return jsonify({'success': False, 'message': f'点赞失败: {str(e)}'}), 500
+
+@app.route('/api/video_collect', methods=['POST'])
+def set_video_collected_api():
+    """收藏或取消收藏作品"""
+    try:
+        data = _request_json()
+        aweme_id = str(data.get('aweme_id') or '').strip()
+        collected = bool(data.get('collected'))
+
+        if not aweme_id:
+            return jsonify({'success': False, 'message': '作品ID不能为空'}), 400
+        if not user_manager:
+            return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
+
+        result = run_async(user_manager.set_video_collected(aweme_id, collected))
+        if isinstance(result, dict):
+            if result.get('_need_verify'):
+                return jsonify(_verify_error_response(result, '收藏失败，请完成验证后重试'))
+            if result.get('_need_login'):
+                return jsonify(_login_error_response(result))
+            if result.get('_error') or result.get('status_code', 0) not in (0, None):
+                return jsonify({
+                    'success': False,
+                    'message': _api_message(result, '收藏失败，请检查 Cookie 或稍后重试'),
+                })
+
+        return jsonify({
+            'success': True,
+            'aweme_id': aweme_id,
+            'is_collected': collected,
+            'message': '收藏成功' if collected else '已取消收藏',
+        })
+    except Exception as e:
+        logger.error(f'设置收藏状态异常: {str(e)}', exc_info=True)
+        return jsonify({'success': False, 'message': f'收藏失败: {str(e)}'}), 500
+
 @app.route('/api/parse_link', methods=['POST'])
 def parse_link():
     """解析抖音链接"""

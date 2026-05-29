@@ -28,6 +28,7 @@ import type {
   VideoDetailResponse,
   VideoInfo,
   VideoMediaUrl,
+  VideoRelationResponse,
 } from "./contracts";
 
 export type * from "./contracts";
@@ -805,6 +806,26 @@ export async function parseLink(link: string): Promise<LinkParseResponse> {
     video: normalizeVideo(result.video) || undefined,
     videos: normalizeVideos(result.videos),
   };
+}
+
+export async function setVideoLiked(awemeId: string, liked: boolean): Promise<VideoRelationResponse> {
+  if (shouldUseBrowserBridge()) {
+    return requestJson("/api/video_like", {
+      method: "POST",
+      body: JSON.stringify({ aweme_id: awemeId, liked }),
+    });
+  }
+  return invoke("set_video_liked", { awemeId, aweme_id: awemeId, liked });
+}
+
+export async function setVideoCollected(awemeId: string, collected: boolean): Promise<VideoRelationResponse> {
+  if (shouldUseBrowserBridge()) {
+    return requestJson("/api/video_collect", {
+      method: "POST",
+      body: JSON.stringify({ aweme_id: awemeId, collected }),
+    });
+  }
+  return invoke("set_video_collected", { awemeId, aweme_id: awemeId, collected });
 }
 
 export async function downloadVideo(video: VideoInfo): Promise<ApiResponse & { task_id?: string }> {

@@ -698,6 +698,8 @@ class DouyinUserManager:
                 'digg_count': post.get('statistics', {}).get('digg_count', 0),
                 'comment_count': post.get('statistics', {}).get('comment_count', 0),
                 'share_count': post.get('statistics', {}).get('share_count', 0),
+                'is_liked': self._post_boolish(post, 'user_digged', 'is_liked', 'digg_status'),
+                'is_collected': self._post_boolish(post, 'is_collected', 'is_collect', 'collect_status'),
                 'author': {
                     'nickname': post.get('author', {}).get('nickname', ''),
                     'unique_id': post.get('author', {}).get('uid', ''),
@@ -708,7 +710,8 @@ class DouyinUserManager:
                     'digg_count': post.get('statistics', {}).get('digg_count', 0),
                     'comment_count': post.get('statistics', {}).get('comment_count', 0),
                     'share_count': post.get('statistics', {}).get('share_count', 0),
-                    'play_count': post.get('statistics', {}).get('play_count', 0)
+                    'play_count': post.get('statistics', {}).get('play_count', 0),
+                    'collect_count': post.get('statistics', {}).get('collect_count', 0),
                 },
                 'media_type': media_type,
                 'media_urls': urls,
@@ -1049,6 +1052,8 @@ class DouyinUserManager:
                     'digg_count': post.get('statistics', {}).get('digg_count', 0),
                     'comment_count': post.get('statistics', {}).get('comment_count', 0),
                     'share_count': post.get('statistics', {}).get('share_count', 0),
+                    'is_liked': self._post_boolish(post, 'user_digged', 'is_liked', 'digg_status', default=True),
+                    'is_collected': self._post_boolish(post, 'is_collected', 'is_collect', 'collect_status'),
                     'cover_url': cover_url,
                     'duration': duration,
                     'duration_unit': 'milliseconds',
@@ -1122,6 +1127,8 @@ class DouyinUserManager:
             'digg_count': post.get('statistics', {}).get('digg_count', 0),
             'comment_count': post.get('statistics', {}).get('comment_count', 0),
             'share_count': post.get('statistics', {}).get('share_count', 0),
+            'is_liked': self._post_boolish(post, 'user_digged', 'is_liked', 'digg_status'),
+            'is_collected': self._post_boolish(post, 'is_collected', 'is_collect', 'collect_status', default=True),
             'cover_url': cover_url,
             'duration': duration,
             'duration_unit': 'milliseconds',
@@ -1158,6 +1165,88 @@ class DouyinUserManager:
                 'sec_uid': author.get('sec_uid', ''),
                 'avatar_thumb': author.get('avatar_thumb', {}).get('url_list', [''])[0] if author.get('avatar_thumb') else ''
             }
+        }
+
+    @staticmethod
+    def _boolish(value) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value > 0
+        if isinstance(value, str):
+            return value.strip().lower() in ('1', 'true', 'yes')
+        return False
+
+    @classmethod
+    def _post_boolish(cls, post: dict, *keys: str, default: bool = False) -> bool:
+        if not isinstance(post, dict):
+            return default
+        for key in keys:
+            if key in post:
+                return cls._boolish(post.get(key))
+        return default
+
+    async def set_video_liked(self, aweme_id: str, liked: bool) -> dict:
+        """点赞或取消点赞作品。"""
+        aweme_id = str(aweme_id or '').strip()
+        if not aweme_id:
+            return {'_error': True, 'message': '作品ID不能为空'}
+
+        resp, success = await self.api.common_request(
+            '/aweme/v1/web/commit/item/digg/',
+            {
+                'aweme_id': aweme_id,
+                'item_type': '0',
+                'type': '1' if liked else '0',
+                'action_type': '1' if liked else '0',
+            },
+            {
+                'Referer': f'https://www.douyin.com/video/{aweme_id}',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            },
+            skip_sign=True,
+            method='POST',
+        )
+
+        if not success:
+            return resp if isinstance(resp, dict) else {'_error': True, 'message': '点赞失败'}
+
+        return {
+            'success': True,
+            'aweme_id': aweme_id,
+            'is_liked': liked,
+            'message': '点赞成功' if liked else '已取消点赞',
+        }
+
+    async def set_video_collected(self, aweme_id: str, collected: bool) -> dict:
+        """收藏或取消收藏作品。"""
+        aweme_id = str(aweme_id or '').strip()
+        if not aweme_id:
+            return {'_error': True, 'message': '作品ID不能为空'}
+
+        resp, success = await self.api.common_request(
+            '/aweme/v1/web/aweme/collect/',
+            {
+                'aweme_id': aweme_id,
+                'action': '1' if collected else '0',
+                'type': '1' if collected else '0',
+            },
+            {
+                'Referer': f'https://www.douyin.com/video/{aweme_id}',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            },
+            skip_sign=True,
+            method='POST',
+        )
+
+        if not success:
+            return resp if isinstance(resp, dict) else {'_error': True, 'message': '收藏失败'}
+
+        return {
+            'success': True,
+            'aweme_id': aweme_id,
+            'is_collected': collected,
+            'message': '收藏成功' if collected else '已取消收藏',
         }
 
     @staticmethod

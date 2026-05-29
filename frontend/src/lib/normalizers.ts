@@ -35,6 +35,8 @@ interface LikedVideoItemRaw {
   status?: VideoStatus | null;
   media_urls?: LikedVideoMediaUrl[];
   bgm_url?: string | null;
+  is_liked?: boolean;
+  is_collected?: boolean;
   statistics?: Partial<Statistics>;
   video?: Partial<VideoData>;
   author?: LikedVideoAuthorRaw;
@@ -280,6 +282,8 @@ export function normalizeLikedVideo(item: unknown): VideoInfo | null {
     live_photo_urls: livePhotoUrls.length > 0 ? livePhotoUrls : null,
     live_photos: livePhotoUrls.length > 0 ? livePhotoUrls : null,
     has_live_photo: livePhotoUrls.length > 0,
+    is_liked: Boolean(candidate.is_liked),
+    is_collected: Boolean(candidate.is_collected),
     is_image: isImage,
     media_type: mediaType,
     status,
@@ -450,7 +454,7 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
       digg_count: Number(source.digg_count || stats.digg_count || 0),
       comment_count: Number(source.comment_count || stats.comment_count || 0),
       share_count: Number(source.share_count || stats.share_count || 0),
-      collect_count: Number(stats.collect_count || 0),
+      collect_count: Number(source.collect_count || stats.collect_count || 0),
       forward_count: Number(stats.forward_count || 0),
     },
     image_urls: imageUrls.length > 0 ? imageUrls : null,
@@ -458,6 +462,8 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
     live_photo_urls: livePhotoUrls.length > 0 ? livePhotoUrls : null,
     live_photos: livePhotoUrls.length > 0 ? livePhotoUrls : null,
     has_live_photo: Boolean(source.has_live_photo || livePhotoUrls.length > 0),
+    is_liked: Boolean(source.is_liked),
+    is_collected: Boolean(source.is_collected),
     is_image: isImage,
     media_type: mediaType,
     raw_media_type: rawMediaType,
