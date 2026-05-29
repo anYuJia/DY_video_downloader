@@ -17,6 +17,7 @@ import {
   Gauge,
   Heart,
   Info,
+  Loader2,
   Music,
   Pause,
   Play,
@@ -43,7 +44,7 @@ interface FullscreenPlayerProps {
   initialMediaIndex?: number;
   open: boolean;
   onClose: () => void;
-  onDownload?: (video: VideoInfo) => void;
+  onDownload?: (video: VideoInfo) => void | Promise<void>;
   onLoadMore?: () => void;
   onShowDetail?: (video: VideoInfo) => void;
   onAuthor?: (video: VideoInfo) => void;
@@ -164,6 +165,7 @@ export function FullscreenPlayer({
   const [showLoadStatus, setShowLoadStatus] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [bgmPlaying, setBgmPlaying] = useState(false);
+  const [downloadSubmitting, setDownloadSubmitting] = useState(false);
   const [videoOverrides, setVideoOverrides] = useState<Record<string, VideoInfo>>({});
   const [mediaTransitionDirection, setMediaTransitionDirection] = useState(0);
   const [navigationNotice, setNavigationNotice] = useState("");
@@ -686,6 +688,19 @@ export function FullscreenPlayer({
       if (success) setOpenPanel(null);
     });
   }, [currentMedia?.url, currentPlaybackUrl]);
+
+  const handleDownloadCurrent = useCallback((event: ReactMouseEvent) => {
+    event.stopPropagation();
+    clearPanelCloseTimer();
+    setOpenPanel(null);
+
+    if (!currentVideo || !onDownload || downloadSubmitting) return;
+
+    setDownloadSubmitting(true);
+    Promise.resolve(onDownload(currentVideo)).finally(() => {
+      window.setTimeout(() => setDownloadSubmitting(false), 350);
+    });
+  }, [clearPanelCloseTimer, currentVideo, downloadSubmitting, onDownload]);
 
   const toggleMute = useCallback((event: ReactMouseEvent) => {
     event.stopPropagation();
@@ -1938,12 +1953,12 @@ export function FullscreenPlayer({
                   onMouseLeave={() => schedulePanelClose("download")}
                 >
                   <PlayerIconButton
-                    label="下载作品"
-                    onClick={(event) => togglePanel("download", event)}
-                    onPointerDown={(event) => openPanelOnPointerDown("download", event)}
-                    active={openPanel === "download"}
+                    label={downloadSubmitting ? "正在加入下载" : "下载作品"}
+                    onClick={handleDownloadCurrent}
+                    active={openPanel === "download" || downloadSubmitting}
+                    disabled={!onDownload || downloadSubmitting}
                   >
-                    <Download className="h-4 w-4" />
+                    {downloadSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                   </PlayerIconButton>
                   <AnimatePresence>
                     {openPanel === "download" && (
@@ -1963,16 +1978,12 @@ export function FullscreenPlayer({
                         <div className="flex flex-col gap-1">
                           <button
                             type="button"
-                            disabled={!onDownload}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onDownload?.(currentVideo);
-                              setOpenPanel(null);
-                            }}
+                            disabled={!onDownload || downloadSubmitting}
+                            onClick={handleDownloadCurrent}
                             className="flex h-8 items-center justify-center gap-1 rounded-md bg-accent/18 text-[0.72rem] font-semibold text-accent transition-colors hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-45"
                           >
-                            <Download className="h-3.5 w-3.5" />
-                            下载作品
+                            {downloadSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                            {downloadSubmitting ? "正在加入" : "下载作品"}
                           </button>
                           <button
                             type="button"
@@ -2596,23 +2607,27 @@ function PlayerIconButton({
   children,
   label,
   active,
+  disabled,
   onClick,
   onPointerDown,
 }: {
   children: ReactNode;
   label: string;
   active?: boolean;
+  disabled?: boolean;
   onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
   onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
       onPointerDown={onPointerDown}
       className={cn(
         "flex h-8 w-8 items-center justify-center rounded-full bg-transparent text-white transition-[background-color,color] hover:bg-white/10 active:bg-white/15",
-        active && "bg-white/10"
+        active && "bg-white/10",
+        disabled && "cursor-not-allowed opacity-50 hover:bg-transparent active:bg-transparent"
       )}
       aria-label={label}
       title={label}

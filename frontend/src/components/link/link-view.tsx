@@ -338,7 +338,7 @@ export function LinkView() {
         initialIndex={playerIndex ?? 0}
         open={playerIndex !== null}
         onClose={() => setPlayerIndex(null)}
-        onDownload={(video) => void downloadVideo(video)}
+        onDownload={(video) => downloadVideo(video)}
         onShowDetail={(video) => {
           setPlayerIndex(null);
           setDetailVideo(video);
@@ -355,7 +355,7 @@ export function LinkView() {
         onOpenChange={(open) => {
           if (!open) setDetailVideo(null);
         }}
-        onDownload={(video) => void downloadVideo(video)}
+        onDownload={(video) => downloadVideo(video)}
       />
     </>
   );

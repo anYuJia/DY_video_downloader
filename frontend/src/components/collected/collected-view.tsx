@@ -270,7 +270,7 @@ function CollectedVideosPanel() {
         initialIndex={playerIndex ?? 0}
         open={playerIndex !== null}
         onClose={() => setPlayerIndex(null)}
-        onDownload={(video) => void downloadVideo(video)}
+        onDownload={(video) => downloadVideo(video)}
         onLoadMore={hasMore && !loadingMore ? () => void loadVideos(false) : undefined}
         onShowDetail={(video) => {
           setPlayerIndex(null);
@@ -288,7 +288,7 @@ function CollectedVideosPanel() {
         onOpenChange={(open) => {
           if (!open) setDetailVideo(null);
         }}
-        onDownload={(video) => void downloadVideo(video)}
+        onDownload={(video) => downloadVideo(video)}
       />
     </>
   );
@@ -557,7 +557,7 @@ function MixVideosPanel({ mix, onBack }: { mix: CollectedMixItem; onBack: () => 
         initialIndex={playerIndex ?? 0}
         open={playerIndex !== null}
         onClose={() => setPlayerIndex(null)}
-        onDownload={(video) => void downloadVideo(video)}
+        onDownload={(video) => downloadVideo(video)}
         onLoadMore={hasMore && !loadingMore ? () => void loadVideos(false) : undefined}
         onShowDetail={(video) => {
           setPlayerIndex(null);
@@ -575,7 +575,7 @@ function MixVideosPanel({ mix, onBack }: { mix: CollectedMixItem; onBack: () => 
         onOpenChange={(open) => {
           if (!open) setDetailVideo(null);
         }}
-        onDownload={(video) => void downloadVideo(video)}
+        onDownload={(video) => downloadVideo(video)}
       />
     </>
   );

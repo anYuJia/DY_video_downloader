@@ -128,7 +128,7 @@ export function LikedView() {
             onLoadMore={() => void loadMoreVideos()}
             onSelect={openPlayer}
             onDetail={setDetailVideo}
-            onDownload={(video) => void downloadVideo(video)}
+            onDownload={(video) => downloadVideo(video)}
             onAuthor={handleGoToAuthor}
             authorLoadingId={authorLoadingId}
             onDownloadAll={() => void downloadBatch(videos)}
@@ -148,7 +148,7 @@ export function LikedView() {
         initialIndex={playerIndex ?? 0}
         open={playerIndex !== null}
         onClose={() => setPlayerIndex(null)}
-        onDownload={(video) => void downloadVideo(video)}
+        onDownload={(video) => downloadVideo(video)}
         onLoadMore={videosHasMore && !loadingMoreVideos ? () => void loadMoreVideos() : undefined}
         onShowDetail={(video) => {
           setPlayerIndex(null);
@@ -166,7 +166,7 @@ export function LikedView() {
         onOpenChange={(open) => {
           if (!open) setDetailVideo(null);
         }}
-        onDownload={(video) => void downloadVideo(video)}
+        onDownload={(video) => downloadVideo(video)}
       />
     </>
   );

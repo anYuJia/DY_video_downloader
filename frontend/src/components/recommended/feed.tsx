@@ -161,7 +161,7 @@ export function RecommendedFeed() {
         initialIndex={playerIndex ?? 0}
         open={playerIndex !== null}
         onClose={() => setPlayerIndex(null)}
-        onDownload={(video) => void downloadVideo(video)}
+        onDownload={(video) => downloadVideo(video)}
         onLoadMore={hasMore && !loadingMore ? () => void loadMore() : undefined}
         onShowDetail={(video) => {
           setPlayerIndex(null);
@@ -178,7 +178,7 @@ export function RecommendedFeed() {
         onOpenChange={(open) => {
           if (!open) setDetailVideo(null);
         }}
-        onDownload={(video) => void downloadVideo(video)}
+        onDownload={(video) => downloadVideo(video)}
       />
     </>
   );
