@@ -7,6 +7,7 @@ import urllib.request
 import os
 import re
 import json
+import base64
 import sys
 import random
 import string
@@ -249,6 +250,26 @@ class DouyinAPI:
                 print(f"\033[91m[API] 解析cookie失败: {e}\033[0m")
         
         return cookie_dict
+
+    def _ticket_guard_headers_from_cookie(self) -> dict:
+        cookie_dict = self._cookies_to_dict(self.cookie)
+        raw_client_data = cookie_dict.get('bd_ticket_guard_client_data') or cookie_dict.get('bd_ticket_guard_client_data_v2') or ''
+        if not raw_client_data:
+            return {}
+
+        try:
+            decoded_cookie = urllib.parse.unquote(raw_client_data)
+            payload = json.loads(base64.b64decode(decoded_cookie).decode('utf-8'))
+        except Exception:
+            return {}
+
+        headers = {}
+        for key, value in payload.items():
+            if key.startswith('bd-ticket-guard-'):
+                headers[key] = str(value)
+        if 'bd-ticket-guard-ree-public-key' not in headers and payload.get('ree_public_key'):
+            headers['bd-ticket-guard-ree-public-key'] = str(payload['ree_public_key'])
+        return headers
 
     def _get_ms_token(self) -> str:
         """生成msToken"""
@@ -568,6 +589,7 @@ class DouyinAPI:
         query_params = dict(self.common_params)
         merged_headers = dict(self.common_headers)
         merged_headers.update(headers or {})
+        merged_headers.update(self._ticket_guard_headers_from_cookie())
         headers = merged_headers
         query_params = await self._deal_params(query_params, headers)
         csrf_token = await self._get_csrf_token(headers)
