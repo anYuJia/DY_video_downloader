@@ -387,6 +387,20 @@ def _coerce_int(value, default: int = 0, min_value: int | None = None, max_value
     return result
 
 
+def _coerce_bool(value, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ('1', 'true', 'yes', 'on'):
+            return True
+        if normalized in ('0', 'false', 'no', 'off', ''):
+            return False
+    return default
+
+
 def _count_value(value, default: int = 0) -> int:
     if isinstance(value, bool):
         return default
@@ -4288,7 +4302,7 @@ def set_video_liked_api():
     try:
         data = _request_json()
         aweme_id = str(data.get('aweme_id') or '').strip()
-        liked = bool(data.get('liked'))
+        liked = _coerce_bool(data.get('liked'), False)
 
         if not aweme_id:
             return jsonify({'success': False, 'message': '作品ID不能为空'}), 400
@@ -4323,7 +4337,7 @@ def set_video_collected_api():
     try:
         data = _request_json()
         aweme_id = str(data.get('aweme_id') or '').strip()
-        collected = bool(data.get('collected'))
+        collected = _coerce_bool(data.get('collected'), False)
 
         if not aweme_id:
             return jsonify({'success': False, 'message': '作品ID不能为空'}), 400

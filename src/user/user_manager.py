@@ -1181,10 +1181,14 @@ class DouyinUserManager:
     def _post_boolish(cls, post: dict, *keys: str, default: bool = False) -> bool:
         if not isinstance(post, dict):
             return default
+        saw_value = False
         for key in keys:
-            if key in post:
-                return cls._boolish(post.get(key))
-        return default
+            if key not in post or post.get(key) is None:
+                continue
+            saw_value = True
+            if cls._boolish(post.get(key)):
+                return True
+        return False if saw_value else default
 
     async def set_video_liked(self, aweme_id: str, liked: bool) -> dict:
         """点赞或取消点赞作品。"""
