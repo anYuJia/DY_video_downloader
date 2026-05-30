@@ -350,6 +350,9 @@ class DouyinAPI:
             signer = None
         return str((signer or {}).get('dtrait') or '').strip()
 
+    def _has_relation_dtrait(self) -> bool:
+        return bool(self._relation_dtrait())
+
     def _get_ms_token(self) -> str:
         """生成msToken"""
         return ''.join(random.choices(string.ascii_letters + string.digits, k=107))
@@ -665,6 +668,13 @@ class DouyinAPI:
         """POST 动作接口：公共参数放 query 并签名，动作参数放 form body。"""
         base_host = host or self.host
         url = f'{base_host}{uri}'
+        if 'aweme/v1/web/commit/item/digg' in uri and not self._has_relation_dtrait():
+            return {
+                'status_code': 403,
+                'status_msg': 'RELATION_SIGNER_INCOMPLETE',
+                'message': '点赞安全参数不完整，请在设置中重新登录，等待登录窗口自动关闭后再试。',
+                '_security_blocked': True,
+            }, False
         query_params = dict(self.common_params)
         if 'aweme/v1/web/commit/item/digg' in uri or 'aweme/v1/web/aweme/collect' in uri:
             query_params.update({
