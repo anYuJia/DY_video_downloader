@@ -4852,6 +4852,11 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                     time.sleep(1)
                     continue
 
+                user_id = str(verify_result.get('user_id') or '').strip()
+                if user_id:
+                    relation_signer = dict(relation_signer or {})
+                    relation_signer.setdefault('uid', user_id)
+
                 _save_cookie_login_success(cookie_string, verify_result.get('nickname', ''), relation_signer)
                 destroy_window_safely(session.window)
                 return
