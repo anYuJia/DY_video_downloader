@@ -65,6 +65,8 @@ class DouyinAPI:
         self.host = 'https://www.douyin.com'
         self._cached_webid = None
         self._webid_time = 0
+        self._cached_csrf_token = None
+        self._csrf_time = 0
 
         # 检查是否启用调试模式
         self.debug_mode = os.environ.get('DEBUG_MODE', '').lower() in ('true', '1', 'yes')
@@ -162,6 +164,34 @@ class DouyinAPI:
             if self.debug_mode:
                 print(f"\033[91m[API] 获取webid异常: {e}\033[0m")
         return None
+
+    async def _get_csrf_token(self, headers: dict) -> str:
+        """获取抖音动作接口需要的 csrf token（缓存10分钟）。"""
+        import time
+        if self._cached_csrf_token and (time.time() - self._csrf_time) < 600:
+            return self._cached_csrf_token
+
+        h = dict(headers or {})
+        h['X-Secsdk-Csrf-Request'] = '1'
+        h['X-Secsdk-Csrf-Version'] = '1.2.22'
+        try:
+            response = await asyncio.to_thread(
+                _get_api_session().head,
+                'https://www.douyin.com/service/2/abtest_config/',
+                headers=h,
+                timeout=(10, 30),
+            )
+            raw_token = response.headers.get('x-ware-csrf-token') or response.headers.get('X-Ware-Csrf-Token') or ''
+            token = next((part.strip() for part in raw_token.split(',') if len(part.strip()) > 16), '')
+            if token:
+                self._cached_csrf_token = token
+                self._csrf_time = time.time()
+                return token
+        except Exception as e:
+            if self.debug_mode:
+                print(f"\033[91m[API] 获取 csrf token 失败: {e}\033[0m")
+
+        return ''
     
     async def _deal_params(self, params: dict, headers: dict) -> dict:
         """处理请求参数"""
@@ -520,6 +550,100 @@ class DouyinAPI:
                 return self._build_login_required_error(json_response), False
             if self._looks_like_login_or_verify_error(uri, json_response):
                 verify_hint, _ = self._build_verify_hint(uri, params, response)
+                api_message = self._extract_api_message(json_response)
+                verify_hint.update({
+                    'status_code': json_response.get('status_code'),
+                    'status_msg': json_response.get('status_msg', ''),
+                    'message': f'{api_message}，请完成验证或重新获取 Cookie 后重试',
+                })
+                return verify_hint, False
+            return json_response, False
+
+        return json_response, True
+
+    async def signed_form_action_request(self, uri: str, body_params: dict, headers: dict, host: str = None) -> tuple[dict, bool]:
+        """POST 动作接口：公共参数放 query 并签名，动作参数放 form body。"""
+        base_host = host or self.host
+        url = f'{base_host}{uri}'
+        query_params = dict(self.common_params)
+        merged_headers = dict(self.common_headers)
+        merged_headers.update(headers or {})
+        headers = merged_headers
+        query_params = await self._deal_params(query_params, headers)
+        csrf_token = await self._get_csrf_token(headers)
+        if csrf_token:
+            headers['x-secsdk-csrf-token'] = csrf_token
+        elif self.debug_mode:
+            print('\033[93m[API] 动作接口 csrf token 不可用\033[0m')
+
+        query = '&'.join([f'{k}={urllib.parse.quote(str(v))}' for k, v in query_params.items()])
+        try:
+            query_params['a_bogus'] = douyin_sign.sign_detail(query, headers["User-Agent"])
+        except Exception as e:
+            if self.debug_mode:
+                print(f"\033[91m[API] 生成动作接口 a_bogus 失败: {e}\033[0m")
+            return {
+                'status_code': -1,
+                'status_msg': '签名生成失败',
+                'message': f'签名生成失败: {e}',
+            }, False
+
+        if self.debug_mode:
+            print(f'\033[94m[API] 动作请求URL: {url}\033[0m')
+            print(f'\033[94m[API] 动作请求Query: {_redact_params(query_params)}\033[0m')
+            print(f'\033[94m[API] 动作请求Body: {body_params}\033[0m')
+            print(f'\033[94m[API] 动作请求头: {_redact_headers(headers)}\033[0m')
+
+        try:
+            response = await asyncio.to_thread(
+                _api_post,
+                url,
+                params=query_params,
+                data=body_params,
+                headers=headers,
+                timeout=(10, 30),
+            )
+        except requests.RequestException as e:
+            return {
+                'status_code': -1,
+                'status_msg': '网络请求失败',
+                'message': f'网络请求失败: {e}',
+            }, False
+
+        if response.status_code != 200 or len(response.content) == 0:
+            ticket_guard_result = response.headers.get('bd-ticket-guard-result') or ''
+            passport_security_gateway = response.headers.get('bd_passport_security_gateway') or ''
+            if response.status_code == 403 and (ticket_guard_result or passport_security_gateway == '1'):
+                return {
+                    'status_code': response.status_code,
+                    'status_msg': 'SECURITY_GATEWAY_BLOCKED',
+                    'message': (
+                        f'抖音安全校验拒绝了本次操作（HTTP 403'
+                        f'{", TicketGuard " + ticket_guard_result if ticket_guard_result else ""}），'
+                        '当前 Cookie 仍会保留，请稍后重试，或先在抖音网页/客户端完成一次同类操作。'
+                    ),
+                    '_security_blocked': True,
+                }, False
+            return {
+                'status_code': response.status_code,
+                'status_msg': '请求失败',
+                'message': '请求失败，请检查 Cookie 或稍后重试',
+            }, False
+
+        try:
+            json_response = response.json()
+        except Exception as e:
+            return {
+                'status_code': -1,
+                'status_msg': 'JSON解析失败',
+                'message': f'JSON解析失败: {e}',
+            }, False
+
+        if json_response.get('status_code', 0) != 0:
+            if self._looks_like_logged_out_error(json_response):
+                return self._build_login_required_error(json_response), False
+            if self._looks_like_login_or_verify_error(uri, json_response):
+                verify_hint, _ = self._build_verify_hint(uri, query_params, response)
                 api_message = self._extract_api_message(json_response)
                 verify_hint.update({
                     'status_code': json_response.get('status_code'),

@@ -1196,7 +1196,7 @@ class DouyinUserManager:
         if not aweme_id:
             return {'_error': True, 'message': '作品ID不能为空'}
 
-        resp, success = await self.api.common_request(
+        resp, success = await self.api.signed_form_action_request(
             '/aweme/v1/web/commit/item/digg/',
             {
                 'aweme_id': aweme_id,
@@ -1206,10 +1206,9 @@ class DouyinUserManager:
             },
             {
                 'Referer': f'https://www.douyin.com/video/{aweme_id}',
+                'Origin': 'https://www.douyin.com',
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
             },
-            skip_sign=True,
-            method='POST',
         )
 
         if not success:
@@ -1228,7 +1227,7 @@ class DouyinUserManager:
         if not aweme_id:
             return {'_error': True, 'message': '作品ID不能为空'}
 
-        resp, success = await self.api.common_request(
+        resp, success = await self.api.signed_form_action_request(
             '/aweme/v1/web/aweme/collect/',
             {
                 'aweme_id': aweme_id,
@@ -1237,10 +1236,9 @@ class DouyinUserManager:
             },
             {
                 'Referer': f'https://www.douyin.com/video/{aweme_id}',
+                'Origin': 'https://www.douyin.com',
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
             },
-            skip_sign=True,
-            method='POST',
         )
 
         if not success:

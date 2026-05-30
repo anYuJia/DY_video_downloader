@@ -4311,6 +4311,12 @@ def set_video_liked_api():
 
         result = run_async(user_manager.set_video_liked(aweme_id, liked))
         if isinstance(result, dict):
+            if result.get('_security_blocked'):
+                return jsonify({
+                    'success': False,
+                    'security_blocked': True,
+                    'message': _api_message(result, '点赞被抖音安全校验拒绝，请稍后重试'),
+                })
             if result.get('_need_verify'):
                 return jsonify(_verify_error_response(result, '点赞失败，请完成验证后重试'))
             if result.get('_need_login'):
@@ -4346,6 +4352,12 @@ def set_video_collected_api():
 
         result = run_async(user_manager.set_video_collected(aweme_id, collected))
         if isinstance(result, dict):
+            if result.get('_security_blocked'):
+                return jsonify({
+                    'success': False,
+                    'security_blocked': True,
+                    'message': _api_message(result, '收藏被抖音安全校验拒绝，请稍后重试'),
+                })
             if result.get('_need_verify'):
                 return jsonify(_verify_error_response(result, '收藏失败，请完成验证后重试'))
             if result.get('_need_login'):
