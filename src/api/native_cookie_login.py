@@ -171,4 +171,16 @@ def has_login_cookie(entries: list[dict[str, str]]) -> bool:
 
 
 def serialize_cookie_entries(entries: list[dict[str, str]]) -> str:
-    return '; '.join(f"{entry['name']}={entry['value']}" for entry in entries if entry.get('name'))
+    deduped: dict[str, str] = {}
+    for entry in entries:
+        name = (entry.get('name') or '').strip()
+        value = (entry.get('value') or '').strip()
+        if not name or not value:
+            continue
+
+        domain = (entry.get('domain') or '').strip().lstrip('.').lower()
+        applies_to_www = not domain or domain == 'www.douyin.com' or 'www.douyin.com'.endswith(f'.{domain}')
+        if applies_to_www:
+            deduped[name] = value
+
+    return '; '.join(f'{name}={value}' for name, value in deduped.items())
