@@ -99,6 +99,7 @@ function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> 
 function emitCookieInvalidIfNeeded(payload: unknown) {
   if (!payload || typeof payload !== "object") return;
   const data = payload as Record<string, unknown>;
+  if (data.security_blocked) return;
   const message = String(data.message || "Cookie 已失效，请重新登录").trim();
   const failedWithLoginMessage = data.success === false && isCookieInvalidMessage(message);
   if (!data.need_login && !failedWithLoginMessage) return;

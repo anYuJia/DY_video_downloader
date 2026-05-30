@@ -640,11 +640,22 @@ class DouyinAPI:
             }, False
 
         if json_response.get('status_code', 0) != 0:
+            status_code = json_response.get('status_code')
+            api_message = self._extract_api_message(json_response)
+            if status_code == 8 or '未登录' in api_message:
+                return {
+                    'status_code': status_code,
+                    'status_msg': json_response.get('status_msg', ''),
+                    'message': (
+                        f'抖音动作接口未接受当前网页登录凭据（{api_message}），'
+                        '当前 Cookie 仍会保留。请稍后重试，或先在抖音网页/客户端完成一次同类操作。'
+                    ),
+                    '_security_blocked': True,
+                }, False
             if self._looks_like_logged_out_error(json_response):
                 return self._build_login_required_error(json_response), False
             if self._looks_like_login_or_verify_error(uri, json_response):
                 verify_hint, _ = self._build_verify_hint(uri, query_params, response)
-                api_message = self._extract_api_message(json_response)
                 verify_hint.update({
                     'status_code': json_response.get('status_code'),
                     'status_msg': json_response.get('status_msg', ''),
