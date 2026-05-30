@@ -4852,11 +4852,6 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                     time.sleep(1)
                     continue
 
-                if not relation_signer_ready(relation_signer):
-                    emit_once('pending', '登录态已通过，正在采集点赞安全参数')
-                    time.sleep(1)
-                    continue
-
                 _save_cookie_login_success(cookie_string, verify_result.get('nickname', ''), relation_signer)
                 destroy_window_safely(session.window)
                 return
