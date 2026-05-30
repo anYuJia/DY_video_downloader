@@ -79,7 +79,9 @@ from src.api.native_cookie_login import (
     create_native_douyin_window,
     create_login_window,
     destroy_window_safely,
+    extract_relation_signer_entries,
     has_login_cookie,
+    inject_relation_signer_probe,
     is_native_cookie_login_available,
     normalize_cookie_entries,
     serialize_cookie_entries,
@@ -741,6 +743,16 @@ def _verify_error_response(payload, fallback='需要完成抖音验证', verify_
         'need_verify': True,
         'verify_url': verify_url or payload_dict.get('_verify_url') or 'https://www.douyin.com/',
         'message': message,
+    }
+
+
+def _verify_error_response_without_login_check(payload, fallback='需要完成抖音验证', verify_url=None):
+    payload_dict = payload if isinstance(payload, dict) else {}
+    return {
+        'success': False,
+        'need_verify': True,
+        'verify_url': verify_url or payload_dict.get('_verify_url') or 'https://www.douyin.com/',
+        'message': _api_message(payload, fallback),
     }
 
 
@@ -3147,15 +3159,12 @@ def get_liked_videos_api():
         result = run_async(user_manager.get_liked_videos(count, cursor, include_pagination=True))
         if isinstance(result, dict):
             if result.get('_need_verify'):
-                return jsonify(_verify_error_response(result, '获取点赞视频失败，请完成验证后重试'))
+                return jsonify(_verify_error_response_without_login_check(result, '获取点赞视频失败，请完成验证后重试'))
             if result.get('_need_login'):
-                return jsonify(_login_error_response(result))
+                return jsonify(_verify_error_response_without_login_check(result, '获取点赞视频失败，请完成验证后重试'))
             if 'data' in result:
                 videos = result.get('data') or []
                 if not videos and cursor <= 0:
-                    login_status = _verify_native_cookie_login(Config.COOKIE or '')
-                    if not login_status.get('success'):
-                        return jsonify(_login_error_response(login_status))
                     return jsonify({
                         'success': False,
                         'need_verify': True,
@@ -3175,9 +3184,6 @@ def get_liked_videos_api():
             })
         videos = result or []
         if not videos and cursor <= 0:
-            login_status = _verify_native_cookie_login(Config.COOKIE or '')
-            if not login_status.get('success'):
-                return jsonify(_login_error_response(login_status))
             return jsonify({
                 'success': False,
                 'need_verify': True,
@@ -3248,9 +3254,9 @@ def get_collected_videos_api():
         result = run_async(user_manager.get_collected_videos(count, cursor))
         if isinstance(result, dict):
             if result.get('_need_verify'):
-                return jsonify(_verify_error_response(result, '获取收藏视频失败，请完成验证后重试'))
+                return jsonify(_verify_error_response_without_login_check(result, '获取收藏视频失败，请完成验证后重试'))
             if result.get('_need_login'):
-                return jsonify(_login_error_response(result))
+                return jsonify(_verify_error_response_without_login_check(result, '获取收藏视频失败，请完成验证后重试'))
             if 'data' in result:
                 videos = result.get('data') or []
                 return jsonify({
@@ -3281,9 +3287,9 @@ def get_collected_mixes_api():
         result = run_async(user_manager.get_collected_mixes(count, cursor))
         if isinstance(result, dict):
             if result.get('_need_verify'):
-                return jsonify(_verify_error_response(result, '获取收藏合集失败，请完成验证后重试'))
+                return jsonify(_verify_error_response_without_login_check(result, '获取收藏合集失败，请完成验证后重试'))
             if result.get('_need_login'):
-                return jsonify(_login_error_response(result))
+                return jsonify(_verify_error_response_without_login_check(result, '获取收藏合集失败，请完成验证后重试'))
             if 'data' in result:
                 mixes = result.get('data') or []
                 return jsonify({
@@ -4734,9 +4740,10 @@ def _verify_native_cookie_login(cookie: str) -> dict:
         return {'success': False, 'message': str(error)}
 
 
-def _save_cookie_login_success(cookie: str, nickname: str = '') -> None:
+def _save_cookie_login_success(cookie: str, nickname: str = '', relation_signer: dict | None = None) -> None:
     Config.COOKIE = cookie
-    Config.save_config(Config.COOKIE, Config.BASE_DIR, Config.HISTORY_DIRS)
+    Config.RELATION_SIGNER = relation_signer
+    Config.save_config(Config.COOKIE, Config.BASE_DIR, Config.HISTORY_DIRS, relation_signer=Config.RELATION_SIGNER)
     init_app()
 
     success_message = 'Cookie 获取成功！已自动保存。'
@@ -4812,6 +4819,10 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                     time.sleep(1)
                     continue
 
+                relation_signer = extract_relation_signer_entries(entries)
+                if not relation_signer:
+                    inject_relation_signer_probe(session.window)
+
                 cookie_string = serialize_cookie_entries(entries)
                 if not cookie_string:
                     time.sleep(1)
@@ -4840,7 +4851,7 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                     time.sleep(1)
                     continue
 
-                _save_cookie_login_success(cookie_string, verify_result.get('nickname', ''))
+                _save_cookie_login_success(cookie_string, verify_result.get('nickname', ''), relation_signer)
                 destroy_window_safely(session.window)
                 return
         finally:

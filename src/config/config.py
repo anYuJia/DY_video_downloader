@@ -27,6 +27,7 @@ class Config:
     
     # Cookie设置
     COOKIE = ""
+    RELATION_SIGNER = None
     APP_VERSION = (os.environ.get("APP_VERSION") or os.environ.get("GITHUB_REF_NAME") or "1.0.21").lstrip("v")
 
     # 文件保存路径默认在执行文件旁边
@@ -107,6 +108,8 @@ class Config:
                 with open(cls.CONFIG_FILE, 'r', encoding='utf-8') as f:
                     config_data = json.load(f)
                     cls.COOKIE = config_data.get("cookie", cls.COOKIE).replace('\n', '').replace('\r', '').strip()
+                    relation_signer = config_data.get("relation_signer")
+                    cls.RELATION_SIGNER = relation_signer if isinstance(relation_signer, dict) else None
                     cls.BASE_DIR = config_data.get("base_dir", cls.BASE_DIR)
                     cls.DOWNLOAD_DIR = cls.BASE_DIR
                     cls.HISTORY_DIRS = cls.normalize_history_dirs(config_data.get("history_dirs", []))
@@ -142,6 +145,7 @@ class Config:
         env_base_dir = os.environ.get("DOUYIN_BASE_DIR")
         env_quality = os.environ.get("DOUYIN_DOWNLOAD_QUALITY")
         env_max_concurrent = os.environ.get("DOUYIN_MAX_CONCURRENT")
+        env_relation_signer = os.environ.get("DOUYIN_RELATION_SIGNER")
 
         if env_cookie is not None:
             cls.COOKIE = env_cookie.replace('\n', '').replace('\r', '').strip()
@@ -153,6 +157,13 @@ class Config:
         if env_max_concurrent:
             try:
                 cls.MAX_CONCURRENT = max(1, min(10, int(env_max_concurrent)))
+            except Exception:
+                pass
+        if env_relation_signer:
+            try:
+                signer = json.loads(env_relation_signer)
+                if isinstance(signer, dict):
+                    cls.RELATION_SIGNER = signer
             except Exception:
                 pass
     
@@ -200,6 +211,7 @@ class Config:
         filename_template=None,
         folder_name_template=None,
         auto_create_folder=None,
+        relation_signer=None,
     ):
         """保存配置到配置文件"""
         resolved_quality = str(download_quality or cls.DOWNLOAD_QUALITY or "auto")
@@ -219,6 +231,7 @@ class Config:
 
         config_data = {
             "cookie": cookie,
+            "relation_signer": relation_signer if relation_signer is not None else cls.RELATION_SIGNER,
             "base_dir": base_dir,
             "history_dirs": cls.normalize_history_dirs(history_dirs if history_dirs is not None else cls.HISTORY_DIRS),
             "download_quality": resolved_quality,

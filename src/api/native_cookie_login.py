@@ -3,6 +3,8 @@ import os
 import threading
 import time
 import json
+import base64
+import urllib.parse
 from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
 from typing import Any
@@ -15,6 +17,8 @@ LOGIN_MARKER_KEYS = {
     'sid_guard',
     'uid_tt',
 }
+
+RELATION_SIGNER_COOKIE_NAME = 'dy_relation_signer'
 
 
 @dataclass
@@ -175,7 +179,7 @@ def serialize_cookie_entries(entries: list[dict[str, str]]) -> str:
     for entry in entries:
         name = (entry.get('name') or '').strip()
         value = (entry.get('value') or '').strip()
-        if not name or not value:
+        if not name or not value or name == RELATION_SIGNER_COOKIE_NAME:
             continue
 
         domain = (entry.get('domain') or '').strip().lstrip('.').lower()
@@ -184,3 +188,110 @@ def serialize_cookie_entries(entries: list[dict[str, str]]) -> str:
             deduped[name] = value
 
     return '; '.join(f'{name}={value}' for name, value in deduped.items())
+
+
+def extract_relation_signer_entries(entries: list[dict[str, str]]) -> dict[str, str] | None:
+    raw_value = ''
+    for entry in reversed(entries or []):
+        if entry.get('name') == RELATION_SIGNER_COOKIE_NAME:
+            raw_value = entry.get('value') or ''
+            break
+    if not raw_value:
+        return None
+
+    try:
+        decoded = urllib.parse.unquote(raw_value)
+        signer = json.loads(base64.b64decode(decoded).decode('utf-8'))
+    except Exception:
+        return None
+
+    if not isinstance(signer, dict):
+        return None
+    required = ('ticket', 'ts_sign', 'public_key', 'ecdh_key', 'uid')
+    if any(not str(signer.get(key) or '').strip() for key in required):
+        return None
+    result = {key: str(signer.get(key) or '').strip() for key in required}
+    dtrait = str(signer.get('dtrait') or '').strip()
+    if dtrait:
+        result['dtrait'] = dtrait
+    return result
+
+
+def inject_relation_signer_probe(window: Any) -> None:
+    if not window:
+        return
+    script = """
+        (() => {
+            if (window.__dyRelationSignerProbeStarted) return;
+            window.__dyRelationSignerProbeStarted = true;
+            const save = (payload) => {
+                try {
+                    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+                    document.cookie = `dy_relation_signer=${encodeURIComponent(encoded)}; domain=.douyin.com; path=/; max-age=600`;
+                    document.cookie = `dy_relation_signer=${encodeURIComponent(encoded)}; path=/; max-age=600`;
+                } catch (error) {}
+            };
+            const bytesToBase64 = (value) => {
+                const bytes = Array.from(value instanceof Uint8Array ? value : Object.values(value || {}));
+                return btoa(String.fromCharCode(...bytes));
+            };
+            const captureDtrait = () => new Promise((resolve) => {
+                let resolved = false;
+                const originalSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+                const finish = (value) => {
+                    if (resolved) return;
+                    resolved = true;
+                    try { XMLHttpRequest.prototype.setRequestHeader = originalSetHeader; } catch (error) {}
+                    resolve(value || "");
+                };
+                XMLHttpRequest.prototype.setRequestHeader = function(key, value) {
+                    if (String(key).toLowerCase() === "x-tt-session-dtrait") {
+                        try { originalSetHeader.apply(this, arguments); } catch (error) {}
+                        try { this.abort(); } catch (error) {}
+                        finish(String(value || ""));
+                        return;
+                    }
+                    return originalSetHeader.apply(this, arguments);
+                };
+                try {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open("POST", "https://www-hj.douyin.com/aweme/v1/web/commit/item/digg/?device_platform=webapp&aid=6383&channel=channel_pc_web");
+                    xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+                    xhr.onloadend = () => setTimeout(() => finish(""), 0);
+                    xhr.onerror = () => setTimeout(() => finish(""), 0);
+                    xhr.send("aweme_id=0&item_type=0&type=0");
+                } catch (error) {
+                    finish("");
+                }
+                setTimeout(() => finish(""), 2500);
+            });
+            (async () => {
+                try {
+                    const crypto = window.securitySDK && window.securitySDK.cryptoSDK;
+                    if (!crypto) throw new Error("security sdk not ready");
+                    const info = await crypto.getKeysInfoWithOrigin({ certType: "header", scene: "web_protect" });
+                    const ecdh = await crypto.initECDHKey();
+                    const payload = {
+                        ticket: info && info.sign && info.sign.ticket || "",
+                        ts_sign: info && info.sign && info.sign.ts_sign || "",
+                        public_key: info && (info.b64PubKey || (info.sign && info.sign.client_cert || "").replace(/^pub\\./, "")) || "",
+                        ecdh_key: bytesToBase64(ecdh),
+                        uid: window.SSR_RENDER_DATA && window.SSR_RENDER_DATA.app && window.SSR_RENDER_DATA.app.odin && window.SSR_RENDER_DATA.app.odin.user_id || "",
+                        dtrait: "",
+                    };
+                    payload.dtrait = await captureDtrait();
+                    if (payload.ticket && payload.ts_sign && payload.public_key && payload.ecdh_key && payload.uid) {
+                        save(payload);
+                    } else {
+                        window.__dyRelationSignerProbeStarted = false;
+                    }
+                } catch (error) {
+                    window.__dyRelationSignerProbeStarted = false;
+                }
+            })();
+        })();
+    """
+    try:
+        window.run_js(script)
+    except Exception as error:
+        logger.debug('注入关系动作签名采集脚本失败: %s', error)

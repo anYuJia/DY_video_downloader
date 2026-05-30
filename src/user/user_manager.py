@@ -1201,14 +1201,14 @@ class DouyinUserManager:
             {
                 'aweme_id': aweme_id,
                 'item_type': '0',
-                'type': '1' if liked else '0',
-                'action_type': '1' if liked else '0',
+                'type': '0' if liked else '1',
             },
             {
-                'Referer': f'https://www.douyin.com/video/{aweme_id}',
+                'Referer': 'https://www.douyin.com/',
                 'Origin': 'https://www.douyin.com',
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
             },
+            host='https://www-hj.douyin.com',
         )
 
         if not success:
@@ -1230,15 +1230,16 @@ class DouyinUserManager:
         resp, success = await self.api.signed_form_action_request(
             '/aweme/v1/web/aweme/collect/',
             {
-                'aweme_id': aweme_id,
                 'action': '1' if collected else '0',
-                'type': '1' if collected else '0',
+                'aweme_id': aweme_id,
+                'aweme_type': '0',
             },
             {
-                'Referer': f'https://www.douyin.com/video/{aweme_id}',
+                'Referer': 'https://www.douyin.com/',
                 'Origin': 'https://www.douyin.com',
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
             },
+            host='https://www-hj.douyin.com',
         )
 
         if not success:

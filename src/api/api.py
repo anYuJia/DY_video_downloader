@@ -12,6 +12,9 @@ import sys
 import random
 import string
 import threading
+import time
+import hmac
+import hashlib
 from src.api import sign as douyin_sign
 
 # Configure a session with retry/SSL resilience
@@ -269,7 +272,83 @@ class DouyinAPI:
                 headers[key] = str(value)
         if 'bd-ticket-guard-ree-public-key' not in headers and payload.get('ree_public_key'):
             headers['bd-ticket-guard-ree-public-key'] = str(payload['ree_public_key'])
+        headers.setdefault('bd-ticket-guard-web-sign-type', '0')
         return headers
+
+    def _decode_relation_ecdh_key(self, value: str) -> bytes | None:
+        text = str(value or '').strip()
+        if not text:
+            return None
+        try:
+            if len(text) == 64 and re.fullmatch(r'[0-9a-fA-F]+', text):
+                return bytes.fromhex(text)
+            return base64.b64decode(text)
+        except Exception:
+            return None
+
+    def _relation_ticket_guard_headers(self, path: str) -> dict:
+        try:
+            from src.config.config import Config
+            signer = Config.RELATION_SIGNER if isinstance(Config.RELATION_SIGNER, dict) else None
+        except Exception:
+            signer = None
+
+        if not signer:
+            return self._ticket_guard_headers_from_cookie()
+
+        ticket = str(signer.get('ticket') or '').strip()
+        ts_sign = str(signer.get('ts_sign') or '').strip()
+        public_key = str(signer.get('public_key') or signer.get('ree_public_key') or '').strip()
+        ecdh_key = self._decode_relation_ecdh_key(str(signer.get('ecdh_key') or ''))
+        if not ticket or not ts_sign or not public_key or not ecdh_key:
+            if self.debug_mode:
+                print('\033[93m[API] 关系动作 signer 不完整，降级使用 Cookie 中的 TicketGuard 头\033[0m')
+            return self._ticket_guard_headers_from_cookie()
+
+        timestamp = int(time.time())
+        sign_data = f'ticket={ticket}&path={path}&timestamp={timestamp}'
+        req_sign = base64.b64encode(
+            hmac.new(ecdh_key, sign_data.encode('utf-8'), hashlib.sha256).digest()
+        ).decode('ascii')
+        client_data = base64.b64encode(json.dumps({
+            'ts_sign': ts_sign,
+            'req_content': 'ticket,path,timestamp',
+            'req_sign': req_sign,
+            'timestamp': timestamp,
+        }, separators=(',', ':'), ensure_ascii=False).encode('utf-8')).decode('ascii')
+
+        return {
+            'bd-ticket-guard-ree-public-key': public_key,
+            'bd-ticket-guard-web-version': '2',
+            'bd-ticket-guard-web-sign-type': '1',
+            'bd-ticket-guard-version': '2',
+            'bd-ticket-guard-iteration-version': '1',
+            'bd-ticket-guard-client-data': client_data,
+        }
+
+    def _relation_uid_hash(self) -> str:
+        try:
+            from src.config.config import Config
+            signer = Config.RELATION_SIGNER if isinstance(Config.RELATION_SIGNER, dict) else None
+        except Exception:
+            signer = None
+        uid = str((signer or {}).get('uid') or '').strip()
+        if not uid:
+            cookie_dict = self._cookies_to_dict(self.cookie)
+            uid = str(cookie_dict.get('uid_tt') or cookie_dict.get('uid_tt_ss') or '').strip()
+        if not uid:
+            return ''
+        if len(uid) == 32 and re.fullmatch(r'[0-9a-fA-F]+', uid):
+            return uid.lower()
+        return hashlib.md5(uid.encode('utf-8')).hexdigest()
+
+    def _relation_dtrait(self) -> str:
+        try:
+            from src.config.config import Config
+            signer = Config.RELATION_SIGNER if isinstance(Config.RELATION_SIGNER, dict) else None
+        except Exception:
+            signer = None
+        return str((signer or {}).get('dtrait') or '').strip()
 
     def _get_ms_token(self) -> str:
         """生成msToken"""
@@ -587,16 +666,39 @@ class DouyinAPI:
         base_host = host or self.host
         url = f'{base_host}{uri}'
         query_params = dict(self.common_params)
+        if 'aweme/v1/web/commit/item/digg' in uri or 'aweme/v1/web/aweme/collect' in uri:
+            query_params.update({
+                'update_version_code': '170400',
+                'version_code': '170400',
+                'version_name': '17.4.0',
+                'browser_name': 'Chrome',
+                'browser_version': '148.0.0.0',
+                'engine_version': '148.0.0.0',
+                'device_memory': '16',
+            })
+            if 'aweme/v1/web/commit/item/digg' in uri:
+                uid_hash = self._relation_uid_hash()
+                if uid_hash:
+                    query_params['uid'] = uid_hash
         merged_headers = dict(self.common_headers)
         merged_headers.update(headers or {})
-        merged_headers.update(self._ticket_guard_headers_from_cookie())
+        merged_headers.update({
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+            'sec-ch-ua': '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
+        })
+        merged_headers.update(self._relation_ticket_guard_headers(uri))
+        dtrait = self._relation_dtrait()
+        if dtrait:
+            merged_headers['x-tt-session-dtrait'] = dtrait
         headers = merged_headers
         query_params = await self._deal_params(query_params, headers)
-        csrf_token = await self._get_csrf_token(headers)
-        if csrf_token:
-            headers['x-secsdk-csrf-token'] = csrf_token
-        elif self.debug_mode:
-            print('\033[93m[API] 动作接口 csrf token 不可用\033[0m')
+        query_params.update({
+            'browser_name': 'Chrome',
+            'browser_version': '148.0.0.0',
+            'engine_version': '148.0.0.0',
+            'device_memory': '16',
+        })
+        headers['x-secsdk-csrf-token'] = 'DOWNGRADE'
 
         query = '&'.join([f'{k}={urllib.parse.quote(str(v))}' for k, v in query_params.items()])
         try:
