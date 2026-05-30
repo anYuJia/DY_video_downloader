@@ -84,6 +84,7 @@ from src.api.native_cookie_login import (
     inject_relation_signer_probe,
     is_native_cookie_login_available,
     normalize_cookie_entries,
+    relation_signer_ready,
     serialize_cookie_entries,
 )
 from src.downloader.downloader import DouyinDownloader, build_download_name, build_download_title
@@ -4820,7 +4821,7 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                     continue
 
                 relation_signer = extract_relation_signer_entries(entries)
-                if not relation_signer:
+                if not relation_signer_ready(relation_signer):
                     inject_relation_signer_probe(session.window)
 
                 cookie_string = serialize_cookie_entries(entries)
@@ -4848,6 +4849,11 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                         '原生登录窗口候选 Cookie 校验未通过: %s',
                         verify_result.get('message', 'unknown'),
                     )
+                    time.sleep(1)
+                    continue
+
+                if not relation_signer_ready(relation_signer):
+                    emit_once('pending', '登录态已通过，正在采集点赞安全参数')
                     time.sleep(1)
                     continue
 

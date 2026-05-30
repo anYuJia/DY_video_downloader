@@ -217,6 +217,10 @@ def extract_relation_signer_entries(entries: list[dict[str, str]]) -> dict[str, 
     return result
 
 
+def relation_signer_ready(signer: dict[str, str] | None) -> bool:
+    return bool(isinstance(signer, dict) and str(signer.get('dtrait') or '').strip())
+
+
 def inject_relation_signer_probe(window: Any) -> None:
     if not window:
         return
@@ -255,8 +259,9 @@ def inject_relation_signer_probe(window: Any) -> None:
                 };
                 try {
                     const xhr = new XMLHttpRequest();
-                    xhr.open("POST", "https://www-hj.douyin.com/aweme/v1/web/commit/item/digg/?device_platform=webapp&aid=6383&channel=channel_pc_web");
+                    xhr.open("POST", "https://www-hj.douyin.com/aweme/v1/web/commit/item/digg/?device_platform=webapp&aid=6383&channel=channel_pc_web&pc_client_type=1&pc_libra_divert=Mac&update_version_code=170400&support_h265=1&support_dash=1&version_code=170400&version_name=17.4.0&cookie_enabled=true&browser_language=zh-CN&browser_platform=MacIntel&browser_name=Chrome&browser_version=148.0.0.0&browser_online=true&engine_name=Blink&engine_version=148.0.0.0&os_name=Mac%20OS&os_version=10.15.7&cpu_core_num=8&device_memory=16&platform=PC");
                     xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+                    xhr.setRequestHeader("x-secsdk-csrf-token", "DOWNGRADE");
                     xhr.onloadend = () => setTimeout(() => finish(""), 0);
                     xhr.onerror = () => setTimeout(() => finish(""), 0);
                     xhr.send("aweme_id=0&item_type=0&type=0");
@@ -280,7 +285,7 @@ def inject_relation_signer_probe(window: Any) -> None:
                         dtrait: "",
                     };
                     payload.dtrait = await captureDtrait();
-                    if (payload.ticket && payload.ts_sign && payload.public_key && payload.ecdh_key && payload.uid) {
+                    if (payload.ticket && payload.ts_sign && payload.public_key && payload.ecdh_key && payload.uid && payload.dtrait) {
                         save(payload);
                     } else {
                         window.__dyRelationSignerProbeStarted = false;
