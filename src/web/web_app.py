@@ -56,6 +56,7 @@ COOKIE_MEDIA_HOST_SUFFIXES = (
     'snssdk.com',
 )
 MEDIA_PROXY_INITIAL_VIDEO_RANGE = 'bytes=0-1048575'
+MEDIA_PROXY_MAX_RANGE_BYTES = 4 * 1024 * 1024
 MEDIA_PROXY_MAX_RETRIES = 3
 MEDIA_PROXY_REDIRECT_CACHE_MAX_SIZE = 256
 DOWNLOAD_TASK_HISTORY_MAX_SIZE = 200
@@ -67,6 +68,35 @@ UPDATER_PUBLIC_KEY = (
     'V1QvYVhHMFRmS0hEZmpYNEdhWEFnUExoU1dqUHFiYXhnU2UzWm1Rblo5UUc4MnM0cE13RXFiNAo='
 )
 MEDIA_PROXY_REDIRECT_CACHE = {}
+
+
+def _cap_media_range_header(range_header: str, requested_media_type: str) -> str:
+    if requested_media_type not in ('audio', 'video') or not range_header:
+        return range_header
+    text = str(range_header).strip()
+    if not text.startswith('bytes=') or ',' in text:
+        return range_header
+    start_text, _, end_text = text[6:].partition('-')
+    if not start_text.strip():
+        return range_header
+    try:
+        start = int(start_text.strip())
+    except (TypeError, ValueError):
+        return range_header
+    if start < 0:
+        return range_header
+    capped_end = start + MEDIA_PROXY_MAX_RANGE_BYTES - 1
+    if end_text.strip():
+        try:
+            end = min(int(end_text.strip()), capped_end)
+        except (TypeError, ValueError):
+            end = capped_end
+    else:
+        end = capped_end
+    if end < start:
+        return range_header
+    capped = f'bytes={start}-{end}'
+    return range_header if capped == text else capped
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -2593,7 +2623,7 @@ def media_proxy():
     request_range = request.headers.get('Range')
     request_range_str = request_range or ''
     should_seed_video_range = False
-    upstream_range_value = request_range
+    upstream_range_value = _cap_media_range_header(request_range, requested_media_type)
     cache_key = url if '/aweme/v1/play/' in url else None
     upstream_url = MEDIA_PROXY_REDIRECT_CACHE.get(cache_key, url) if cache_key else url
 
