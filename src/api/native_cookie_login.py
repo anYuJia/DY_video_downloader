@@ -316,7 +316,7 @@ def inject_relation_signer_probe(window: Any) -> None:
                     xhr.setRequestHeader("x-secsdk-csrf-token", "DOWNGRADE");
                     xhr.onloadend = () => setTimeout(() => finish(""), 0);
                     xhr.onerror = () => setTimeout(() => finish(""), 0);
-                    xhr.send(`aweme_id=${awemeId}&item_type=0&type=1`);
+                    xhr.send(`aweme_id=${awemeId}&item_type=0&type=0`);
                 } catch (error) {
                     finish("");
                 }
