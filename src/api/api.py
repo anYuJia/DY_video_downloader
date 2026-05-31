@@ -702,6 +702,8 @@ class DouyinAPI:
             'device_memory': '16',
         })
         headers['x-secsdk-csrf-token'] = 'DOWNGRADE'
+        # www.douyin.com → www-hj.douyin.com 是同站跨源，浏览器发送 same-site
+        headers['sec-fetch-site'] = 'same-site'
 
         query = '&'.join([f'{k}={urllib.parse.quote(str(v))}' for k, v in query_params.items()])
         try:
