@@ -79,7 +79,7 @@ export function VideoCard({
       <VideoCover video={video} className={VIDEO_CARD_COVER_CLASS} showPlayOverlay={false} allowVideoFallback />
 
       {(video.is_liked || video.is_collected) && (
-        <div className="pointer-events-none absolute right-2 top-2 z-10 flex gap-1">
+        <div className="pointer-events-none absolute left-2 top-2 z-10 flex gap-1">
           {video.is_liked && (
             <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-black/55 text-accent shadow-sm backdrop-blur-md" title="已点赞">
               <Heart className="h-3.5 w-3.5 fill-current" />
