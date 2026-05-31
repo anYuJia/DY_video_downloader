@@ -85,6 +85,7 @@ from src.api.native_cookie_login import (
     is_native_cookie_login_available,
     normalize_cookie_entries,
     relation_signer_ready,
+    relation_signer_ready_for_uid,
     serialize_cookie_entries,
 )
 from src.downloader.downloader import DouyinDownloader, build_download_name, build_download_title
@@ -4854,8 +4855,46 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
 
                 user_id = str(verify_result.get('user_id') or '').strip()
                 if user_id:
-                    relation_signer = dict(relation_signer or {})
-                    relation_signer.setdefault('uid', user_id)
+                    if not relation_signer_ready_for_uid(relation_signer, user_id):
+                        emit_once('pending', '登录已确认，正在采集点赞安全参数')
+                        try:
+                            session.window.load_url('https://www.douyin.com/?recommend=1')
+                        except Exception as error:
+                            logger.debug('跳转推荐页采集点赞安全参数失败: %s', error)
+                        for _ in range(20):
+                            inject_relation_signer_probe(session.window)
+                            time.sleep(0.9)
+                            try:
+                                latest_entries = normalize_cookie_entries(session.window.get_cookies() or [])
+                            except Exception as error:
+                                logger.debug('读取点赞安全参数 Cookie 失败: %s', error)
+                                continue
+                            latest_signer = extract_relation_signer_entries(latest_entries)
+                            if latest_signer:
+                                latest_signer['uid'] = user_id
+                                relation_signer = latest_signer
+                            latest_cookie_string = serialize_cookie_entries(latest_entries)
+                            if latest_cookie_string:
+                                cookie_string = latest_cookie_string
+                            if relation_signer_ready_for_uid(relation_signer, user_id):
+                                break
+                    elif isinstance(relation_signer, dict):
+                        relation_signer['uid'] = user_id
+
+                if isinstance(relation_signer, dict):
+                    logger.info(
+                        '原生登录窗口采集关系动作参数: uid=%s ticket_len=%s ts_sign_len=%s public_key_len=%s ecdh_key_len=%s dtrait_len=%s',
+                        relation_signer.get('uid') or '',
+                        len(str(relation_signer.get('ticket') or '')),
+                        len(str(relation_signer.get('ts_sign') or '')),
+                        len(str(relation_signer.get('public_key') or '')),
+                        len(str(relation_signer.get('ecdh_key') or '')),
+                        len(str(relation_signer.get('dtrait') or '')),
+                    )
+
+                if not relation_signer_ready_for_uid(relation_signer, user_id):
+                    previous_signer = Config.RELATION_SIGNER if isinstance(Config.RELATION_SIGNER, dict) else None
+                    relation_signer = previous_signer if relation_signer_ready_for_uid(previous_signer, user_id) else None
 
                 _save_cookie_login_success(cookie_string, verify_result.get('nickname', ''), relation_signer)
                 destroy_window_safely(session.window)

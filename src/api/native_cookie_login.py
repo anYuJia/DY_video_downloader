@@ -221,6 +221,20 @@ def relation_signer_ready(signer: dict[str, str] | None) -> bool:
     return bool(isinstance(signer, dict) and str(signer.get('dtrait') or '').strip())
 
 
+def relation_signer_ready_for_uid(signer: dict[str, str] | None, uid: str) -> bool:
+    uid = str(uid or '').strip()
+    return bool(
+        isinstance(signer, dict)
+        and uid
+        and str(signer.get('uid') or '').strip() == uid
+        and str(signer.get('ticket') or '').strip()
+        and str(signer.get('ts_sign') or '').strip()
+        and str(signer.get('public_key') or '').strip()
+        and str(signer.get('ecdh_key') or '').strip()
+        and str(signer.get('dtrait') or '').strip()
+    )
+
+
 def inject_relation_signer_probe(window: Any) -> None:
     if not window:
         return
@@ -257,30 +271,45 @@ def inject_relation_signer_probe(window: Any) -> None:
                 } catch (error) {}
                 return "";
             };
+            const patchDtraitCapture = (onValue) => {
+                if (window.__dyRelationDtraitPatched) return;
+                window.__dyRelationDtraitPatched = true;
+                try {
+                    const originalSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+                    XMLHttpRequest.prototype.setRequestHeader = function(key, value) {
+                        if (String(key).toLowerCase() === "x-tt-session-dtrait" && value) {
+                            try { onValue(String(value)); } catch (error) {}
+                        }
+                        return originalSetHeader.apply(this, arguments);
+                    };
+                } catch (error) {}
+                try {
+                    const originalFetch = window.fetch;
+                    window.fetch = function(input, init) {
+                        try {
+                            const headers = init && init.headers;
+                            let value = "";
+                            if (headers && typeof headers.get === "function") {
+                                value = headers.get("x-tt-session-dtrait") || "";
+                            } else if (headers && typeof headers === "object") {
+                                value = headers["x-tt-session-dtrait"] || headers["X-Tt-Session-Dtrait"] || "";
+                            }
+                            if (value) onValue(String(value));
+                        } catch (error) {}
+                        return originalFetch.apply(this, arguments);
+                    };
+                } catch (error) {}
+            };
             const captureDtrait = () => new Promise((resolve) => {
                 let resolved = false;
-                const originalSetHeader = XMLHttpRequest.prototype.setRequestHeader;
                 const finish = (value) => {
                     if (resolved) return;
                     resolved = true;
-                    try { XMLHttpRequest.prototype.setRequestHeader = originalSetHeader; } catch (error) {}
                     resolve(value || "");
                 };
-                XMLHttpRequest.prototype.setRequestHeader = function(key, value) {
-                    if (String(key).toLowerCase() === "x-tt-session-dtrait") {
-                        try { originalSetHeader.apply(this, arguments); } catch (error) {}
-                        try { this.abort(); } catch (error) {}
-                        finish(String(value || ""));
-                        return;
-                    }
-                    return originalSetHeader.apply(this, arguments);
-                };
+                patchDtraitCapture(finish);
                 try {
-                    const awemeId = findAwemeId();
-                    if (!awemeId) {
-                        finish("");
-                        return;
-                    }
+                    const awemeId = findAwemeId() || "7640032041598198757";
                     const xhr = new XMLHttpRequest();
                     xhr.open("POST", "https://www-hj.douyin.com/aweme/v1/web/commit/item/digg/?device_platform=webapp&aid=6383&channel=channel_pc_web&pc_client_type=1&pc_libra_divert=Mac&update_version_code=170400&support_h265=1&support_dash=1&version_code=170400&version_name=17.4.0&cookie_enabled=true&browser_language=zh-CN&browser_platform=MacIntel&browser_name=Chrome&browser_version=148.0.0.0&browser_online=true&engine_name=Blink&engine_version=148.0.0.0&os_name=Mac%20OS&os_version=10.15.7&cpu_core_num=8&device_memory=16&platform=PC");
                     xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
@@ -307,6 +336,10 @@ def inject_relation_signer_probe(window: Any) -> None:
                         uid: window.SSR_RENDER_DATA && window.SSR_RENDER_DATA.app && window.SSR_RENDER_DATA.app.odin && window.SSR_RENDER_DATA.app.odin.user_id || "",
                         dtrait: "",
                     };
+                    patchDtraitCapture((value) => {
+                        payload.dtrait = value || payload.dtrait;
+                        if (payload.ticket && payload.ts_sign && payload.public_key && payload.ecdh_key && payload.dtrait) save(payload);
+                    });
                     payload.dtrait = await captureDtrait();
                     if (payload.ticket && payload.ts_sign && payload.public_key && payload.ecdh_key) {
                         save(payload);
