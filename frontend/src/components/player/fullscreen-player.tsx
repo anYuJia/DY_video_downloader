@@ -55,6 +55,7 @@ interface FullscreenPlayerProps {
   onLoadMore?: () => void;
   onShowDetail?: (video: VideoInfo) => void;
   onAuthor?: (video: VideoInfo) => void;
+  onVideoUpdate?: (video: VideoInfo) => void;
 }
 
 const IMAGE_DURATION_SECONDS = 1.5;
@@ -155,6 +156,7 @@ export function FullscreenPlayer({
   onLoadMore,
   onShowDetail,
   onAuthor,
+  onVideoUpdate,
 }: FullscreenPlayerProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [mediaIndex, setMediaIndex] = useState(0);
@@ -367,21 +369,23 @@ export function FullscreenPlayer({
     setVideoOverrides((current) => {
       const base = current[awemeId] || videos.find((video) => video.aweme_id === awemeId);
       if (!base) return current;
+      const nextVideo = {
+        ...base,
+        ...patch,
+        statistics: patch.statistics
+          ? {
+              ...base.statistics,
+              ...patch.statistics,
+            }
+          : base.statistics,
+      };
+      onVideoUpdate?.(nextVideo);
       return {
         ...current,
-        [awemeId]: {
-          ...base,
-          ...patch,
-          statistics: patch.statistics
-            ? {
-                ...base.statistics,
-                ...patch.statistics,
-              }
-            : base.statistics,
-        },
+        [awemeId]: nextVideo,
       };
     });
-  }, [videos]);
+  }, [onVideoUpdate, videos]);
 
   const refreshCurrentRelationState = useCallback(async (awemeId: string) => {
     if (!awemeId) return;

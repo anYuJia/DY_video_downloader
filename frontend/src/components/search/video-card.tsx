@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { Download, Eye, UserRound } from "lucide-react";
+import { Download, Eye, Heart, Star, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VideoCover } from "@/components/media/video-cover";
 import { cn, formatTime } from "@/lib/utils";
@@ -77,6 +77,21 @@ export function VideoCard({
       )}
     >
       <VideoCover video={video} className={VIDEO_CARD_COVER_CLASS} showPlayOverlay={false} allowVideoFallback />
+
+      {(video.is_liked || video.is_collected) && (
+        <div className="pointer-events-none absolute right-2 top-2 z-10 flex gap-1">
+          {video.is_liked && (
+            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-black/55 text-accent shadow-sm backdrop-blur-md" title="已点赞">
+              <Heart className="h-3.5 w-3.5 fill-current" />
+            </span>
+          )}
+          {video.is_collected && (
+            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-black/55 text-warning shadow-sm backdrop-blur-md" title="已收藏">
+              <Star className="h-3.5 w-3.5 fill-current" />
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Body */}
       <div className={cn("flex flex-col p-3", VIDEO_CARD_BODY_CLASS)}>
