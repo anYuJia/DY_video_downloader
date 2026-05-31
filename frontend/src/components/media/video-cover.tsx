@@ -12,6 +12,9 @@ import {
   isVideoLikeMedia,
 } from "@/lib/video-media";
 
+const COVER_RETRY_DELAY_MS = 2500;
+const COVER_MAX_RETRIES = 2;
+
 interface VideoCoverProps {
   video: VideoInfo;
   className?: string;
@@ -32,7 +35,12 @@ export function VideoCover({
   allowVideoFallback = false,
 }: VideoCoverProps) {
   const cover = getVideoCover(video);
-  const coverUrl = useMemo(() => (cover ? mediaProxyUrl(cover, "image") : ""), [cover]);
+  const coverProxyUrl = useMemo(() => (cover ? mediaProxyUrl(cover, "image") : ""), [cover]);
+  const [coverRetryKey, setCoverRetryKey] = useState(0);
+  const coverUrl = useMemo(() => {
+    if (!coverProxyUrl || coverRetryKey <= 0) return coverProxyUrl;
+    return `${coverProxyUrl}${coverProxyUrl.includes("?") ? "&" : "?"}cover_retry=${coverRetryKey}`;
+  }, [coverProxyUrl, coverRetryKey]);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const [coverLoaded, setCoverLoaded] = useState(false);
   const [coverFailed, setCoverFailed] = useState(false);
@@ -44,9 +52,10 @@ export function VideoCover({
   const stats = video.statistics;
 
   useEffect(() => {
+    setCoverRetryKey(0);
     setCoverLoaded(false);
     setCoverFailed(false);
-  }, [coverUrl]);
+  }, [coverProxyUrl]);
 
   const handleImageNode = useCallback((node: HTMLImageElement | null) => {
     imageRef.current = node;
@@ -74,6 +83,19 @@ export function VideoCover({
     }
   }, [coverUrl]);
 
+  useEffect(() => {
+    if (!coverUrl || coverLoaded || coverFailed || coverRetryKey >= COVER_MAX_RETRIES) return;
+    const timer = window.setTimeout(() => {
+      const image = imageRef.current;
+      if (image?.complete && image.naturalWidth > 0) {
+        setCoverLoaded(true);
+        return;
+      }
+      setCoverRetryKey((value) => Math.min(COVER_MAX_RETRIES, value + 1));
+    }, COVER_RETRY_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [coverFailed, coverLoaded, coverRetryKey, coverUrl]);
+
   return (
     <div className={cn("relative isolate overflow-hidden bg-surface", className)}>
       {coverUrl && !coverFailed ? (
@@ -94,7 +116,7 @@ export function VideoCover({
               coverLoaded ? "opacity-100" : "opacity-95",
               imageClassName
             )}
-            loading="lazy"
+            loading="eager"
             decoding="async"
             onLoad={() => setCoverLoaded(true)}
             onError={() => setCoverFailed(true)}

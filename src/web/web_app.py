@@ -2626,7 +2626,7 @@ def media_proxy():
                     upstream_url,
                     headers=headers,
                     stream=True,
-                    timeout=(10, 30),
+                    timeout=(6, 8) if requested_media_type == 'image' else (10, 45),
                     allow_redirects=False,
                 )
             except Exception as e:
