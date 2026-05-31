@@ -276,6 +276,8 @@ export function normalizeLikedVideo(item: unknown): VideoInfo | null {
     video: {
       ...buildEmptyVideoData(),
       play_addr: primaryVideoUrl || livePhotoUrls[0] || "",
+      dash_addr: candidate.video?.dash_addr || null,
+      audio_addr: candidate.video?.audio_addr || null,
       download_addr: primaryVideoUrl || livePhotoUrls[0] || null,
       cover,
       dynamic_cover: cover,
@@ -451,6 +453,8 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
     video: {
       preview_addr: previewAddr || null,
       play_addr: playAddr || previewAddr || livePhotoUrls[0] || "",
+      dash_addr: extractUrl(videoRecord.dash_addr) || null,
+      audio_addr: extractUrl(videoRecord.audio_addr) || null,
       play_addr_h264: playAddrH264 || null,
       play_addr_lowbr: playAddrLowbr || null,
       download_addr: downloadAddr || playAddr || previewAddr || livePhotoUrls[0] || null,

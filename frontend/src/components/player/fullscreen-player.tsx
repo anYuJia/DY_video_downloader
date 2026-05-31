@@ -41,7 +41,7 @@ import {
   getMediaProxyType,
   getVideoBgmUrl,
   isVideoLikeMedia,
-  shouldUseSeparateBgm,
+  shouldUseSeparateBgmForVideo,
   type VideoMediaItem,
 } from "@/lib/video-media";
 
@@ -65,7 +65,7 @@ const PLAYER_VIDEO_INITIAL_STATUS_DELAY_MS = 450;
 const PLAYER_VIDEO_REBUFFER_STATUS_DELAY_MS = 1400;
 const PLAYER_VIDEO_LOAD_TIMEOUT_MS = 18_000;
 const PLAYER_NEXT_VIDEO_PRELOAD_AHEAD_SECONDS = 10;
-const MAX_PRELOADED_MEDIA_NODES = 24;
+const MAX_PRELOADED_MEDIA_NODES = 8;
 const MEDIA_TRANSITION_DISTANCE = 34;
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 const WHEEL_VIDEO_SWITCH_THRESHOLD = 80;
@@ -264,13 +264,13 @@ export function FullscreenPlayer({
       favoriteBaseCount +
         (favorited && !currentVideo?.is_collected ? 1 : !favorited && currentVideo?.is_collected ? -1 : 0)
     );
-  const musicUrl = getVideoBgmUrl(currentVideo);
+  const musicUrl = getVideoBgmUrl(currentVideo, currentMedia);
   const bgmProxyUrl = musicUrl ? mediaProxyUrl(musicUrl, "audio") : "";
   const effectiveVolume = muted ? 0 : volume;
   const shouldUseBgmForCurrentMedia = Boolean(
     currentMedia &&
       musicUrl &&
-      (shouldUseSeparateBgm(currentMedia) || hasMultipleMedia)
+      (shouldUseSeparateBgmForVideo(currentMedia, currentVideo) || hasMultipleMedia)
   );
   const showQualityControl = currentMedia?.type === "video";
   const hasQualityChoices = currentMedia?.type === "video" && qualityOptions.length > 1;
@@ -425,11 +425,12 @@ export function FullscreenPlayer({
 
   const toggleLike = useCallback(async () => {
     const awemeId = currentVideo?.aweme_id;
-    if (!awemeId || relationSubmitting || relationHydrating) return;
+    if (!awemeId || relationSubmitting) return;
 
     const previousLiked = liked;
     const nextLiked = !previousLiked;
     const nextCount = Math.max(0, likeBaseCount + (nextLiked ? 1 : -1));
+    relationRefreshSeqRef.current += 1;
     setRelationSubmitting("like");
     setLiked(nextLiked);
     patchCurrentVideoRelation(awemeId, {
@@ -451,15 +452,16 @@ export function FullscreenPlayer({
     } finally {
       setRelationSubmitting(null);
     }
-  }, [currentVideo, likeBaseCount, liked, patchCurrentVideoRelation, relationHydrating, relationSubmitting, showNavigationNotice]);
+  }, [currentVideo, likeBaseCount, liked, patchCurrentVideoRelation, relationSubmitting, showNavigationNotice]);
 
   const toggleCollect = useCallback(async () => {
     const awemeId = currentVideo?.aweme_id;
-    if (!awemeId || relationSubmitting || relationHydrating) return;
+    if (!awemeId || relationSubmitting) return;
 
     const previousCollected = favorited;
     const nextCollected = !previousCollected;
     const nextCount = Math.max(0, favoriteBaseCount + (nextCollected ? 1 : -1));
+    relationRefreshSeqRef.current += 1;
     setRelationSubmitting("collect");
     setFavorited(nextCollected);
     patchCurrentVideoRelation(awemeId, {
@@ -481,7 +483,7 @@ export function FullscreenPlayer({
     } finally {
       setRelationSubmitting(null);
     }
-  }, [currentVideo, favoriteBaseCount, favorited, patchCurrentVideoRelation, relationHydrating, relationSubmitting, showNavigationNotice]);
+  }, [currentVideo, favoriteBaseCount, favorited, patchCurrentVideoRelation, relationSubmitting, showNavigationNotice]);
 
   const playNextVideo = useCallback(() => {
     if (currentIndex < videos.length - 1) {
@@ -1168,7 +1170,7 @@ export function FullscreenPlayer({
     }, PLAYER_VIDEO_REBUFFER_STATUS_DELAY_MS);
   }, []);
 
-  const preloadMediaItem = useCallback((media: VideoMediaItem | null | undefined, full = false) => {
+  const preloadMediaItem = useCallback((media: VideoMediaItem | null | undefined, _full = false) => {
     if (!media) return;
 
     const proxiedUrl = mediaProxyUrl(media.url, getMediaProxyType(media));
@@ -1176,8 +1178,8 @@ export function FullscreenPlayer({
     if (!proxiedUrl) return;
 
     const existingFullPreload = preloadedMediaRef.current.get(key);
-    if (existingFullPreload || (!full && preloadedMediaRef.current.has(key))) return;
-    preloadedMediaRef.current.set(key, full);
+    if (existingFullPreload || (!_full && preloadedMediaRef.current.has(key))) return;
+    preloadedMediaRef.current.set(key, _full);
 
     if (media.type === "image") {
       const image = new Image();
@@ -1187,7 +1189,7 @@ export function FullscreenPlayer({
       preloadedNodesRef.current.push(image);
     } else {
       const video = document.createElement("video");
-      video.preload = full ? "auto" : "metadata";
+      video.preload = "metadata";
       video.muted = true;
       video.playsInline = true;
       video.src = proxiedUrl;
@@ -1205,7 +1207,7 @@ export function FullscreenPlayer({
     }
   }, []);
 
-  const preloadVideoAtIndex = useCallback((index: number, full = true) => {
+  const preloadVideoAtIndex = useCallback((index: number, full = false) => {
     const video = videos[index];
     if (!video) return;
     const firstMedia = collectVideoMedia(video)[0];
@@ -1366,7 +1368,7 @@ export function FullscreenPlayer({
     if (!open || !currentMedia || !isVideoLikeMedia(currentMedia)) return;
     if (duration <= 0 || currentTime <= 0) return;
     if (duration - currentTime > PLAYER_NEXT_VIDEO_PRELOAD_AHEAD_SECONDS) return;
-    preloadVideoAtIndex(currentIndex + 1, true);
+    preloadVideoAtIndex(currentIndex + 1, false);
   }, [currentIndex, currentMedia, currentTime, duration, open, preloadVideoAtIndex]);
 
   useEffect(() => {
@@ -1396,7 +1398,7 @@ export function FullscreenPlayer({
     orderedIndexes.forEach((index, order) => {
       const timer = window.setTimeout(() => {
         if (cancelled) return;
-        preloadMediaItem(mediaItems[index], true);
+        preloadMediaItem(mediaItems[index], false);
       }, order * 140);
       timers.push(timer);
     });
@@ -1667,7 +1669,7 @@ export function FullscreenPlayer({
                     loop={!hasMultipleMedia}
                     playsInline
                     muted={shouldUseBgmForCurrentMedia || muted || volume === 0}
-	                    preload="auto"
+	                    preload="metadata"
 	                    onPointerDown={handleSurfacePointerDown}
 	                    onPointerUp={handleSurfacePointerUp}
 	                    onPointerCancel={handleSurfacePointerCancel}
@@ -1901,13 +1903,13 @@ export function FullscreenPlayer({
                   count={likeCount}
                   active={liked}
                   activeClassName="fill-accent text-accent"
-                  disabled={relationSubmitting !== null || relationHydrating}
+                  disabled={relationSubmitting !== null}
                   onClick={(event) => {
                     event.stopPropagation();
                     void toggleLike();
                   }}
                 >
-                  {relationSubmitting === "like" || relationHydrating ? (
+                  {relationSubmitting === "like" ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Heart className={cn("h-4 w-4", liked && "fill-accent text-accent")} />
@@ -1919,13 +1921,13 @@ export function FullscreenPlayer({
                   count={favoriteCount}
                   active={favorited}
                   activeClassName="fill-warning text-warning"
-                  disabled={relationSubmitting !== null || relationHydrating}
+                  disabled={relationSubmitting !== null}
                   onClick={(event) => {
                     event.stopPropagation();
                     void toggleCollect();
                   }}
                 >
-                  {relationSubmitting === "collect" || relationHydrating ? (
+                  {relationSubmitting === "collect" ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Star className={cn("h-4 w-4", favorited && "fill-warning text-warning")} />

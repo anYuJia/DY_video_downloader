@@ -259,6 +259,30 @@ class DouyinUserManager:
         urls = self.get_video_download_urls(video_data)
         return urls[0] if urls else ''
 
+    def _select_dash_video_url(self, video_data: dict) -> str:
+        for bit_rate in (video_data or {}).get('bit_rate') or []:
+            if not isinstance(bit_rate, dict) or bit_rate.get('format') != 'dash' or bit_rate.get('is_h265'):
+                continue
+            urls = (bit_rate.get('play_addr') or {}).get('url_list') or []
+            for url in urls:
+                text = str(url or '').strip()
+                if text and 'media-video' in text:
+                    return text
+            for url in urls:
+                text = str(url or '').strip()
+                if text:
+                    return text
+        return ''
+
+    def _select_dash_audio_url(self, video_data: dict) -> str:
+        for audio_rate in (video_data or {}).get('bit_rate_audio') or []:
+            url_list = ((audio_rate or {}).get('audio_meta') or {}).get('url_list') or {}
+            for key in ('main_url', 'backup_url', 'fallback_url'):
+                text = str(url_list.get(key) or '').strip()
+                if text:
+                    return text
+        return ''
+
     def get_video_download_urls(self, video_data: dict) -> list[str]:
         candidates = self._collect_video_candidates(video_data or {})
         if not candidates:
@@ -692,6 +716,8 @@ class DouyinUserManager:
             video_data = post.get('video') or {}
             play_url = self._first_url(video_data.get('play_addr'))
             selected_video_url = self._select_video_url(video_data)
+            dash_video_url = self._select_dash_video_url(video_data)
+            dash_audio_url = self._select_dash_audio_url(video_data)
             # 构建详情信息
             detail = {
                 'aweme_id': post.get('aweme_id', ''),
@@ -727,6 +753,8 @@ class DouyinUserManager:
                 'videos': urls,
                 'video': {
                     'play_addr': selected_video_url,
+                    'dash_addr': dash_video_url,
+                    'audio_addr': dash_audio_url,
                     'preview_addr': play_url or self._first_url(video_data.get('preview_addr')) or selected_video_url,
                     'play_addr_h264': self._first_url(video_data.get('play_addr_h264')),
                     'play_addr_lowbr': self._first_url(video_data.get('play_addr_lowbr')),
@@ -751,7 +779,7 @@ class DouyinUserManager:
                 if images:
                     detail['cover_url'] = self._first_url(images[0])
 
-            detail['bgm_url'] = self._extract_bgm_url(post)
+            detail['bgm_url'] = dash_audio_url or self._extract_bgm_url(post)
 
             return detail
             
@@ -1043,6 +1071,8 @@ class DouyinUserManager:
                 media_type, media_urls = self.get_media_info(post)
                 video_data = post.get('video') or {}
                 play_url = self._first_url(video_data.get('play_addr'))
+                dash_video_url = self._select_dash_video_url(video_data)
+                dash_audio_url = self._select_dash_audio_url(video_data)
                 duration = self._raw_duration_value(video_data.get('duration', 0))
                 cover_url = ""
                 if video_data.get('cover'):
@@ -1065,7 +1095,7 @@ class DouyinUserManager:
                     'raw_media_type': media_type,
                     'status': self._extract_post_status(post),
                     'media_urls': media_urls,
-                    'bgm_url': self._extract_bgm_url(post),
+                    'bgm_url': dash_audio_url or self._extract_bgm_url(post),
                     'statistics': {
                         'digg_count': post.get('statistics', {}).get('digg_count', 0),
                         'comment_count': post.get('statistics', {}).get('comment_count', 0),
@@ -1075,6 +1105,8 @@ class DouyinUserManager:
                     },
                     'video': {
                         'play_addr': play_url or (media_urls[0].get('url') if media_urls else ''),
+                        'dash_addr': dash_video_url,
+                        'audio_addr': dash_audio_url,
                         'preview_addr': play_url or (media_urls[0].get('url') if media_urls else ''),
                         'play_addr_h264': self._first_url(video_data.get('play_addr_h264')),
                         'play_addr_lowbr': self._first_url(video_data.get('play_addr_lowbr')),
@@ -1117,6 +1149,8 @@ class DouyinUserManager:
         media_type, media_urls = self.get_media_info(post)
         video_data = post.get('video') or {}
         play_url = self._first_url(video_data.get('play_addr'))
+        dash_video_url = self._select_dash_video_url(video_data)
+        dash_audio_url = self._select_dash_audio_url(video_data)
         duration = self._raw_duration_value(video_data.get('duration', 0))
         cover_url = ""
         if video_data.get('cover'):
@@ -1140,7 +1174,7 @@ class DouyinUserManager:
             'raw_media_type': media_type,
             'status': self._extract_post_status(post),
             'media_urls': media_urls,
-            'bgm_url': self._extract_bgm_url(post),
+            'bgm_url': dash_audio_url or self._extract_bgm_url(post),
             'statistics': {
                 'digg_count': post.get('statistics', {}).get('digg_count', 0),
                 'comment_count': post.get('statistics', {}).get('comment_count', 0),
@@ -1150,6 +1184,8 @@ class DouyinUserManager:
             },
             'video': {
                 'play_addr': play_url or (media_urls[0].get('url') if media_urls else ''),
+                'dash_addr': dash_video_url,
+                'audio_addr': dash_audio_url,
                 'preview_addr': play_url or (media_urls[0].get('url') if media_urls else ''),
                 'play_addr_h264': self._first_url(video_data.get('play_addr_h264')),
                 'play_addr_lowbr': self._first_url(video_data.get('play_addr_lowbr')),

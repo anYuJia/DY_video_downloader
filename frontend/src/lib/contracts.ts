@@ -36,6 +36,8 @@ export interface AuthorInfo {
 export interface VideoData {
   preview_addr: string | null;
   play_addr: string;
+  dash_addr?: string | null;
+  audio_addr?: string | null;
   play_addr_h264: string | null;
   play_addr_lowbr: string | null;
   download_addr: string | null;
