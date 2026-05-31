@@ -161,6 +161,7 @@ export function FullscreenPlayer({
   const [playing, setPlaying] = useState(false);
   const [liked, setLiked] = useState(false);
   const [favorited, setFavorited] = useState(false);
+  const [relationHydrating, setRelationHydrating] = useState(false);
   const [relationSubmitting, setRelationSubmitting] = useState<"like" | "collect" | null>(null);
   const [volume, setVolume] = useState(100);
   const [muted, setMuted] = useState(false);
@@ -203,6 +204,7 @@ export function FullscreenPlayer({
   const navigationNoticeTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const autoRetryCountRef = useRef(0);
   const refreshingDetailRef = useRef(false);
+  const relationRefreshSeqRef = useRef(0);
   const refreshedDetailIdsRef = useRef(new Set<string>());
   const videoProgressRafRef = useRef<number | null>(null);
   const progressSampleRef = useRef(0);
@@ -381,9 +383,45 @@ export function FullscreenPlayer({
     });
   }, [videos]);
 
+  const refreshCurrentRelationState = useCallback(async (awemeId: string) => {
+    if (!awemeId) return;
+    const requestSeq = relationRefreshSeqRef.current + 1;
+    relationRefreshSeqRef.current = requestSeq;
+    setRelationHydrating(true);
+
+    try {
+      const result = await getVideoDetail(awemeId);
+      if (relationRefreshSeqRef.current !== requestSeq || !result.success || !result.video) {
+        return;
+      }
+
+      const detail = result.video;
+      const nextLiked = Boolean(detail.is_liked);
+      const nextCollected = Boolean(detail.is_collected);
+      setLiked(nextLiked);
+      setFavorited(nextCollected);
+      patchCurrentVideoRelation(awemeId, {
+        is_liked: nextLiked,
+        is_collected: nextCollected,
+        statistics: detail.statistics,
+      });
+    } catch {
+      // Keep the list-provided relation state if the detail refresh is blocked.
+    } finally {
+      if (relationRefreshSeqRef.current === requestSeq) {
+        setRelationHydrating(false);
+      }
+    }
+  }, [patchCurrentVideoRelation]);
+
+  useEffect(() => {
+    if (!open || !currentVideo?.aweme_id) return;
+    void refreshCurrentRelationState(currentVideo.aweme_id);
+  }, [currentVideo?.aweme_id, open, refreshCurrentRelationState]);
+
   const toggleLike = useCallback(async () => {
     const awemeId = currentVideo?.aweme_id;
-    if (!awemeId || relationSubmitting) return;
+    if (!awemeId || relationSubmitting || relationHydrating) return;
 
     const previousLiked = liked;
     const nextLiked = !previousLiked;
@@ -409,11 +447,11 @@ export function FullscreenPlayer({
     } finally {
       setRelationSubmitting(null);
     }
-  }, [currentVideo, likeBaseCount, liked, patchCurrentVideoRelation, relationSubmitting, showNavigationNotice]);
+  }, [currentVideo, likeBaseCount, liked, patchCurrentVideoRelation, relationHydrating, relationSubmitting, showNavigationNotice]);
 
   const toggleCollect = useCallback(async () => {
     const awemeId = currentVideo?.aweme_id;
-    if (!awemeId || relationSubmitting) return;
+    if (!awemeId || relationSubmitting || relationHydrating) return;
 
     const previousCollected = favorited;
     const nextCollected = !previousCollected;
@@ -439,7 +477,7 @@ export function FullscreenPlayer({
     } finally {
       setRelationSubmitting(null);
     }
-  }, [currentVideo, favoriteBaseCount, favorited, patchCurrentVideoRelation, relationSubmitting, showNavigationNotice]);
+  }, [currentVideo, favoriteBaseCount, favorited, patchCurrentVideoRelation, relationHydrating, relationSubmitting, showNavigationNotice]);
 
   const playNextVideo = useCallback(() => {
     if (currentIndex < videos.length - 1) {
@@ -1196,8 +1234,6 @@ export function FullscreenPlayer({
   }, [initialIndex, initialMediaIndex, initialVideoKey, open]);
 
   useEffect(() => {
-    setLiked(false);
-    setFavorited(false);
     setOpenPanel(null);
   }, [currentVideo?.aweme_id]);
 
@@ -1861,13 +1897,13 @@ export function FullscreenPlayer({
                   count={likeCount}
                   active={liked}
                   activeClassName="fill-accent text-accent"
-                  disabled={relationSubmitting !== null}
+                  disabled={relationSubmitting !== null || relationHydrating}
                   onClick={(event) => {
                     event.stopPropagation();
                     void toggleLike();
                   }}
                 >
-                  {relationSubmitting === "like" ? (
+                  {relationSubmitting === "like" || relationHydrating ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Heart className={cn("h-4 w-4", liked && "fill-accent text-accent")} />
@@ -1879,13 +1915,13 @@ export function FullscreenPlayer({
                   count={favoriteCount}
                   active={favorited}
                   activeClassName="fill-warning text-warning"
-                  disabled={relationSubmitting !== null}
+                  disabled={relationSubmitting !== null || relationHydrating}
                   onClick={(event) => {
                     event.stopPropagation();
                     void toggleCollect();
                   }}
                 >
-                  {relationSubmitting === "collect" ? (
+                  {relationSubmitting === "collect" || relationHydrating ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Star className={cn("h-4 w-4", favorited && "fill-warning text-warning")} />
