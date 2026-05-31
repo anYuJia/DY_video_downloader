@@ -221,7 +221,11 @@ class DouyinUserManager:
 
         def push_candidate(url: str, metric: int, is_h264: bool = False, is_download_addr: bool = False, is_lowbr: bool = False) -> None:
             normalized_url = self._clean_video_download_url(url)
-            if not normalized_url or normalized_url in seen:
+            if (
+                not normalized_url
+                or normalized_url in seen
+                or self._is_dash_video_only_url(normalized_url)
+            ):
                 return
             seen.add(normalized_url)
             candidates.append({
@@ -254,6 +258,10 @@ class DouyinUserManager:
         push_candidate(self._first_url(video_data.get('preview_addr')), 0, False, False, False)
         push_candidate(self._first_url(video_data.get('play_addr')), 0, False, False, False)
         return candidates
+
+    def _is_dash_video_only_url(self, url: str) -> bool:
+        text = str(url or '').lower()
+        return 'media-video' in text or 'media_video' in text
 
     def _select_video_url(self, video_data: dict) -> str:
         urls = self.get_video_download_urls(video_data)

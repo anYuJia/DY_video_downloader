@@ -127,6 +127,20 @@ function getDocumentVideoNode(reference: HTMLElement | null): HTMLVideoElement |
   return reference?.ownerDocument.querySelector("video") || null;
 }
 
+function releaseMediaElement(node: HTMLMediaElement | null | undefined) {
+  if (!node) return;
+  node.pause();
+  node.removeAttribute("src");
+  for (const source of Array.from(node.querySelectorAll("source"))) {
+    source.removeAttribute("src");
+  }
+  try {
+    node.load();
+  } catch {
+    // Ignore partial media implementations while the element is unmounting.
+  }
+}
+
 function applyPlaybackRateToNode(node: HTMLMediaElement | null, rate: number) {
   if (!node) return;
   const safeRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
@@ -1020,6 +1034,13 @@ export function FullscreenPlayer({
     setBgmPlaying(false);
   }, []);
 
+  const releaseBgm = useCallback(() => {
+    const audio = bgmRef.current;
+    bgmSourceKeyRef.current = "";
+    releaseMediaElement(audio);
+    setBgmPlaying(false);
+  }, []);
+
   const toggleBgm = useCallback((event: ReactMouseEvent) => {
     event.stopPropagation();
     const audio = ensureBgmSource();
@@ -1200,11 +1221,23 @@ export function FullscreenPlayer({
     while (preloadedNodesRef.current.length > MAX_PRELOADED_MEDIA_NODES) {
       const removed = preloadedNodesRef.current.shift();
       if (removed instanceof HTMLVideoElement) {
-        removed.pause();
+        releaseMediaElement(removed);
+      } else if (removed) {
         removed.removeAttribute("src");
-        removed.load();
       }
     }
+  }, []);
+
+  const releasePreloadedMedia = useCallback(() => {
+    preloadedMediaRef.current.clear();
+    for (const node of preloadedNodesRef.current) {
+      if (node instanceof HTMLVideoElement) {
+        releaseMediaElement(node);
+      } else {
+        node.removeAttribute("src");
+      }
+    }
+    preloadedNodesRef.current = [];
   }, []);
 
   const preloadVideoAtIndex = useCallback((index: number, full = false) => {
@@ -1262,9 +1295,26 @@ export function FullscreenPlayer({
       }
       clearLoadTimers();
       stopVideoProgressLoop();
-      pauseBgm();
+      releaseBgm();
+      releasePreloadedMedia();
+      releaseMediaElement(videoRef.current);
     };
-  }, [clearLoadTimers, pauseBgm, stopVideoProgressLoop]);
+  }, [clearLoadTimers, releaseBgm, releasePreloadedMedia, stopVideoProgressLoop]);
+
+  useEffect(() => {
+    if (open) return;
+    desiredPlayingRef.current = false;
+    playingRef.current = false;
+    mediaSwitchingRef.current = false;
+    qualitySwitchingRef.current = false;
+    setPlaying(false);
+    setShowLoadStatus(false);
+    clearLoadTimers();
+    stopVideoProgressLoop();
+    releaseMediaElement(videoRef.current || getDocumentVideoNode(playerRootRef.current));
+    releaseBgm();
+    releasePreloadedMedia();
+  }, [clearLoadTimers, open, releaseBgm, releasePreloadedMedia, stopVideoProgressLoop]);
 
   useEffect(() => {
     if (!open) return;
@@ -1372,16 +1422,11 @@ export function FullscreenPlayer({
   }, [currentIndex, currentMedia, currentTime, duration, open, preloadVideoAtIndex]);
 
   useEffect(() => {
-    preloadedMediaRef.current.clear();
-    for (const node of preloadedNodesRef.current) {
-      if (node instanceof HTMLVideoElement) {
-        node.pause();
-        node.removeAttribute("src");
-        node.load();
-      }
-    }
-    preloadedNodesRef.current = [];
-  }, [currentVideo?.aweme_id]);
+    releasePreloadedMedia();
+    return () => {
+      releaseMediaElement(videoRef.current);
+    };
+  }, [currentVideo?.aweme_id, releasePreloadedMedia]);
 
   useEffect(() => {
     if (!open || mediaItems.length <= 1 || loadState !== "ready") return;
