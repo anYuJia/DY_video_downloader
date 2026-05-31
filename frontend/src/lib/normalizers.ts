@@ -37,6 +37,8 @@ interface LikedVideoItemRaw {
   bgm_url?: string | null;
   is_liked?: boolean;
   is_collected?: boolean;
+  collect_stat?: unknown;
+  collect_status?: unknown;
   statistics?: Partial<Statistics>;
   video?: Partial<VideoData>;
   author?: LikedVideoAuthorRaw;
@@ -87,6 +89,16 @@ function normalizeStatus(value: unknown): VideoStatus | null {
 function isUnavailableStatus(status: VideoStatus | null | undefined): boolean {
   if (!status) return false;
   return Boolean(status.is_delete || status.is_prohibited || Number(status.private_status || 0) !== 0);
+}
+
+function boolish(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value > 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return normalized === "1" || normalized === "true" || normalized === "yes";
+  }
+  return false;
 }
 
 function hasPlayableMedia(video: VideoInfo): boolean {
@@ -286,7 +298,7 @@ export function normalizeLikedVideo(item: unknown): VideoInfo | null {
     live_photos: livePhotoUrls.length > 0 ? livePhotoUrls : null,
     has_live_photo: livePhotoUrls.length > 0,
     is_liked: Boolean(candidate.is_liked),
-    is_collected: Boolean(candidate.is_collected),
+    is_collected: boolish(candidate.is_collected ?? candidate.collect_stat ?? candidate.collect_status),
     is_image: isImage,
     media_type: mediaType,
     status,
@@ -466,7 +478,7 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
     live_photos: livePhotoUrls.length > 0 ? livePhotoUrls : null,
     has_live_photo: Boolean(source.has_live_photo || livePhotoUrls.length > 0),
     is_liked: Boolean(source.is_liked),
-    is_collected: Boolean(source.is_collected),
+    is_collected: boolish(source.is_collected ?? source.collect_stat ?? source.collect_status),
     is_image: isImage,
     media_type: mediaType,
     raw_media_type: rawMediaType,

@@ -673,6 +673,10 @@ class DouyinUserManager:
             resp, succ = await self.api.common_request('/aweme/v1/web/aweme/detail/',
                                                      params,
                                                      {}, skip_sign=True)
+            if not succ or not (isinstance(resp, dict) and resp.get('aweme_detail')):
+                resp, succ = await self.api.common_request('/aweme/v1/web/aweme/detail/',
+                                                         params,
+                                                         {}, skip_sign=False)
 
             if isinstance(resp, dict) and (resp.get('_need_verify') or resp.get('_need_login')):
                 return resp
@@ -699,7 +703,7 @@ class DouyinUserManager:
                 'comment_count': post.get('statistics', {}).get('comment_count', 0),
                 'share_count': post.get('statistics', {}).get('share_count', 0),
                 'is_liked': self._post_boolish(post, 'user_digged', 'is_liked', 'digg_status'),
-                'is_collected': self._post_boolish(post, 'is_collected', 'is_collect', 'collect_status'),
+                'is_collected': self._post_boolish(post, 'is_collected', 'is_collect', 'collect_status', 'collect_stat'),
                 'author': {
                     'nickname': post.get('author', {}).get('nickname', ''),
                     'unique_id': post.get('author', {}).get('uid', ''),
@@ -1053,7 +1057,7 @@ class DouyinUserManager:
                     'comment_count': post.get('statistics', {}).get('comment_count', 0),
                     'share_count': post.get('statistics', {}).get('share_count', 0),
                     'is_liked': self._post_boolish(post, 'user_digged', 'is_liked', 'digg_status', default=True),
-                    'is_collected': self._post_boolish(post, 'is_collected', 'is_collect', 'collect_status'),
+                    'is_collected': self._post_boolish(post, 'is_collected', 'is_collect', 'collect_status', 'collect_stat'),
                     'cover_url': cover_url,
                     'duration': duration,
                     'duration_unit': 'milliseconds',
@@ -1128,7 +1132,7 @@ class DouyinUserManager:
             'comment_count': post.get('statistics', {}).get('comment_count', 0),
             'share_count': post.get('statistics', {}).get('share_count', 0),
             'is_liked': self._post_boolish(post, 'user_digged', 'is_liked', 'digg_status'),
-            'is_collected': self._post_boolish(post, 'is_collected', 'is_collect', 'collect_status', default=True),
+            'is_collected': self._post_boolish(post, 'is_collected', 'is_collect', 'collect_status', 'collect_stat', default=True),
             'cover_url': cover_url,
             'duration': duration,
             'duration_unit': 'milliseconds',
