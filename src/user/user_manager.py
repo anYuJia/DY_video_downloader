@@ -1214,11 +1214,25 @@ class DouyinUserManager:
         if not success:
             return resp if isinstance(resp, dict) else {'_error': True, 'message': '点赞失败'}
 
+        actual_liked = self._boolish(resp.get('is_digg')) if isinstance(resp, dict) and 'is_digg' in resp else liked
+        if actual_liked != liked:
+            return {
+                '_error': True,
+                'message': (
+                    f"点赞状态未生效: 期望{'已点赞' if liked else '未点赞'}，"
+                    f"实际{'已点赞' if actual_liked else '未点赞'}"
+                ),
+                'aweme_id': aweme_id,
+                'is_liked': actual_liked,
+                'raw': resp,
+            }
+
         return {
             'success': True,
             'aweme_id': aweme_id,
-            'is_liked': liked,
-            'message': '点赞成功' if liked else '已取消点赞',
+            'is_liked': actual_liked,
+            'raw': resp,
+            'message': '点赞成功' if actual_liked else '已取消点赞',
         }
 
     async def set_video_collected(self, aweme_id: str, collected: bool) -> dict:

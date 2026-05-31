@@ -4338,8 +4338,9 @@ def set_video_liked_api():
         return jsonify({
             'success': True,
             'aweme_id': aweme_id,
-            'is_liked': liked,
-            'message': '点赞成功' if liked else '已取消点赞',
+            'is_liked': result.get('is_liked', liked) if isinstance(result, dict) else liked,
+            'raw': result.get('raw') if isinstance(result, dict) else None,
+            'message': result.get('message') if isinstance(result, dict) else ('点赞成功' if liked else '已取消点赞'),
         })
     except Exception as e:
         logger.error(f'设置点赞状态异常: {str(e)}', exc_info=True)
