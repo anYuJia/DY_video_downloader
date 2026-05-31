@@ -256,7 +256,8 @@ class DouyinAPI:
 
     def _ticket_guard_headers_from_cookie(self) -> dict:
         cookie_dict = self._cookies_to_dict(self.cookie)
-        raw_client_data = cookie_dict.get('bd_ticket_guard_client_data') or cookie_dict.get('bd_ticket_guard_client_data_v2') or ''
+        raw_client_data_v2 = cookie_dict.get('bd_ticket_guard_client_data_v2') or ''
+        raw_client_data = raw_client_data_v2 or cookie_dict.get('bd_ticket_guard_client_data') or ''
         if not raw_client_data:
             return {}
 
@@ -267,12 +268,14 @@ class DouyinAPI:
             return {}
 
         headers = {}
+        if raw_client_data_v2:
+            headers['bd-ticket-guard-client-data'] = decoded_cookie
         for key, value in payload.items():
             if key.startswith('bd-ticket-guard-'):
                 headers[key] = str(value)
         if 'bd-ticket-guard-ree-public-key' not in headers and payload.get('ree_public_key'):
             headers['bd-ticket-guard-ree-public-key'] = str(payload['ree_public_key'])
-        headers.setdefault('bd-ticket-guard-web-sign-type', '0')
+        headers.setdefault('bd-ticket-guard-web-sign-type', '1' if raw_client_data_v2 else '0')
         return headers
 
     def _decode_relation_ecdh_key(self, value: str) -> bytes | None:
