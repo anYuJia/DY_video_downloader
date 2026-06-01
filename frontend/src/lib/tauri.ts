@@ -135,15 +135,20 @@ function getBrowserSocket() {
   return browserSocket;
 }
 
-async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers || {});
-  if (!headers.has("Content-Type") && init.body) {
+type RequestJsonOptions = RequestInit & {
+  suppressCookieInvalidEvent?: boolean;
+};
+
+async function requestJson<T>(path: string, init: RequestJsonOptions = {}): Promise<T> {
+  const { suppressCookieInvalidEvent, ...fetchInit } = init;
+  const headers = new Headers(fetchInit.headers || {});
+  if (!headers.has("Content-Type") && fetchInit.body) {
     headers.set("Content-Type", "application/json");
   }
 
   const response = await fetch(path, {
     credentials: "same-origin",
-    ...init,
+    ...fetchInit,
     headers,
   });
 
@@ -152,7 +157,9 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
     ? await response.json().catch(() => ({}))
     : {};
 
-  emitCookieInvalidIfNeeded(data);
+  if (!suppressCookieInvalidEvent) {
+    emitCookieInvalidIfNeeded(data);
+  }
 
   if (!response.ok) {
     const message =
@@ -1106,7 +1113,9 @@ export async function getComments(awemeId: string, count: number, cursor?: numbe
 
 export async function verifyCookie(): Promise<CookieStatus> {
   if (shouldUseBrowserBridge()) {
-    return requestJson<CookieStatus>("/api/verify_cookie");
+    return requestJson<CookieStatus>("/api/verify_cookie", {
+      suppressCookieInvalidEvent: true,
+    });
   }
   return invoke("verify_cookie");
 }

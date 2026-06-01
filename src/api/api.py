@@ -15,7 +15,10 @@ import threading
 import time
 import hmac
 import hashlib
+import logging
 from src.api import sign as douyin_sign
+
+logger = logging.getLogger('api')
 
 # Configure a session with retry/SSL resilience
 _retry = urllib3.util.retry.Retry(total=3, backoff_factor=0.5, status_forcelist=[502, 503, 504])
@@ -351,7 +354,27 @@ class DouyinAPI:
             signer = Config.RELATION_SIGNER if isinstance(Config.RELATION_SIGNER, dict) else None
         except Exception:
             signer = None
-        return str((signer or {}).get('dtrait') or '').strip()
+        dtrait = str((signer or {}).get('dtrait') or '').strip()
+        if dtrait:
+            return dtrait
+
+        for key in ('DOUYIN_RELATION_DTRAIT', 'DOUYIN_DTRAIT', 'X_TT_SESSION_DTRAIT'):
+            dtrait = str(os.environ.get(key) or '').strip()
+            if dtrait:
+                return dtrait
+
+        try:
+            config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'sign_config.json'))
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                dtrait = str(data.get('x_tt_session_dtrait') or data.get('dtrait') or '').strip()
+                if dtrait:
+                    return dtrait
+        except Exception:
+            pass
+
+        return ''
 
     def _get_ms_token(self) -> str:
         """生成msToken"""
@@ -690,7 +713,15 @@ class DouyinAPI:
             'sec-ch-ua': '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
         })
         merged_headers.update(self._relation_ticket_guard_headers(uri))
+        is_relation_action = 'aweme/v1/web/commit/item/digg' in uri or 'aweme/v1/web/aweme/collect' in uri
         dtrait = self._relation_dtrait()
+        if is_relation_action and not dtrait:
+            return {
+                'status_code': -1,
+                'status_msg': 'RELATION_DTRAIT_MISSING',
+                'message': '点赞安全参数未采集完整，请重新登录 Cookie 后重试',
+                '_security_blocked': True,
+            }, False
         if dtrait:
             merged_headers['x-tt-session-dtrait'] = dtrait
         headers = merged_headers
@@ -705,7 +736,7 @@ class DouyinAPI:
         # www.douyin.com → www-hj.douyin.com 是同站跨源，浏览器发送 same-site
         headers['sec-fetch-site'] = 'same-site'
 
-        query = '&'.join([f'{k}={urllib.parse.quote(str(v))}' for k, v in query_params.items()])
+        query = urllib.parse.urlencode(query_params)
         try:
             query_params['a_bogus'] = douyin_sign.sign_detail(query, headers["User-Agent"])
         except Exception as e:
@@ -716,6 +747,26 @@ class DouyinAPI:
                 'status_msg': '签名生成失败',
                 'message': f'签名生成失败: {e}',
             }, False
+
+        relation_uid = str(query_params.get('uid') or '')
+        try:
+            from src.config.config import Config
+            signer_present = isinstance(Config.RELATION_SIGNER, dict)
+        except Exception:
+            signer_present = False
+        logger.info(
+            'Douyin relation action request: path=%s query_keys=%s uid_present=%s uid_prefix=%s body_keys=%s signer_present=%s ticket_guard_cookie=%s ticket_guard_header=%s csrf_present=%s dtrait_present=%s',
+            uri,
+            ','.join(sorted(query_params.keys())),
+            bool(relation_uid),
+            relation_uid[:8],
+            ','.join(sorted(body_params.keys())),
+            signer_present,
+            'bd_ticket_guard_client_data' in (self.cookie or ''),
+            'bd-ticket-guard-client-data' in headers,
+            'x-secsdk-csrf-token' in headers,
+            'x-tt-session-dtrait' in headers,
+        )
 
         if self.debug_mode:
             print(f'\033[94m[API] 动作请求URL: {url}\033[0m')
@@ -740,6 +791,16 @@ class DouyinAPI:
             }, False
 
         if response.status_code != 200 or len(response.content) == 0:
+            logger.warning(
+                'Douyin relation action rejected before JSON: path=%s http_status=%s content_length=%s headers=%s',
+                uri,
+                response.status_code,
+                len(response.content or b''),
+                {
+                    'bd-ticket-guard-result': response.headers.get('bd-ticket-guard-result') or '',
+                    'bd_passport_security_gateway': response.headers.get('bd_passport_security_gateway') or '',
+                },
+            )
             ticket_guard_result = response.headers.get('bd-ticket-guard-result') or ''
             passport_security_gateway = response.headers.get('bd_passport_security_gateway') or ''
             if response.status_code == 403 and (ticket_guard_result or passport_security_gateway == '1'):
@@ -767,6 +828,13 @@ class DouyinAPI:
                 'status_msg': 'JSON解析失败',
                 'message': f'JSON解析失败: {e}',
             }, False
+
+        logger.info(
+            'Douyin relation action response: path=%s status_code=%s status_msg=%s',
+            uri,
+            json_response.get('status_code', 0),
+            json_response.get('status_msg') or json_response.get('message') or '',
+        )
 
         if json_response.get('status_code', 0) != 0:
             status_code = json_response.get('status_code')

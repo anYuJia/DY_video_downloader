@@ -116,6 +116,7 @@ from src.api.native_cookie_login import (
     normalize_cookie_entries,
     relation_signer_ready,
     relation_signer_ready_for_uid,
+    relation_signer_has_ticket_guard,
     serialize_cookie_entries,
 )
 from src.downloader.downloader import DouyinDownloader, build_download_name, build_download_title
@@ -4816,6 +4817,9 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
             _native_cookie_login_session = None
 
     def poll_cookie_window() -> None:
+        poll_interval = 0.5
+        relation_signer_attempts = 8
+        relation_signer_interval = 0.75
         try:
             emit_once('pending', '登录窗口已打开，请在窗口中完成登录')
 
@@ -4844,12 +4848,12 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                     raw_cookies = session.window.get_cookies() or []
                 except Exception as error:
                     logger.debug('读取原生登录窗口 Cookie 失败: %s', error)
-                    time.sleep(1)
+                    time.sleep(poll_interval)
                     continue
 
                 entries = normalize_cookie_entries(raw_cookies)
                 if not has_login_cookie(entries):
-                    time.sleep(1)
+                    time.sleep(poll_interval)
                     continue
 
                 relation_signer = extract_relation_signer_entries(entries)
@@ -4858,17 +4862,17 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
 
                 cookie_string = serialize_cookie_entries(entries)
                 if not cookie_string:
-                    time.sleep(1)
+                    time.sleep(poll_interval)
                     continue
 
                 now = time.monotonic()
                 should_verify = (
                     cookie_string != session.last_cookie_value
-                    or now - session.last_verify_at >= 5
+                    or now - session.last_verify_at >= 1.5
                 )
 
                 if not should_verify:
-                    time.sleep(1)
+                    time.sleep(poll_interval)
                     continue
 
                 session.last_cookie_value = cookie_string
@@ -4881,20 +4885,20 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                         '原生登录窗口候选 Cookie 校验未通过: %s',
                         verify_result.get('message', 'unknown'),
                     )
-                    time.sleep(1)
+                    time.sleep(poll_interval)
                     continue
 
                 user_id = str(verify_result.get('user_id') or '').strip()
                 if user_id:
                     if not relation_signer_ready_for_uid(relation_signer, user_id):
-                        emit_once('pending', '登录已确认，正在采集点赞安全参数')
+                        emit_once('pending', '登录已确认，正在采集点赞参数')
                         try:
                             session.window.load_url('https://www.douyin.com/?recommend=1')
                         except Exception as error:
                             logger.debug('跳转推荐页采集点赞安全参数失败: %s', error)
-                        for _ in range(20):
+                        for _ in range(relation_signer_attempts):
                             inject_relation_signer_probe(session.window)
-                            time.sleep(0.9)
+                            time.sleep(relation_signer_interval)
                             try:
                                 latest_entries = normalize_cookie_entries(session.window.get_cookies() or [])
                             except Exception as error:
@@ -4909,7 +4913,7 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                                 cookie_string = latest_cookie_string
                             if relation_signer_ready_for_uid(relation_signer, user_id):
                                 break
-                    elif isinstance(relation_signer, dict):
+                    if isinstance(relation_signer, dict):
                         relation_signer['uid'] = user_id
 
                 if isinstance(relation_signer, dict):
@@ -4925,7 +4929,10 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
 
                 if not relation_signer_ready_for_uid(relation_signer, user_id):
                     previous_signer = Config.RELATION_SIGNER if isinstance(Config.RELATION_SIGNER, dict) else None
-                    relation_signer = previous_signer if relation_signer_ready_for_uid(previous_signer, user_id) else None
+                    if relation_signer_ready_for_uid(previous_signer, user_id):
+                        relation_signer = previous_signer
+                    elif not relation_signer_has_ticket_guard(relation_signer, user_id):
+                        relation_signer = None
 
                 _save_cookie_login_success(cookie_string, verify_result.get('nickname', ''), relation_signer)
                 destroy_window_safely(session.window)

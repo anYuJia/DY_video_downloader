@@ -235,6 +235,20 @@ def relation_signer_ready_for_uid(signer: dict[str, str] | None, uid: str) -> bo
     )
 
 
+def relation_signer_has_ticket_guard(signer: dict[str, str] | None, uid: str = '') -> bool:
+    uid = str(uid or '').strip()
+    if not isinstance(signer, dict):
+        return False
+    if uid and str(signer.get('uid') or '').strip() != uid:
+        return False
+    return bool(
+        str(signer.get('ticket') or '').strip()
+        and str(signer.get('ts_sign') or '').strip()
+        and str(signer.get('public_key') or '').strip()
+        and str(signer.get('ecdh_key') or '').strip()
+    )
+
+
 def inject_relation_signer_probe(window: Any) -> None:
     if not window:
         return
@@ -252,6 +266,23 @@ def inject_relation_signer_probe(window: Any) -> None:
             const bytesToBase64 = (value) => {
                 const bytes = Array.from(value instanceof Uint8Array ? value : Object.values(value || {}));
                 return btoa(String.fromCharCode(...bytes));
+            };
+            const looksLikeDtrait = (value) => String(value || "").trim().length > 20;
+            const readStoredDtrait = () => {
+                const direct = [window.__dtrait__, window.__dyRelationLatestDtrait];
+                for (const value of direct) {
+                    if (looksLikeDtrait(value)) return String(value);
+                }
+                for (const storage of [window.localStorage, window.sessionStorage]) {
+                    try {
+                        for (let index = 0; index < storage.length; index += 1) {
+                            const key = storage.key(index);
+                            const value = storage.getItem(key);
+                            if (looksLikeDtrait(value)) return String(value);
+                        }
+                    } catch (error) {}
+                }
+                return "";
             };
             const findAwemeId = () => {
                 try {
@@ -272,13 +303,28 @@ def inject_relation_signer_probe(window: Any) -> None:
                 return "";
             };
             const patchDtraitCapture = (onValue) => {
+                window.__dyRelationDtraitListeners = window.__dyRelationDtraitListeners || [];
+                if (typeof onValue === "function") {
+                    window.__dyRelationDtraitListeners.push(onValue);
+                    if (window.__dyRelationLatestDtrait) {
+                        try { onValue(window.__dyRelationLatestDtrait); } catch (error) {}
+                    }
+                }
                 if (window.__dyRelationDtraitPatched) return;
                 window.__dyRelationDtraitPatched = true;
+                const emit = (value) => {
+                    const text = String(value || "").trim();
+                    if (!text) return;
+                    window.__dyRelationLatestDtrait = text;
+                    for (const listener of window.__dyRelationDtraitListeners || []) {
+                        try { listener(window.__dyRelationLatestDtrait); } catch (error) {}
+                    }
+                };
                 try {
                     const originalSetHeader = XMLHttpRequest.prototype.setRequestHeader;
                     XMLHttpRequest.prototype.setRequestHeader = function(key, value) {
                         if (String(key).toLowerCase() === "x-tt-session-dtrait" && value) {
-                            try { onValue(String(value)); } catch (error) {}
+                            emit(String(value));
                         }
                         return originalSetHeader.apply(this, arguments);
                     };
@@ -291,10 +337,16 @@ def inject_relation_signer_probe(window: Any) -> None:
                             let value = "";
                             if (headers && typeof headers.get === "function") {
                                 value = headers.get("x-tt-session-dtrait") || "";
+                            } else if (Array.isArray(headers)) {
+                                const found = headers.find((item) => String(item && item[0]).toLowerCase() === "x-tt-session-dtrait");
+                                value = found && found[1] || "";
                             } else if (headers && typeof headers === "object") {
                                 value = headers["x-tt-session-dtrait"] || headers["X-Tt-Session-Dtrait"] || "";
                             }
-                            if (value) onValue(String(value));
+                            if (!value && input && input.headers && typeof input.headers.get === "function") {
+                                value = input.headers.get("x-tt-session-dtrait") || "";
+                            }
+                            if (value) emit(String(value));
                         } catch (error) {}
                         return originalFetch.apply(this, arguments);
                     };
@@ -307,6 +359,11 @@ def inject_relation_signer_probe(window: Any) -> None:
                     resolved = true;
                     resolve(value || "");
                 };
+                const stored = readStoredDtrait();
+                if (stored) {
+                    finish(stored);
+                    return;
+                }
                 patchDtraitCapture(finish);
                 try {
                     const awemeId = findAwemeId() || "7640032041598198757";
@@ -314,13 +371,13 @@ def inject_relation_signer_probe(window: Any) -> None:
                     xhr.open("POST", "https://www-hj.douyin.com/aweme/v1/web/commit/item/digg/?device_platform=webapp&aid=6383&channel=channel_pc_web&pc_client_type=1&pc_libra_divert=Mac&update_version_code=170400&support_h265=1&support_dash=1&version_code=170400&version_name=17.4.0&cookie_enabled=true&browser_language=zh-CN&browser_platform=MacIntel&browser_name=Chrome&browser_version=148.0.0.0&browser_online=true&engine_name=Blink&engine_version=148.0.0.0&os_name=Mac%20OS&os_version=10.15.7&cpu_core_num=8&device_memory=16&platform=PC");
                     xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
                     xhr.setRequestHeader("x-secsdk-csrf-token", "DOWNGRADE");
-                    xhr.onloadend = () => setTimeout(() => finish(""), 0);
-                    xhr.onerror = () => setTimeout(() => finish(""), 0);
+                    xhr.onloadend = () => setTimeout(() => finish(window.__dyRelationLatestDtrait || readStoredDtrait() || ""), 0);
+                    xhr.onerror = () => setTimeout(() => finish(window.__dyRelationLatestDtrait || readStoredDtrait() || ""), 0);
                     xhr.send(`aweme_id=${awemeId}&item_type=0&type=0`);
                 } catch (error) {
-                    finish("");
+                    finish(window.__dyRelationLatestDtrait || readStoredDtrait() || "");
                 }
-                setTimeout(() => finish(""), 4000);
+                setTimeout(() => finish(window.__dyRelationLatestDtrait || readStoredDtrait() || ""), 4000);
             });
             (async () => {
                 try {
