@@ -266,6 +266,7 @@ function CollectedVideosPanel() {
       )}
 
       <FullscreenPlayer
+        key={playerIndex ?? "closed"}
         videos={videos}
         initialIndex={playerIndex ?? 0}
         open={playerIndex !== null}
@@ -553,6 +554,7 @@ function MixVideosPanel({ mix, onBack }: { mix: CollectedMixItem; onBack: () => 
       )}
 
       <FullscreenPlayer
+        key={playerIndex ?? "closed"}
         videos={videos}
         initialIndex={playerIndex ?? 0}
         open={playerIndex !== null}

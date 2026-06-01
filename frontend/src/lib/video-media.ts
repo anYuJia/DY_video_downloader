@@ -174,7 +174,7 @@ export function collectVideoQualityOptions(
     .forEach(pushQualityOption);
 
   const qualityOptions = Array.from(qualityMap.values()).sort((a, b) => qualityRank(b) - qualityRank(a));
-  return autoOption ? [...qualityOptions, autoOption] : qualityOptions;
+  return autoOption ? [autoOption, ...qualityOptions] : qualityOptions;
 }
 
 export function getVideoCover(video: VideoInfo | null | undefined): string {

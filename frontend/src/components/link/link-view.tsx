@@ -334,6 +334,7 @@ export function LinkView() {
       </div>
 
       <FullscreenPlayer
+        key={playerIndex ?? "closed"}
         videos={videos}
         initialIndex={playerIndex ?? 0}
         open={playerIndex !== null}

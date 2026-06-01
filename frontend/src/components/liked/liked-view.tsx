@@ -144,6 +144,7 @@ export function LikedView() {
       </div>
 
       <FullscreenPlayer
+        key={playerIndex ?? "closed"}
         videos={videos}
         initialIndex={playerIndex ?? 0}
         open={playerIndex !== null}

@@ -3,6 +3,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { Download, Eye, Heart, Star, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VideoCover } from "@/components/media/video-cover";
+import { prewarmVideoForPlayback } from "@/lib/media-prewarm";
 import { cn, formatTime } from "@/lib/utils";
 import { mediaProxyUrl, type VideoInfo } from "@/lib/tauri";
 
@@ -42,6 +43,10 @@ export function VideoCard({
     onSelect?.(video);
   };
 
+  const schedulePrewarm = (delay = 80) => {
+    window.setTimeout(() => prewarmVideoForPlayback(video), delay);
+  };
+
   const stopAndRun = (
     event: ReactMouseEvent,
     action: ((video: VideoInfo) => void) | undefined
@@ -61,6 +66,12 @@ export function VideoCard({
         : {})}
       style={{ breakInside: "avoid" }}
       onClick={handleCardClick}
+      onPointerEnter={(event) => {
+        if (event.pointerType === "touch") return;
+        schedulePrewarm();
+      }}
+      onPointerDown={() => schedulePrewarm(0)}
+      onFocus={() => schedulePrewarm()}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -76,7 +87,7 @@ export function VideoCard({
         selected && "border-accent shadow-[var(--shadow-glow)]"
       )}
     >
-      <VideoCover video={video} className={VIDEO_CARD_COVER_CLASS} showPlayOverlay={false} allowVideoFallback />
+      <VideoCover video={video} className={VIDEO_CARD_COVER_CLASS} showPlayOverlay={false} />
 
       {(video.is_liked || video.is_collected) && (
         <div className="pointer-events-none absolute left-2 top-2 z-10 flex gap-1">

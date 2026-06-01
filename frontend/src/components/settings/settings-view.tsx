@@ -769,7 +769,7 @@ export function SettingsView() {
       if (!result.success) {
         throw new Error(result.message || "更新下载失败");
       }
-      const autoClosing = result.message.includes("自动关闭") || result.message.includes("即将关闭");
+      const autoClosing = result.message.includes("自动关闭");
       if (!autoClosing) {
         setUpdateStatus("ready");
       }

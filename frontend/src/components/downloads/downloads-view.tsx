@@ -828,6 +828,7 @@ export function DownloadsView() {
       </div>
 
       <FullscreenPlayer
+        key={playerState ? `${playerState.initialIndex}:${playerState.initialMediaIndex}` : "closed"}
         videos={playerState?.videos || []}
         initialIndex={playerState?.initialIndex || 0}
         initialMediaIndex={playerState?.initialMediaIndex || 0}
