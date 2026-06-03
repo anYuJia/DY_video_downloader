@@ -129,20 +129,26 @@ export default function App() {
       setCookieLoggedIn(false);
 
       const now = Date.now();
-      if (now - lastCookieInvalidLogAt.current > 3000) {
-        lastCookieInvalidLogAt.current = now;
-        useLogStore.getState().addLog(message, "warning");
-        
-        showAlert({
-          title: "登录已失效",
-          variant: "warning",
-          description: message,
-          actionLabel: "前往设置",
-          onAction: () => {
-            useAppStore.getState().setView("settings");
-          }
-        });
+      if (now - lastCookieInvalidLogAt.current <= 12_000) {
+        return;
       }
+
+      lastCookieInvalidLogAt.current = now;
+      useLogStore.getState().addLog(message, "warning");
+
+      if (useAppStore.getState().currentView === "settings") {
+        return;
+      }
+
+      showAlert({
+        title: "登录已失效",
+        variant: "warning",
+        description: message,
+        actionLabel: "前往设置",
+        onAction: () => {
+          useAppStore.getState().setView("settings");
+        }
+      });
     };
 
     window.addEventListener("dy-cookie-invalid", handleCookieInvalid);

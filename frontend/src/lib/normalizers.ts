@@ -35,6 +35,10 @@ interface LikedVideoItemRaw {
   status?: VideoStatus | null;
   media_urls?: LikedVideoMediaUrl[];
   bgm_url?: string | null;
+  is_liked?: boolean;
+  is_collected?: boolean;
+  collect_stat?: unknown;
+  collect_status?: unknown;
   statistics?: Partial<Statistics>;
   video?: Partial<VideoData>;
   author?: LikedVideoAuthorRaw;
@@ -85,6 +89,16 @@ function normalizeStatus(value: unknown): VideoStatus | null {
 function isUnavailableStatus(status: VideoStatus | null | undefined): boolean {
   if (!status) return false;
   return Boolean(status.is_delete || status.is_prohibited || Number(status.private_status || 0) !== 0);
+}
+
+function boolish(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value > 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return normalized === "1" || normalized === "true" || normalized === "yes";
+  }
+  return false;
 }
 
 function hasPlayableMedia(video: VideoInfo): boolean {
@@ -262,6 +276,8 @@ export function normalizeLikedVideo(item: unknown): VideoInfo | null {
     video: {
       ...buildEmptyVideoData(),
       play_addr: primaryVideoUrl || livePhotoUrls[0] || "",
+      dash_addr: candidate.video?.dash_addr || null,
+      audio_addr: candidate.video?.audio_addr || null,
       download_addr: primaryVideoUrl || livePhotoUrls[0] || null,
       cover,
       dynamic_cover: cover,
@@ -271,15 +287,20 @@ export function normalizeLikedVideo(item: unknown): VideoInfo | null {
     },
     statistics: {
       ...buildEmptyStatistics(),
-      digg_count: candidate.digg_count || 0,
-      comment_count: candidate.comment_count || 0,
-      share_count: candidate.share_count || 0,
+      play_count: Number(candidate.statistics?.play_count || 0),
+      digg_count: Number(candidate.digg_count || candidate.statistics?.digg_count || 0),
+      comment_count: Number(candidate.comment_count || candidate.statistics?.comment_count || 0),
+      share_count: Number(candidate.share_count || candidate.statistics?.share_count || 0),
+      collect_count: Number(candidate.statistics?.collect_count || 0),
+      forward_count: Number(candidate.statistics?.forward_count || 0),
     },
     image_urls: imageUrls.length > 0 ? imageUrls : null,
     images: imageUrls.length > 0 ? imageUrls : null,
     live_photo_urls: livePhotoUrls.length > 0 ? livePhotoUrls : null,
     live_photos: livePhotoUrls.length > 0 ? livePhotoUrls : null,
     has_live_photo: livePhotoUrls.length > 0,
+    is_liked: Boolean(candidate.is_liked),
+    is_collected: boolish(candidate.is_collected ?? candidate.collect_stat ?? candidate.collect_status),
     is_image: isImage,
     media_type: mediaType,
     status,
@@ -432,6 +453,8 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
     video: {
       preview_addr: previewAddr || null,
       play_addr: playAddr || previewAddr || livePhotoUrls[0] || "",
+      dash_addr: extractUrl(videoRecord.dash_addr) || null,
+      audio_addr: extractUrl(videoRecord.audio_addr) || null,
       play_addr_h264: playAddrH264 || null,
       play_addr_lowbr: playAddrLowbr || null,
       download_addr: downloadAddr || playAddr || previewAddr || livePhotoUrls[0] || null,
@@ -450,7 +473,7 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
       digg_count: Number(source.digg_count || stats.digg_count || 0),
       comment_count: Number(source.comment_count || stats.comment_count || 0),
       share_count: Number(source.share_count || stats.share_count || 0),
-      collect_count: Number(stats.collect_count || 0),
+      collect_count: Number(source.collect_count || stats.collect_count || 0),
       forward_count: Number(stats.forward_count || 0),
     },
     image_urls: imageUrls.length > 0 ? imageUrls : null,
@@ -458,6 +481,8 @@ export function normalizeVideo(video: unknown): VideoInfo | null {
     live_photo_urls: livePhotoUrls.length > 0 ? livePhotoUrls : null,
     live_photos: livePhotoUrls.length > 0 ? livePhotoUrls : null,
     has_live_photo: Boolean(source.has_live_photo || livePhotoUrls.length > 0),
+    is_liked: Boolean(source.is_liked),
+    is_collected: boolish(source.is_collected ?? source.collect_stat ?? source.collect_status),
     is_image: isImage,
     media_type: mediaType,
     raw_media_type: rawMediaType,

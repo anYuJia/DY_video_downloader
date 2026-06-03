@@ -56,6 +56,7 @@ COOKIE_MEDIA_HOST_SUFFIXES = (
     'snssdk.com',
 )
 MEDIA_PROXY_INITIAL_VIDEO_RANGE = 'bytes=0-1048575'
+MEDIA_PROXY_MAX_RANGE_BYTES = 4 * 1024 * 1024
 MEDIA_PROXY_MAX_RETRIES = 3
 MEDIA_PROXY_REDIRECT_CACHE_MAX_SIZE = 256
 DOWNLOAD_TASK_HISTORY_MAX_SIZE = 200
@@ -68,6 +69,35 @@ UPDATER_PUBLIC_KEY = (
 )
 MEDIA_PROXY_REDIRECT_CACHE = {}
 
+
+def _cap_media_range_header(range_header: str, requested_media_type: str) -> str:
+    if requested_media_type not in ('audio', 'video') or not range_header:
+        return range_header
+    text = str(range_header).strip()
+    if not text.startswith('bytes=') or ',' in text:
+        return range_header
+    start_text, _, end_text = text[6:].partition('-')
+    if not start_text.strip():
+        return range_header
+    try:
+        start = int(start_text.strip())
+    except (TypeError, ValueError):
+        return range_header
+    if start < 0:
+        return range_header
+    capped_end = start + MEDIA_PROXY_MAX_RANGE_BYTES - 1
+    if end_text.strip():
+        try:
+            end = min(int(end_text.strip()), capped_end)
+        except (TypeError, ValueError):
+            end = capped_end
+    else:
+        end = capped_end
+    if end < start:
+        return range_header
+    capped = f'bytes={start}-{end}'
+    return range_header if capped == text else capped
+
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -79,9 +109,14 @@ from src.api.native_cookie_login import (
     create_native_douyin_window,
     create_login_window,
     destroy_window_safely,
+    extract_relation_signer_entries,
     has_login_cookie,
+    inject_relation_signer_probe,
     is_native_cookie_login_available,
     normalize_cookie_entries,
+    relation_signer_ready,
+    relation_signer_ready_for_uid,
+    relation_signer_has_ticket_guard,
     serialize_cookie_entries,
 )
 from src.downloader.downloader import DouyinDownloader, build_download_name, build_download_title
@@ -385,6 +420,20 @@ def _coerce_int(value, default: int = 0, min_value: int | None = None, max_value
     if max_value is not None:
         result = min(max_value, result)
     return result
+
+
+def _coerce_bool(value, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ('1', 'true', 'yes', 'on'):
+            return True
+        if normalized in ('0', 'false', 'no', 'off', ''):
+            return False
+    return default
 
 
 def _count_value(value, default: int = 0) -> int:
@@ -727,6 +776,16 @@ def _verify_error_response(payload, fallback='需要完成抖音验证', verify_
         'need_verify': True,
         'verify_url': verify_url or payload_dict.get('_verify_url') or 'https://www.douyin.com/',
         'message': message,
+    }
+
+
+def _verify_error_response_without_login_check(payload, fallback='需要完成抖音验证', verify_url=None):
+    payload_dict = payload if isinstance(payload, dict) else {}
+    return {
+        'success': False,
+        'need_verify': True,
+        'verify_url': verify_url or payload_dict.get('_verify_url') or 'https://www.douyin.com/',
+        'message': _api_message(payload, fallback),
     }
 
 
@@ -2585,7 +2644,7 @@ def media_proxy():
     request_range = request.headers.get('Range')
     request_range_str = request_range or ''
     should_seed_video_range = False
-    upstream_range_value = request_range
+    upstream_range_value = _cap_media_range_header(request_range, requested_media_type)
     cache_key = url if '/aweme/v1/play/' in url else None
     upstream_url = MEDIA_PROXY_REDIRECT_CACHE.get(cache_key, url) if cache_key else url
 
@@ -2618,7 +2677,7 @@ def media_proxy():
                     upstream_url,
                     headers=headers,
                     stream=True,
-                    timeout=(10, 30),
+                    timeout=(6, 8) if requested_media_type == 'image' else (10, 45),
                     allow_redirects=False,
                 )
             except Exception as e:
@@ -3153,15 +3212,12 @@ def get_liked_videos_api():
         result = run_async(user_manager.get_liked_videos(count, cursor, include_pagination=True))
         if isinstance(result, dict):
             if result.get('_need_verify'):
-                return jsonify(_verify_error_response(result, '获取点赞视频失败，请完成验证后重试'))
+                return jsonify(_verify_error_response_without_login_check(result, '获取点赞视频失败，请完成验证后重试'))
             if result.get('_need_login'):
-                return jsonify(_login_error_response(result))
+                return jsonify(_verify_error_response_without_login_check(result, '获取点赞视频失败，请完成验证后重试'))
             if 'data' in result:
                 videos = result.get('data') or []
                 if not videos and cursor <= 0:
-                    login_status = _verify_native_cookie_login(Config.COOKIE or '')
-                    if not login_status.get('success'):
-                        return jsonify(_login_error_response(login_status))
                     return jsonify({
                         'success': False,
                         'need_verify': True,
@@ -3181,9 +3237,6 @@ def get_liked_videos_api():
             })
         videos = result or []
         if not videos and cursor <= 0:
-            login_status = _verify_native_cookie_login(Config.COOKIE or '')
-            if not login_status.get('success'):
-                return jsonify(_login_error_response(login_status))
             return jsonify({
                 'success': False,
                 'need_verify': True,
@@ -3254,9 +3307,9 @@ def get_collected_videos_api():
         result = run_async(user_manager.get_collected_videos(count, cursor))
         if isinstance(result, dict):
             if result.get('_need_verify'):
-                return jsonify(_verify_error_response(result, '获取收藏视频失败，请完成验证后重试'))
+                return jsonify(_verify_error_response_without_login_check(result, '获取收藏视频失败，请完成验证后重试'))
             if result.get('_need_login'):
-                return jsonify(_login_error_response(result))
+                return jsonify(_verify_error_response_without_login_check(result, '获取收藏视频失败，请完成验证后重试'))
             if 'data' in result:
                 videos = result.get('data') or []
                 return jsonify({
@@ -3287,9 +3340,9 @@ def get_collected_mixes_api():
         result = run_async(user_manager.get_collected_mixes(count, cursor))
         if isinstance(result, dict):
             if result.get('_need_verify'):
-                return jsonify(_verify_error_response(result, '获取收藏合集失败，请完成验证后重试'))
+                return jsonify(_verify_error_response_without_login_check(result, '获取收藏合集失败，请完成验证后重试'))
             if result.get('_need_login'):
-                return jsonify(_login_error_response(result))
+                return jsonify(_verify_error_response_without_login_check(result, '获取收藏合集失败，请完成验证后重试'))
             if 'data' in result:
                 mixes = result.get('data') or []
                 return jsonify({
@@ -4448,6 +4501,89 @@ def get_video_detail():
         logger.error(f'获取视频详情异常: {str(e)}', exc_info=True)
         return jsonify({'success': False, 'message': f'获取视频详情失败: {str(e)}'}), 500
 
+@app.route('/api/video_like', methods=['POST'])
+def set_video_liked_api():
+    """点赞或取消点赞作品"""
+    try:
+        data = _request_json()
+        aweme_id = str(data.get('aweme_id') or '').strip()
+        liked = _coerce_bool(data.get('liked'), False)
+
+        if not aweme_id:
+            return jsonify({'success': False, 'message': '作品ID不能为空'}), 400
+        if not user_manager:
+            return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
+
+        result = run_async(user_manager.set_video_liked(aweme_id, liked))
+        if isinstance(result, dict):
+            if result.get('_security_blocked'):
+                return jsonify({
+                    'success': False,
+                    'security_blocked': True,
+                    'message': _api_message(result, '点赞被抖音安全校验拒绝，请稍后重试'),
+                })
+            if result.get('_need_verify'):
+                return jsonify(_verify_error_response(result, '点赞失败，请完成验证后重试'))
+            if result.get('_need_login'):
+                return jsonify(_login_error_response(result))
+            if result.get('_error') or result.get('status_code', 0) not in (0, None):
+                return jsonify({
+                    'success': False,
+                    'message': _api_message(result, '点赞失败，请检查 Cookie 或稍后重试'),
+                })
+
+        return jsonify({
+            'success': True,
+            'aweme_id': aweme_id,
+            'is_liked': result.get('is_liked', liked) if isinstance(result, dict) else liked,
+            'raw': result.get('raw') if isinstance(result, dict) else None,
+            'message': result.get('message') if isinstance(result, dict) else ('点赞成功' if liked else '已取消点赞'),
+        })
+    except Exception as e:
+        logger.error(f'设置点赞状态异常: {str(e)}', exc_info=True)
+        return jsonify({'success': False, 'message': f'点赞失败: {str(e)}'}), 500
+
+@app.route('/api/video_collect', methods=['POST'])
+def set_video_collected_api():
+    """收藏或取消收藏作品"""
+    try:
+        data = _request_json()
+        aweme_id = str(data.get('aweme_id') or '').strip()
+        collected = _coerce_bool(data.get('collected'), False)
+
+        if not aweme_id:
+            return jsonify({'success': False, 'message': '作品ID不能为空'}), 400
+        if not user_manager:
+            return jsonify({'success': False, 'message': '请先设置Cookie'}), 400
+
+        result = run_async(user_manager.set_video_collected(aweme_id, collected))
+        if isinstance(result, dict):
+            if result.get('_security_blocked'):
+                return jsonify({
+                    'success': False,
+                    'security_blocked': True,
+                    'message': _api_message(result, '收藏被抖音安全校验拒绝，请稍后重试'),
+                })
+            if result.get('_need_verify'):
+                return jsonify(_verify_error_response(result, '收藏失败，请完成验证后重试'))
+            if result.get('_need_login'):
+                return jsonify(_login_error_response(result))
+            if result.get('_error') or result.get('status_code', 0) not in (0, None):
+                return jsonify({
+                    'success': False,
+                    'message': _api_message(result, '收藏失败，请检查 Cookie 或稍后重试'),
+                })
+
+        return jsonify({
+            'success': True,
+            'aweme_id': aweme_id,
+            'is_collected': collected,
+            'message': '收藏成功' if collected else '已取消收藏',
+        })
+    except Exception as e:
+        logger.error(f'设置收藏状态异常: {str(e)}', exc_info=True)
+        return jsonify({'success': False, 'message': f'收藏失败: {str(e)}'}), 500
+
 @app.route('/api/parse_link', methods=['POST'])
 def parse_link():
     """解析抖音链接"""
@@ -4804,9 +4940,10 @@ def _verify_native_cookie_login(cookie: str) -> dict:
         return {'success': False, 'message': str(error)}
 
 
-def _save_cookie_login_success(cookie: str, nickname: str = '') -> None:
+def _save_cookie_login_success(cookie: str, nickname: str = '', relation_signer: dict | None = None) -> None:
     Config.COOKIE = cookie
-    Config.save_config(Config.COOKIE, Config.BASE_DIR, Config.HISTORY_DIRS)
+    Config.RELATION_SIGNER = relation_signer
+    Config.save_config(Config.COOKIE, Config.BASE_DIR, Config.HISTORY_DIRS, relation_signer=Config.RELATION_SIGNER)
     init_app()
 
     success_message = 'Cookie 获取成功！已自动保存。'
@@ -4846,6 +4983,9 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
             _native_cookie_login_session = None
 
     def poll_cookie_window() -> None:
+        poll_interval = 0.5
+        relation_signer_attempts = 8
+        relation_signer_interval = 0.75
         try:
             emit_once('pending', '登录窗口已打开，请在窗口中完成登录')
 
@@ -4874,27 +5014,31 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                     raw_cookies = session.window.get_cookies() or []
                 except Exception as error:
                     logger.debug('读取原生登录窗口 Cookie 失败: %s', error)
-                    time.sleep(1)
+                    time.sleep(poll_interval)
                     continue
 
                 entries = normalize_cookie_entries(raw_cookies)
                 if not has_login_cookie(entries):
-                    time.sleep(1)
+                    time.sleep(poll_interval)
                     continue
+
+                relation_signer = extract_relation_signer_entries(entries)
+                if not relation_signer_ready(relation_signer):
+                    inject_relation_signer_probe(session.window)
 
                 cookie_string = serialize_cookie_entries(entries)
                 if not cookie_string:
-                    time.sleep(1)
+                    time.sleep(poll_interval)
                     continue
 
                 now = time.monotonic()
                 should_verify = (
                     cookie_string != session.last_cookie_value
-                    or now - session.last_verify_at >= 5
+                    or now - session.last_verify_at >= 1.5
                 )
 
                 if not should_verify:
-                    time.sleep(1)
+                    time.sleep(poll_interval)
                     continue
 
                 session.last_cookie_value = cookie_string
@@ -4907,10 +5051,56 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                         '原生登录窗口候选 Cookie 校验未通过: %s',
                         verify_result.get('message', 'unknown'),
                     )
-                    time.sleep(1)
+                    time.sleep(poll_interval)
                     continue
 
-                _save_cookie_login_success(cookie_string, verify_result.get('nickname', ''))
+                user_id = str(verify_result.get('user_id') or '').strip()
+                if user_id:
+                    if not relation_signer_ready_for_uid(relation_signer, user_id):
+                        emit_once('pending', '登录已确认，正在采集点赞参数')
+                        try:
+                            session.window.load_url('https://www.douyin.com/?recommend=1')
+                        except Exception as error:
+                            logger.debug('跳转推荐页采集点赞安全参数失败: %s', error)
+                        for _ in range(relation_signer_attempts):
+                            inject_relation_signer_probe(session.window)
+                            time.sleep(relation_signer_interval)
+                            try:
+                                latest_entries = normalize_cookie_entries(session.window.get_cookies() or [])
+                            except Exception as error:
+                                logger.debug('读取点赞安全参数 Cookie 失败: %s', error)
+                                continue
+                            latest_signer = extract_relation_signer_entries(latest_entries)
+                            if latest_signer:
+                                latest_signer['uid'] = user_id
+                                relation_signer = latest_signer
+                            latest_cookie_string = serialize_cookie_entries(latest_entries)
+                            if latest_cookie_string:
+                                cookie_string = latest_cookie_string
+                            if relation_signer_ready_for_uid(relation_signer, user_id):
+                                break
+                    if isinstance(relation_signer, dict):
+                        relation_signer['uid'] = user_id
+
+                if isinstance(relation_signer, dict):
+                    logger.info(
+                        '原生登录窗口采集关系动作参数: uid=%s ticket_len=%s ts_sign_len=%s public_key_len=%s ecdh_key_len=%s dtrait_len=%s',
+                        relation_signer.get('uid') or '',
+                        len(str(relation_signer.get('ticket') or '')),
+                        len(str(relation_signer.get('ts_sign') or '')),
+                        len(str(relation_signer.get('public_key') or '')),
+                        len(str(relation_signer.get('ecdh_key') or '')),
+                        len(str(relation_signer.get('dtrait') or '')),
+                    )
+
+                if not relation_signer_ready_for_uid(relation_signer, user_id):
+                    previous_signer = Config.RELATION_SIGNER if isinstance(Config.RELATION_SIGNER, dict) else None
+                    if relation_signer_ready_for_uid(previous_signer, user_id):
+                        relation_signer = previous_signer
+                    elif not relation_signer_has_ticket_guard(relation_signer, user_id):
+                        relation_signer = None
+
+                _save_cookie_login_success(cookie_string, verify_result.get('nickname', ''), relation_signer)
                 destroy_window_safely(session.window)
                 return
         finally:

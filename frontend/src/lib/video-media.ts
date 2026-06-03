@@ -54,6 +54,20 @@ export function shouldUseSeparateBgm(media: VideoMediaItem | null | undefined): 
   return media?.type === "image" || media?.type === "live_photo";
 }
 
+export function shouldUseSeparateBgmForVideo(
+  media: VideoMediaItem | null | undefined,
+  video: VideoInfo | null | undefined
+): boolean {
+  if (shouldUseSeparateBgm(media)) return true;
+  if (!media || media.type !== "video") return false;
+  const videoData = ((video as VideoLikeSource | null | undefined)?.video || {}) as NonNullable<VideoLikeSource["video"]>;
+  const audioUrl = readUrl(videoData.audio_addr);
+  if (!audioUrl) return false;
+  const mediaUrl = readUrl(media.url);
+  const dashUrl = readUrl(videoData.dash_addr);
+  return Boolean(mediaUrl && (mediaUrl === dashUrl || isDashVideoOnlyUrl(mediaUrl)));
+}
+
 export function getMediaProxyType(media: VideoMediaItem | null | undefined): "video" | "image" {
   return media?.type === "image" ? "image" : "video";
 }
@@ -66,7 +80,10 @@ export function collectVideoMedia(video: VideoInfo | null | undefined): VideoMed
   const poster = getVideoCover(video);
   const rawMediaItems = collectRawMediaItems(source.media_urls || videoData.media_urls, poster);
   if (rawMediaItems.length > 0) {
-    return rawMediaItems;
+    const progressiveItems = rawMediaItems.filter(
+      (item) => item.type !== "video" || !isDashVideoOnlyUrl(item.url)
+    );
+    if (progressiveItems.length > 0) return progressiveItems;
   }
 
   const previewUrl = readUrl(videoData.preview_addr);
@@ -93,7 +110,9 @@ export function collectVideoMedia(video: VideoInfo | null | undefined): VideoMed
   const mediaType = String(source.media_type || source.raw_media_type || "").toLowerCase();
 
   if (items.length === 0) {
-    const candidateUrls = [downloadUrl, h264Url, playUrl, lowbrUrl, previewUrl].filter(Boolean);
+    const candidateUrls = [downloadUrl, h264Url, playUrl, lowbrUrl, previewUrl].filter(
+      (url) => Boolean(url) && !isDashVideoOnlyUrl(url)
+    );
     for (const url of candidateUrls) {
       items.push({
         type: source.has_live_photo || mediaType === "live_photo" ? "live_photo" : "video",
@@ -118,7 +137,7 @@ export function collectVideoQualityOptions(
 
   const videoData = video.video || {};
   const fallback = readUrl(fallbackUrl || videoData.preview_addr || videoData.play_addr);
-  const autoOption: VideoQualityOption | null = fallback
+  const autoOption: VideoQualityOption | null = fallback && !isDashVideoOnlyUrl(fallback)
     ? {
         key: "auto",
         label: "自动",
@@ -155,7 +174,7 @@ export function collectVideoQualityOptions(
     .forEach(pushQualityOption);
 
   const qualityOptions = Array.from(qualityMap.values()).sort((a, b) => qualityRank(b) - qualityRank(a));
-  return autoOption ? [...qualityOptions, autoOption] : qualityOptions;
+  return autoOption ? [autoOption, ...qualityOptions] : qualityOptions;
 }
 
 export function getVideoCover(video: VideoInfo | null | undefined): string {
@@ -182,9 +201,16 @@ export function getVideoCover(video: VideoInfo | null | undefined): string {
   return imageCover;
 }
 
-export function getVideoBgmUrl(video: VideoInfo | null | undefined): string {
+export function getVideoBgmUrl(
+  video: VideoInfo | null | undefined,
+  media?: VideoMediaItem | null
+): string {
   if (!video) return "";
   const source = video as VideoLikeSource;
+  if (media && shouldUseSeparateBgmForVideo(media, video)) {
+    const audioUrl = readUrl(source.video?.audio_addr);
+    if (audioUrl) return audioUrl;
+  }
   return readUrl(video.music?.play_url || source.bgm_url);
 }
 
@@ -283,7 +309,7 @@ function buildQualityCandidates(bitRate: BitRateInfo, index: number): VideoQuali
   };
 
   const playUrl = readUrl(bitRate.play_addr);
-  if (playUrl) {
+  if (playUrl && !isDashVideoOnlyUrl(playUrl)) {
     const codec = bitRate.is_h265 ? "H.265" : "H.264";
     options.push({
       ...base,
@@ -296,7 +322,7 @@ function buildQualityCandidates(bitRate: BitRateInfo, index: number): VideoQuali
   }
 
   const h264Url = readUrl(bitRate.play_addr_h264);
-  if (h264Url && h264Url !== playUrl) {
+  if (h264Url && h264Url !== playUrl && !isDashVideoOnlyUrl(h264Url)) {
     const codec = "H.264";
     options.push({
       ...base,
@@ -309,6 +335,11 @@ function buildQualityCandidates(bitRate: BitRateInfo, index: number): VideoQuali
   }
 
   return options;
+}
+
+function isDashVideoOnlyUrl(url: string | null | undefined): boolean {
+  const text = String(url || "").toLowerCase();
+  return text.includes("media-video") || text.includes("media_video");
 }
 
 function formatQualityLabel(bitRate: BitRateInfo): string {

@@ -18,6 +18,7 @@ interface RecommendedStoreState {
   loadFeed: (count?: number, force?: boolean) => Promise<void>;
   loadMore: () => Promise<void>;
   refresh: () => Promise<void>;
+  updateVideo: (video: VideoInfo) => void;
 }
 
 const uniqueVideos = (existing: VideoInfo[], incoming: VideoInfo[]) => {
@@ -166,5 +167,23 @@ export const useRecommendedStore = create<RecommendedStoreState>((set, get) => (
 
   refresh: async () => {
     await get().loadFeed(PAGE_SIZE, true);
+  },
+
+  updateVideo: (video) => {
+    if (!video?.aweme_id) return;
+    set((current) => ({
+      videos: current.videos.map((item) => (
+        item.aweme_id === video.aweme_id
+          ? {
+              ...item,
+              ...video,
+              statistics: {
+                ...item.statistics,
+                ...video.statistics,
+              },
+            }
+          : item
+      )),
+    }));
   },
 }));

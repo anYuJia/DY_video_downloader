@@ -39,6 +39,8 @@ export interface AuthorInfo {
 export interface VideoData {
   preview_addr: string | null;
   play_addr: string;
+  dash_addr?: string | null;
+  audio_addr?: string | null;
   play_addr_h264: string | null;
   play_addr_lowbr: string | null;
   download_addr: string | null;
@@ -108,6 +110,8 @@ export interface VideoInfo {
   live_photo_urls?: string[] | null;
   live_photos?: string[] | null;
   has_live_photo?: boolean;
+  is_liked?: boolean;
+  is_collected?: boolean;
   is_image: boolean;
   media_type: string;
   raw_media_type?: string | number | null;
@@ -175,6 +179,12 @@ export interface LinkParseResponse extends ApiResponse {
   user?: UserInfo;
   video?: VideoInfo;
   videos?: VideoInfo[];
+}
+
+export interface VideoRelationResponse extends ApiResponse {
+  aweme_id?: string;
+  is_liked?: boolean;
+  is_collected?: boolean;
 }
 
 export interface RecommendedResponse extends ApiResponse {

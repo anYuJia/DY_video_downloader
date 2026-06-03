@@ -7,12 +7,18 @@ import urllib.request
 import os
 import re
 import json
+import base64
 import sys
 import random
 import string
 import threading
 import time
+import hmac
+import hashlib
+import logging
 from src.api import sign as douyin_sign
+
+logger = logging.getLogger('api')
 
 # Configure a session with retry/SSL resilience
 _retry = urllib3.util.retry.Retry(total=3, backoff_factor=0.5, status_forcelist=[502, 503, 504])
@@ -66,6 +72,8 @@ class DouyinAPI:
         self.host = 'https://www.douyin.com'
         self._cached_webid = None
         self._webid_time = 0
+        self._cached_csrf_token = None
+        self._csrf_time = 0
 
         # 检查是否启用调试模式
         self.debug_mode = os.environ.get('DEBUG_MODE', '').lower() in ('true', '1', 'yes')
@@ -163,6 +171,34 @@ class DouyinAPI:
             if self.debug_mode:
                 print(f"\033[91m[API] 获取webid异常: {e}\033[0m")
         return None
+
+    async def _get_csrf_token(self, headers: dict) -> str:
+        """获取抖音动作接口需要的 csrf token（缓存10分钟）。"""
+        import time
+        if self._cached_csrf_token and (time.time() - self._csrf_time) < 600:
+            return self._cached_csrf_token
+
+        h = dict(headers or {})
+        h['X-Secsdk-Csrf-Request'] = '1'
+        h['X-Secsdk-Csrf-Version'] = '1.2.22'
+        try:
+            response = await asyncio.to_thread(
+                _get_api_session().head,
+                'https://www.douyin.com/service/2/abtest_config/',
+                headers=h,
+                timeout=(10, 30),
+            )
+            raw_token = response.headers.get('x-ware-csrf-token') or response.headers.get('X-Ware-Csrf-Token') or ''
+            token = next((part.strip() for part in raw_token.split(',') if len(part.strip()) > 16), '')
+            if token:
+                self._cached_csrf_token = token
+                self._csrf_time = time.time()
+                return token
+        except Exception as e:
+            if self.debug_mode:
+                print(f"\033[91m[API] 获取 csrf token 失败: {e}\033[0m")
+
+        return ''
     
     async def _deal_params(self, params: dict, headers: dict) -> dict:
         """处理请求参数"""
@@ -220,6 +256,125 @@ class DouyinAPI:
                 print(f"\033[91m[API] 解析cookie失败: {e}\033[0m")
         
         return cookie_dict
+
+    def _ticket_guard_headers_from_cookie(self) -> dict:
+        cookie_dict = self._cookies_to_dict(self.cookie)
+        raw_client_data_v2 = cookie_dict.get('bd_ticket_guard_client_data_v2') or ''
+        raw_client_data = raw_client_data_v2 or cookie_dict.get('bd_ticket_guard_client_data') or ''
+        if not raw_client_data:
+            return {}
+
+        try:
+            decoded_cookie = urllib.parse.unquote(raw_client_data)
+            payload = json.loads(base64.b64decode(decoded_cookie).decode('utf-8'))
+        except Exception:
+            return {}
+
+        headers = {}
+        if raw_client_data_v2:
+            headers['bd-ticket-guard-client-data'] = decoded_cookie
+        for key, value in payload.items():
+            if key.startswith('bd-ticket-guard-'):
+                headers[key] = str(value)
+        if 'bd-ticket-guard-ree-public-key' not in headers and payload.get('ree_public_key'):
+            headers['bd-ticket-guard-ree-public-key'] = str(payload['ree_public_key'])
+        headers.setdefault('bd-ticket-guard-web-sign-type', '1' if raw_client_data_v2 else '0')
+        return headers
+
+    def _decode_relation_ecdh_key(self, value: str) -> bytes | None:
+        text = str(value or '').strip()
+        if not text:
+            return None
+        try:
+            if len(text) == 64 and re.fullmatch(r'[0-9a-fA-F]+', text):
+                return bytes.fromhex(text)
+            return base64.b64decode(text)
+        except Exception:
+            return None
+
+    def _relation_ticket_guard_headers(self, path: str) -> dict:
+        try:
+            from src.config.config import Config
+            signer = Config.RELATION_SIGNER if isinstance(Config.RELATION_SIGNER, dict) else None
+        except Exception:
+            signer = None
+
+        if not signer:
+            return self._ticket_guard_headers_from_cookie()
+
+        ticket = str(signer.get('ticket') or '').strip()
+        ts_sign = str(signer.get('ts_sign') or '').strip()
+        public_key = str(signer.get('public_key') or signer.get('ree_public_key') or '').strip()
+        ecdh_key = self._decode_relation_ecdh_key(str(signer.get('ecdh_key') or ''))
+        if not ticket or not ts_sign or not public_key or not ecdh_key:
+            if self.debug_mode:
+                print('\033[93m[API] 关系动作 signer 不完整，降级使用 Cookie 中的 TicketGuard 头\033[0m')
+            return self._ticket_guard_headers_from_cookie()
+
+        timestamp = int(time.time())
+        sign_data = f'ticket={ticket}&path={path}&timestamp={timestamp}'
+        req_sign = base64.b64encode(
+            hmac.new(ecdh_key, sign_data.encode('utf-8'), hashlib.sha256).digest()
+        ).decode('ascii')
+        client_data = base64.b64encode(json.dumps({
+            'ts_sign': ts_sign,
+            'req_content': 'ticket,path,timestamp',
+            'req_sign': req_sign,
+            'timestamp': timestamp,
+        }, separators=(',', ':'), ensure_ascii=False).encode('utf-8')).decode('ascii')
+
+        return {
+            'bd-ticket-guard-ree-public-key': public_key,
+            'bd-ticket-guard-web-version': '2',
+            'bd-ticket-guard-web-sign-type': '1',
+            'bd-ticket-guard-version': '2',
+            'bd-ticket-guard-iteration-version': '1',
+            'bd-ticket-guard-client-data': client_data,
+        }
+
+    def _relation_uid_hash(self) -> str:
+        try:
+            from src.config.config import Config
+            signer = Config.RELATION_SIGNER if isinstance(Config.RELATION_SIGNER, dict) else None
+        except Exception:
+            signer = None
+        uid = str((signer or {}).get('uid') or '').strip()
+        if not uid:
+            cookie_dict = self._cookies_to_dict(self.cookie)
+            uid = str(cookie_dict.get('uid_tt') or cookie_dict.get('uid_tt_ss') or '').strip()
+        if not uid:
+            return ''
+        if len(uid) == 32 and re.fullmatch(r'[0-9a-fA-F]+', uid):
+            return uid.lower()
+        return hashlib.md5(uid.encode('utf-8')).hexdigest()
+
+    def _relation_dtrait(self) -> str:
+        try:
+            from src.config.config import Config
+            signer = Config.RELATION_SIGNER if isinstance(Config.RELATION_SIGNER, dict) else None
+        except Exception:
+            signer = None
+        dtrait = str((signer or {}).get('dtrait') or '').strip()
+        if dtrait:
+            return dtrait
+
+        for key in ('DOUYIN_RELATION_DTRAIT', 'DOUYIN_DTRAIT', 'X_TT_SESSION_DTRAIT'):
+            dtrait = str(os.environ.get(key) or '').strip()
+            if dtrait:
+                return dtrait
+
+        try:
+            config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'sign_config.json'))
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                dtrait = str(data.get('x_tt_session_dtrait') or data.get('dtrait') or '').strip()
+                if dtrait:
+                    return dtrait
+        except Exception:
+            pass
+
+        return ''
 
     def _get_ms_token(self) -> str:
         """生成msToken"""
@@ -532,6 +687,182 @@ class DouyinAPI:
 
         return json_response, True
 
+    async def signed_form_action_request(self, uri: str, body_params: dict, headers: dict, host: str = None) -> tuple[dict, bool]:
+        """POST 动作接口：公共参数放 query 并签名，动作参数放 form body。"""
+        base_host = host or self.host
+        url = f'{base_host}{uri}'
+        query_params = dict(self.common_params)
+        if 'aweme/v1/web/commit/item/digg' in uri or 'aweme/v1/web/aweme/collect' in uri:
+            query_params.update({
+                'update_version_code': '170400',
+                'version_code': '170400',
+                'version_name': '17.4.0',
+                'browser_name': 'Chrome',
+                'browser_version': '148.0.0.0',
+                'engine_version': '148.0.0.0',
+                'device_memory': '16',
+            })
+            if 'aweme/v1/web/commit/item/digg' in uri:
+                uid_hash = self._relation_uid_hash()
+                if uid_hash:
+                    query_params['uid'] = uid_hash
+        merged_headers = dict(self.common_headers)
+        merged_headers.update(headers or {})
+        merged_headers.update({
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+            'sec-ch-ua': '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
+        })
+        merged_headers.update(self._relation_ticket_guard_headers(uri))
+        is_relation_action = 'aweme/v1/web/commit/item/digg' in uri or 'aweme/v1/web/aweme/collect' in uri
+        dtrait = self._relation_dtrait()
+        if is_relation_action and not dtrait:
+            return {
+                'status_code': -1,
+                'status_msg': 'RELATION_DTRAIT_MISSING',
+                'message': '点赞安全参数未采集完整，请重新登录 Cookie 后重试',
+                '_security_blocked': True,
+            }, False
+        if dtrait:
+            merged_headers['x-tt-session-dtrait'] = dtrait
+        headers = merged_headers
+        query_params = await self._deal_params(query_params, headers)
+        query_params.update({
+            'browser_name': 'Chrome',
+            'browser_version': '148.0.0.0',
+            'engine_version': '148.0.0.0',
+            'device_memory': '16',
+        })
+        headers['x-secsdk-csrf-token'] = 'DOWNGRADE'
+        # www.douyin.com → www-hj.douyin.com 是同站跨源，浏览器发送 same-site
+        headers['sec-fetch-site'] = 'same-site'
+
+        query = urllib.parse.urlencode(query_params)
+        try:
+            query_params['a_bogus'] = douyin_sign.sign_detail(query, headers["User-Agent"])
+        except Exception as e:
+            if self.debug_mode:
+                print(f"\033[91m[API] 生成动作接口 a_bogus 失败: {e}\033[0m")
+            return {
+                'status_code': -1,
+                'status_msg': '签名生成失败',
+                'message': f'签名生成失败: {e}',
+            }, False
+
+        relation_uid = str(query_params.get('uid') or '')
+        try:
+            from src.config.config import Config
+            signer_present = isinstance(Config.RELATION_SIGNER, dict)
+        except Exception:
+            signer_present = False
+        logger.info(
+            'Douyin relation action request: path=%s query_keys=%s uid_present=%s uid_prefix=%s body_keys=%s signer_present=%s ticket_guard_cookie=%s ticket_guard_header=%s csrf_present=%s dtrait_present=%s',
+            uri,
+            ','.join(sorted(query_params.keys())),
+            bool(relation_uid),
+            relation_uid[:8],
+            ','.join(sorted(body_params.keys())),
+            signer_present,
+            'bd_ticket_guard_client_data' in (self.cookie or ''),
+            'bd-ticket-guard-client-data' in headers,
+            'x-secsdk-csrf-token' in headers,
+            'x-tt-session-dtrait' in headers,
+        )
+
+        if self.debug_mode:
+            print(f'\033[94m[API] 动作请求URL: {url}\033[0m')
+            print(f'\033[94m[API] 动作请求Query: {_redact_params(query_params)}\033[0m')
+            print(f'\033[94m[API] 动作请求Body: {body_params}\033[0m')
+            print(f'\033[94m[API] 动作请求头: {_redact_headers(headers)}\033[0m')
+
+        try:
+            response = await asyncio.to_thread(
+                _api_post,
+                url,
+                params=query_params,
+                data=body_params,
+                headers=headers,
+                timeout=(10, 30),
+            )
+        except requests.RequestException as e:
+            return {
+                'status_code': -1,
+                'status_msg': '网络请求失败',
+                'message': f'网络请求失败: {e}',
+            }, False
+
+        if response.status_code != 200 or len(response.content) == 0:
+            logger.warning(
+                'Douyin relation action rejected before JSON: path=%s http_status=%s content_length=%s headers=%s',
+                uri,
+                response.status_code,
+                len(response.content or b''),
+                {
+                    'bd-ticket-guard-result': response.headers.get('bd-ticket-guard-result') or '',
+                    'bd_passport_security_gateway': response.headers.get('bd_passport_security_gateway') or '',
+                },
+            )
+            ticket_guard_result = response.headers.get('bd-ticket-guard-result') or ''
+            passport_security_gateway = response.headers.get('bd_passport_security_gateway') or ''
+            if response.status_code == 403 and (ticket_guard_result or passport_security_gateway == '1'):
+                return {
+                    'status_code': response.status_code,
+                    'status_msg': 'SECURITY_GATEWAY_BLOCKED',
+                    'message': (
+                        f'抖音安全校验拒绝了本次操作（HTTP 403'
+                        f'{", TicketGuard " + ticket_guard_result if ticket_guard_result else ""}），'
+                        '当前 Cookie 仍会保留，请稍后重试，或先在抖音网页/客户端完成一次同类操作。'
+                    ),
+                    '_security_blocked': True,
+                }, False
+            return {
+                'status_code': response.status_code,
+                'status_msg': '请求失败',
+                'message': '请求失败，请检查 Cookie 或稍后重试',
+            }, False
+
+        try:
+            json_response = response.json()
+        except Exception as e:
+            return {
+                'status_code': -1,
+                'status_msg': 'JSON解析失败',
+                'message': f'JSON解析失败: {e}',
+            }, False
+
+        logger.info(
+            'Douyin relation action response: path=%s status_code=%s status_msg=%s',
+            uri,
+            json_response.get('status_code', 0),
+            json_response.get('status_msg') or json_response.get('message') or '',
+        )
+
+        if json_response.get('status_code', 0) != 0:
+            status_code = json_response.get('status_code')
+            api_message = self._extract_api_message(json_response)
+            if status_code == 8 or '未登录' in api_message:
+                return {
+                    'status_code': status_code,
+                    'status_msg': json_response.get('status_msg', ''),
+                    'message': (
+                        f'抖音动作接口未接受当前网页登录凭据（{api_message}），'
+                        '当前 Cookie 仍会保留。请稍后重试，或先在抖音网页/客户端完成一次同类操作。'
+                    ),
+                    '_security_blocked': True,
+                }, False
+            if self._looks_like_logged_out_error(json_response):
+                return self._build_login_required_error(json_response), False
+            if self._looks_like_login_or_verify_error(uri, json_response):
+                verify_hint, _ = self._build_verify_hint(uri, query_params, response)
+                verify_hint.update({
+                    'status_code': json_response.get('status_code'),
+                    'status_msg': json_response.get('status_msg', ''),
+                    'message': f'{api_message}，请完成验证或重新获取 Cookie 后重试',
+                })
+                return verify_hint, False
+            return json_response, False
+
+        return json_response, True
+
     def _im_common_headers(self, path: str) -> dict:
         headers = dict(self.common_headers)
         headers.update({
@@ -571,7 +902,7 @@ class DouyinAPI:
             headers.pop("Content-Type", None)
 
         params = await self._deal_params(params, headers)
-        query = '&'.join([f'{k}={urllib.parse.quote(str(v))}' for k, v in params.items()])
+        query = urllib.parse.urlencode(params)
         try:
             params["a_bogus"] = douyin_sign.sign_detail(query, headers["User-Agent"])
         except Exception as e:

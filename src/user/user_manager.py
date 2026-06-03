@@ -221,7 +221,11 @@ class DouyinUserManager:
 
         def push_candidate(url: str, metric: int, is_h264: bool = False, is_download_addr: bool = False, is_lowbr: bool = False) -> None:
             normalized_url = self._clean_video_download_url(url)
-            if not normalized_url or normalized_url in seen:
+            if (
+                not normalized_url
+                or normalized_url in seen
+                or self._is_dash_video_only_url(normalized_url)
+            ):
                 return
             seen.add(normalized_url)
             candidates.append({
@@ -255,9 +259,37 @@ class DouyinUserManager:
         push_candidate(self._first_url(video_data.get('play_addr')), 0, False, False, False)
         return candidates
 
+    def _is_dash_video_only_url(self, url: str) -> bool:
+        text = str(url or '').lower()
+        return 'media-video' in text or 'media_video' in text
+
     def _select_video_url(self, video_data: dict) -> str:
         urls = self.get_video_download_urls(video_data)
         return urls[0] if urls else ''
+
+    def _select_dash_video_url(self, video_data: dict) -> str:
+        for bit_rate in (video_data or {}).get('bit_rate') or []:
+            if not isinstance(bit_rate, dict) or bit_rate.get('format') != 'dash' or bit_rate.get('is_h265'):
+                continue
+            urls = (bit_rate.get('play_addr') or {}).get('url_list') or []
+            for url in urls:
+                text = str(url or '').strip()
+                if text and 'media-video' in text:
+                    return text
+            for url in urls:
+                text = str(url or '').strip()
+                if text:
+                    return text
+        return ''
+
+    def _select_dash_audio_url(self, video_data: dict) -> str:
+        for audio_rate in (video_data or {}).get('bit_rate_audio') or []:
+            url_list = ((audio_rate or {}).get('audio_meta') or {}).get('url_list') or {}
+            for key in ('main_url', 'backup_url', 'fallback_url'):
+                text = str(url_list.get(key) or '').strip()
+                if text:
+                    return text
+        return ''
 
     def get_video_download_urls(self, video_data: dict) -> list[str]:
         candidates = self._collect_video_candidates(video_data or {})
@@ -318,14 +350,6 @@ class DouyinUserManager:
         video_data = video_data or {}
         selected_url = self._select_video_url(video_data)
         return [{'type': 'video', 'url': selected_url}] if selected_url else []
-
-    def _video_display_url(self, video_data: dict, media_urls: list[dict] | None = None) -> str:
-        selected_url = self._select_video_url(video_data or {})
-        if selected_url:
-            return selected_url
-        if media_urls:
-            return str((media_urls[0] or {}).get('url') or '').strip()
-        return ''
 
     def _normalize_duration_seconds(self, value) -> int:
         try:
@@ -681,6 +705,10 @@ class DouyinUserManager:
             resp, succ = await self.api.common_request('/aweme/v1/web/aweme/detail/',
                                                      params,
                                                      {}, skip_sign=True)
+            if not succ or not (isinstance(resp, dict) and resp.get('aweme_detail')):
+                resp, succ = await self.api.common_request('/aweme/v1/web/aweme/detail/',
+                                                         params,
+                                                         {}, skip_sign=False)
 
             if isinstance(resp, dict) and (resp.get('_need_verify') or resp.get('_need_login')):
                 return resp
@@ -696,6 +724,8 @@ class DouyinUserManager:
             video_data = post.get('video') or {}
             play_url = self._first_url(video_data.get('play_addr'))
             selected_video_url = self._select_video_url(video_data)
+            dash_video_url = self._select_dash_video_url(video_data)
+            dash_audio_url = self._select_dash_audio_url(video_data)
             # 构建详情信息
             detail = {
                 'aweme_id': post.get('aweme_id', ''),
@@ -706,6 +736,8 @@ class DouyinUserManager:
                 'digg_count': post.get('statistics', {}).get('digg_count', 0),
                 'comment_count': post.get('statistics', {}).get('comment_count', 0),
                 'share_count': post.get('statistics', {}).get('share_count', 0),
+                'is_liked': self._post_boolish(post, 'user_digged', 'is_liked', 'digg_status'),
+                'is_collected': self._post_boolish(post, 'is_collected', 'is_collect', 'collect_status', 'collect_stat'),
                 'author': {
                     'nickname': post.get('author', {}).get('nickname', ''),
                     'unique_id': post.get('author', {}).get('uid', ''),
@@ -716,7 +748,8 @@ class DouyinUserManager:
                     'digg_count': post.get('statistics', {}).get('digg_count', 0),
                     'comment_count': post.get('statistics', {}).get('comment_count', 0),
                     'share_count': post.get('statistics', {}).get('share_count', 0),
-                    'play_count': post.get('statistics', {}).get('play_count', 0)
+                    'play_count': post.get('statistics', {}).get('play_count', 0),
+                    'collect_count': post.get('statistics', {}).get('collect_count', 0),
                 },
                 'media_type': media_type,
                 'media_urls': urls,
@@ -728,7 +761,9 @@ class DouyinUserManager:
                 'videos': urls,
                 'video': {
                     'play_addr': selected_video_url,
-                    'preview_addr': selected_video_url or self._first_url(video_data.get('preview_addr')) or play_url,
+                    'dash_addr': dash_video_url,
+                    'audio_addr': dash_audio_url,
+                    'preview_addr': play_url or self._first_url(video_data.get('preview_addr')) or selected_video_url,
                     'play_addr_h264': self._first_url(video_data.get('play_addr_h264')),
                     'play_addr_lowbr': self._first_url(video_data.get('play_addr_lowbr')),
                     'download_addr': self._first_url(video_data.get('download_addr')),
@@ -752,7 +787,7 @@ class DouyinUserManager:
                 if images:
                     detail['cover_url'] = self._first_url(images[0])
 
-            detail['bgm_url'] = self._extract_bgm_url(post)
+            detail['bgm_url'] = dash_audio_url or self._extract_bgm_url(post)
 
             return detail
             
@@ -1045,6 +1080,8 @@ class DouyinUserManager:
                 video_data = post.get('video') or {}
                 play_url = self._first_url(video_data.get('play_addr'))
                 selected_video_url = self._video_display_url(video_data, media_urls)
+                dash_video_url = self._select_dash_video_url(video_data)
+                dash_audio_url = self._select_dash_audio_url(video_data)
                 duration = self._raw_duration_value(video_data.get('duration', 0))
                 cover_url = ""
                 if video_data.get('cover'):
@@ -1058,6 +1095,8 @@ class DouyinUserManager:
                     'digg_count': post.get('statistics', {}).get('digg_count', 0),
                     'comment_count': post.get('statistics', {}).get('comment_count', 0),
                     'share_count': post.get('statistics', {}).get('share_count', 0),
+                    'is_liked': self._post_boolish(post, 'user_digged', 'is_liked', 'digg_status', default=True),
+                    'is_collected': self._post_boolish(post, 'is_collected', 'is_collect', 'collect_status', 'collect_stat'),
                     'cover_url': cover_url,
                     'duration': duration,
                     'duration_unit': 'milliseconds',
@@ -1065,7 +1104,7 @@ class DouyinUserManager:
                     'raw_media_type': media_type,
                     'status': self._extract_post_status(post),
                     'media_urls': media_urls,
-                    'bgm_url': self._extract_bgm_url(post),
+                    'bgm_url': dash_audio_url or self._extract_bgm_url(post),
                     'statistics': {
                         'digg_count': post.get('statistics', {}).get('digg_count', 0),
                         'comment_count': post.get('statistics', {}).get('comment_count', 0),
@@ -1075,6 +1114,8 @@ class DouyinUserManager:
                     },
                     'video': {
                         'play_addr': selected_video_url,
+                        'dash_addr': dash_video_url,
+                        'audio_addr': dash_audio_url,
                         'preview_addr': selected_video_url or play_url,
                         'play_addr_h264': self._first_url(video_data.get('play_addr_h264')),
                         'play_addr_lowbr': self._first_url(video_data.get('play_addr_lowbr')),
@@ -1118,6 +1159,8 @@ class DouyinUserManager:
         video_data = post.get('video') or {}
         play_url = self._first_url(video_data.get('play_addr'))
         selected_video_url = self._video_display_url(video_data, media_urls)
+        dash_video_url = self._select_dash_video_url(video_data)
+        dash_audio_url = self._select_dash_audio_url(video_data)
         duration = self._raw_duration_value(video_data.get('duration', 0))
         cover_url = ""
         if video_data.get('cover'):
@@ -1132,6 +1175,8 @@ class DouyinUserManager:
             'digg_count': post.get('statistics', {}).get('digg_count', 0),
             'comment_count': post.get('statistics', {}).get('comment_count', 0),
             'share_count': post.get('statistics', {}).get('share_count', 0),
+            'is_liked': self._post_boolish(post, 'user_digged', 'is_liked', 'digg_status'),
+            'is_collected': self._post_boolish(post, 'is_collected', 'is_collect', 'collect_status', 'collect_stat', default=True),
             'cover_url': cover_url,
             'duration': duration,
             'duration_unit': 'milliseconds',
@@ -1139,7 +1184,7 @@ class DouyinUserManager:
             'raw_media_type': media_type,
             'status': self._extract_post_status(post),
             'media_urls': media_urls,
-            'bgm_url': self._extract_bgm_url(post),
+            'bgm_url': dash_audio_url or self._extract_bgm_url(post),
             'statistics': {
                 'digg_count': post.get('statistics', {}).get('digg_count', 0),
                 'comment_count': post.get('statistics', {}).get('comment_count', 0),
@@ -1149,6 +1194,8 @@ class DouyinUserManager:
             },
             'video': {
                 'play_addr': selected_video_url,
+                'dash_addr': dash_video_url,
+                'audio_addr': dash_audio_url,
                 'preview_addr': selected_video_url or play_url,
                 'play_addr_h264': self._first_url(video_data.get('play_addr_h264')),
                 'play_addr_lowbr': self._first_url(video_data.get('play_addr_lowbr')),
@@ -1168,6 +1215,94 @@ class DouyinUserManager:
                 'sec_uid': author.get('sec_uid', ''),
                 'avatar_thumb': author.get('avatar_thumb', {}).get('url_list', [''])[0] if author.get('avatar_thumb') else ''
             }
+        }
+
+    @staticmethod
+    def _boolish(value) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value > 0
+        if isinstance(value, str):
+            return value.strip().lower() in ('1', 'true', 'yes')
+        return False
+
+    @classmethod
+    def _post_boolish(cls, post: dict, *keys: str, default: bool = False) -> bool:
+        if not isinstance(post, dict):
+            return default
+        saw_value = False
+        for key in keys:
+            if key not in post or post.get(key) is None:
+                continue
+            saw_value = True
+            if cls._boolish(post.get(key)):
+                return True
+        return False if saw_value else default
+
+    async def set_video_liked(self, aweme_id: str, liked: bool) -> dict:
+        """点赞或取消点赞作品。"""
+        aweme_id = str(aweme_id or '').strip()
+        if not aweme_id:
+            return {'_error': True, 'message': '作品ID不能为空'}
+
+        resp, success = await self.api.signed_form_action_request(
+            '/aweme/v1/web/commit/item/digg/',
+            {
+                'aweme_id': aweme_id,
+                'item_type': '0',
+                # Douyin web uses type=1 for digg and type=0 for cancel.
+                # The response field is_digg is not reliable for persistence.
+                'type': '1' if liked else '0',
+            },
+            {
+                'Referer': 'https://www.douyin.com/',
+                'Origin': 'https://www.douyin.com',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            },
+            host='https://www-hj.douyin.com',
+        )
+
+        if not success:
+            return resp if isinstance(resp, dict) else {'_error': True, 'message': '点赞失败'}
+
+        return {
+            'success': True,
+            'aweme_id': aweme_id,
+            'is_liked': liked,
+            'raw': resp,
+            'message': '点赞成功' if liked else '已取消点赞',
+        }
+
+    async def set_video_collected(self, aweme_id: str, collected: bool) -> dict:
+        """收藏或取消收藏作品。"""
+        aweme_id = str(aweme_id or '').strip()
+        if not aweme_id:
+            return {'_error': True, 'message': '作品ID不能为空'}
+
+        resp, success = await self.api.signed_form_action_request(
+            '/aweme/v1/web/aweme/collect/',
+            {
+                'action': '1' if collected else '0',
+                'aweme_id': aweme_id,
+                'aweme_type': '0',
+            },
+            {
+                'Referer': 'https://www.douyin.com/',
+                'Origin': 'https://www.douyin.com',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            },
+            host='https://www-hj.douyin.com',
+        )
+
+        if not success:
+            return resp if isinstance(resp, dict) else {'_error': True, 'message': '收藏失败'}
+
+        return {
+            'success': True,
+            'aweme_id': aweme_id,
+            'is_collected': collected,
+            'message': '收藏成功' if collected else '已取消收藏',
         }
 
     @staticmethod

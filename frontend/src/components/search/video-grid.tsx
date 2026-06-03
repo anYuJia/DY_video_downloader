@@ -251,11 +251,12 @@ export function VideoGrid() {
       </div>
 
       <FullscreenPlayer
+        key={playerIndex ?? "closed"}
         videos={videos}
         initialIndex={playerIndex ?? 0}
         open={playerIndex !== null}
         onClose={() => setPlayerIndex(null)}
-        onDownload={(video) => void downloadVideo(video)}
+        onDownload={(video) => downloadVideo(video)}
         onLoadMore={hasMore ? () => void loadMore() : undefined}
         onShowDetail={(video) => {
           setPlayerIndex(null);
@@ -273,7 +274,7 @@ export function VideoGrid() {
         onOpenChange={(open) => {
           if (!open) setDetailVideo(null);
         }}
-        onDownload={(video) => void downloadVideo(video)}
+        onDownload={(video) => downloadVideo(video)}
       />
     </>
   );

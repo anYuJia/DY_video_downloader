@@ -29,6 +29,7 @@ import type {
   VideoDetailResponse,
   VideoInfo,
   VideoMediaUrl,
+  VideoRelationResponse,
 } from "./contracts";
 
 export type * from "./contracts";
@@ -99,6 +100,7 @@ function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> 
 function emitCookieInvalidIfNeeded(payload: unknown) {
   if (!payload || typeof payload !== "object") return;
   const data = payload as Record<string, unknown>;
+  if (data.security_blocked) return;
   const message = String(data.message || "Cookie 已失效，请重新登录").trim();
   const failedWithLoginMessage = data.success === false && isCookieInvalidMessage(message);
   if (!data.need_login && !failedWithLoginMessage) return;
@@ -134,15 +136,20 @@ function getBrowserSocket() {
   return browserSocket;
 }
 
-async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers || {});
-  if (!headers.has("Content-Type") && init.body) {
+type RequestJsonOptions = RequestInit & {
+  suppressCookieInvalidEvent?: boolean;
+};
+
+async function requestJson<T>(path: string, init: RequestJsonOptions = {}): Promise<T> {
+  const { suppressCookieInvalidEvent, ...fetchInit } = init;
+  const headers = new Headers(fetchInit.headers || {});
+  if (!headers.has("Content-Type") && fetchInit.body) {
     headers.set("Content-Type", "application/json");
   }
 
   const response = await fetch(path, {
     credentials: "same-origin",
-    ...init,
+    ...fetchInit,
     headers,
   });
 
@@ -151,7 +158,9 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
     ? await response.json().catch(() => ({}))
     : {};
 
-  emitCookieInvalidIfNeeded(data);
+  if (!suppressCookieInvalidEvent) {
+    emitCookieInvalidIfNeeded(data);
+  }
 
   if (!response.ok) {
     const message =
@@ -823,6 +832,26 @@ export async function parseLink(link: string): Promise<LinkParseResponse> {
   };
 }
 
+export async function setVideoLiked(awemeId: string, liked: boolean): Promise<VideoRelationResponse> {
+  if (shouldUseBrowserBridge()) {
+    return requestJson("/api/video_like", {
+      method: "POST",
+      body: JSON.stringify({ aweme_id: awemeId, liked }),
+    });
+  }
+  return invoke("set_video_liked", { awemeId, aweme_id: awemeId, liked });
+}
+
+export async function setVideoCollected(awemeId: string, collected: boolean): Promise<VideoRelationResponse> {
+  if (shouldUseBrowserBridge()) {
+    return requestJson("/api/video_collect", {
+      method: "POST",
+      body: JSON.stringify({ aweme_id: awemeId, collected }),
+    });
+  }
+  return invoke("set_video_collected", { awemeId, aweme_id: awemeId, collected });
+}
+
 export async function downloadVideo(video: VideoInfo): Promise<ApiResponse & { task_id?: string }> {
   if (shouldUseBrowserBridge()) {
     const payload = getDownloadPayload(video);
@@ -1123,7 +1152,9 @@ export async function getFriendOnlineStatus(
 
 export async function verifyCookie(): Promise<CookieStatus> {
   if (shouldUseBrowserBridge()) {
-    return requestJson<CookieStatus>("/api/verify_cookie");
+    return requestJson<CookieStatus>("/api/verify_cookie", {
+      suppressCookieInvalidEvent: true,
+    });
   }
   return invoke("verify_cookie");
 }

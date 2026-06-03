@@ -14,6 +14,7 @@ import { useDownloads } from "@/hooks/use-downloads";
 import { VideoDetailModal } from "@/components/modals/video-detail";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
 import { useSearchStore } from "@/stores/search-store";
+import { useRecommendedStore } from "@/stores/recommended-store";
 import type { VideoInfo } from "@/lib/tauri";
 import { videoAuthorToUserInfo } from "@/lib/video-author";
 
@@ -23,6 +24,7 @@ export function RecommendedFeed() {
   const { videos, loading, loadingMore, hasMore, loadFeed, loadMore, refresh } = useRecommended();
   const { downloadVideo } = useDownloads();
   const openUser = useSearchStore((s) => s.openUser);
+  const updateRecommendedVideo = useRecommendedStore((s) => s.updateVideo);
   const [detailVideo, setDetailVideo] = useState<VideoInfo | null>(null);
   const [playerIndex, setPlayerIndex] = useState<number | null>(null);
   const [authorLoadingId, setAuthorLoadingId] = useState<string | null>(null);
@@ -157,11 +159,12 @@ export function RecommendedFeed() {
       )}
     </div>
       <FullscreenPlayer
+        key={playerIndex ?? "closed"}
         videos={videos}
         initialIndex={playerIndex ?? 0}
         open={playerIndex !== null}
         onClose={() => setPlayerIndex(null)}
-        onDownload={(video) => void downloadVideo(video)}
+        onDownload={(video) => downloadVideo(video)}
         onLoadMore={hasMore && !loadingMore ? () => void loadMore() : undefined}
         onShowDetail={(video) => {
           setPlayerIndex(null);
@@ -171,6 +174,7 @@ export function RecommendedFeed() {
           setPlayerIndex(null);
           void openAuthor(video);
         }}
+        onVideoUpdate={updateRecommendedVideo}
       />
       <VideoDetailModal
         video={detailVideo}
@@ -178,7 +182,7 @@ export function RecommendedFeed() {
         onOpenChange={(open) => {
           if (!open) setDetailVideo(null);
         }}
-        onDownload={(video) => void downloadVideo(video)}
+        onDownload={(video) => downloadVideo(video)}
       />
     </>
   );

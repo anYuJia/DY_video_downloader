@@ -17,6 +17,7 @@ import {
   Gauge,
   Heart,
   Info,
+  Loader2,
   Music,
   Pause,
   Play,
@@ -26,14 +27,22 @@ import {
   X,
 } from "lucide-react";
 import { cn, formatDuration, formatNumber } from "@/lib/utils";
-import { copyTextToClipboard, getVideoDetail, mediaProxyUrl, type VideoInfo } from "@/lib/tauri";
+import { prewarmVideoForPlayback } from "@/lib/media-prewarm";
+import {
+  copyTextToClipboard,
+  getVideoDetail,
+  mediaProxyUrl,
+  setVideoCollected,
+  setVideoLiked,
+  type VideoInfo,
+} from "@/lib/tauri";
 import {
   collectVideoMedia,
   collectVideoQualityOptions,
   getMediaProxyType,
   getVideoBgmUrl,
   isVideoLikeMedia,
-  shouldUseSeparateBgm,
+  shouldUseSeparateBgmForVideo,
   type VideoMediaItem,
 } from "@/lib/video-media";
 
@@ -43,10 +52,11 @@ interface FullscreenPlayerProps {
   initialMediaIndex?: number;
   open: boolean;
   onClose: () => void;
-  onDownload?: (video: VideoInfo) => void;
+  onDownload?: (video: VideoInfo) => void | Promise<void>;
   onLoadMore?: () => void;
   onShowDetail?: (video: VideoInfo) => void;
   onAuthor?: (video: VideoInfo) => void;
+  onVideoUpdate?: (video: VideoInfo) => void;
 }
 
 const IMAGE_DURATION_SECONDS = 1.5;
@@ -56,7 +66,7 @@ const PLAYER_VIDEO_INITIAL_STATUS_DELAY_MS = 450;
 const PLAYER_VIDEO_REBUFFER_STATUS_DELAY_MS = 1400;
 const PLAYER_VIDEO_LOAD_TIMEOUT_MS = 18_000;
 const PLAYER_NEXT_VIDEO_PRELOAD_AHEAD_SECONDS = 10;
-const MAX_PRELOADED_MEDIA_NODES = 24;
+const MAX_PRELOADED_MEDIA_NODES = 8;
 const MEDIA_TRANSITION_DISTANCE = 34;
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 const WHEEL_VIDEO_SWITCH_THRESHOLD = 80;
@@ -65,6 +75,7 @@ const WHEEL_IDLE_RESET_MS = 160;
 const PLAYER_PANEL_CLOSE_DELAY_MS = 220;
 const PROGRESS_PREVIEW_WIDTH = 184;
 const PROGRESS_PREVIEW_HEIGHT = 104;
+const PROGRESS_PREVIEW_SAMPLE_RATIOS = [0.08, 0.22, 0.38, 0.55, 0.72, 0.88] as const;
 
 type PlayerPanel = "volume" | "rate" | "quality" | "download" | "music";
 
@@ -118,6 +129,27 @@ function getDocumentVideoNode(reference: HTMLElement | null): HTMLVideoElement |
   return reference?.ownerDocument.querySelector("video") || null;
 }
 
+function releaseMediaElement(node: HTMLMediaElement | null | undefined) {
+  if (!node) return;
+  node.pause();
+  node.removeAttribute("src");
+  for (const source of Array.from(node.querySelectorAll("source"))) {
+    source.removeAttribute("src");
+  }
+  try {
+    node.load();
+  } catch {
+    // Ignore partial media implementations while the element is unmounting.
+  }
+}
+
+function releaseScopedMediaElements(reference: HTMLElement | null | undefined) {
+  if (!reference) return;
+  for (const node of Array.from(reference.querySelectorAll<HTMLMediaElement>("video, audio"))) {
+    releaseMediaElement(node);
+  }
+}
+
 function applyPlaybackRateToNode(node: HTMLMediaElement | null, rate: number) {
   if (!node) return;
   const safeRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
@@ -147,12 +179,15 @@ export function FullscreenPlayer({
   onLoadMore,
   onShowDetail,
   onAuthor,
+  onVideoUpdate,
 }: FullscreenPlayerProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [liked, setLiked] = useState(false);
   const [favorited, setFavorited] = useState(false);
+  const [relationHydrating, setRelationHydrating] = useState(false);
+  const [relationSubmitting, setRelationSubmitting] = useState<"like" | "collect" | null>(null);
   const [volume, setVolume] = useState(100);
   const [muted, setMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
@@ -164,6 +199,7 @@ export function FullscreenPlayer({
   const [showLoadStatus, setShowLoadStatus] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [bgmPlaying, setBgmPlaying] = useState(false);
+  const [downloadSubmitting, setDownloadSubmitting] = useState(false);
   const [videoOverrides, setVideoOverrides] = useState<Record<string, VideoInfo>>({});
   const [mediaTransitionDirection, setMediaTransitionDirection] = useState(0);
   const [navigationNotice, setNavigationNotice] = useState("");
@@ -193,6 +229,8 @@ export function FullscreenPlayer({
   const navigationNoticeTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const autoRetryCountRef = useRef(0);
   const refreshingDetailRef = useRef(false);
+  const relationRefreshSeqRef = useRef(0);
+  const relationRefreshedIdsRef = useRef(new Set<string>());
   const refreshedDetailIdsRef = useRef(new Set<string>());
   const videoProgressRafRef = useRef<number | null>(null);
   const progressSampleRef = useRef(0);
@@ -201,8 +239,12 @@ export function FullscreenPlayer({
   const pendingQualitySeekRef = useRef<number | null>(null);
   const preloadedMediaRef = useRef(new Map<string, boolean>());
   const preloadedNodesRef = useRef<Array<HTMLImageElement | HTMLVideoElement>>([]);
+  const wasOpenRef = useRef(open);
 
-  const rawCurrentVideo = videos[currentIndex] || null;
+  const safeInitialIndexForOpen = Math.min(Math.max(initialIndex, 0), Math.max(videos.length - 1, 0));
+  const isOpeningRender = open && !wasOpenRef.current;
+  const activeCurrentIndex = isOpeningRender ? safeInitialIndexForOpen : currentIndex;
+  const rawCurrentVideo = videos[activeCurrentIndex] || null;
   const currentVideo = rawCurrentVideo?.aweme_id
     ? videoOverrides[rawCurrentVideo.aweme_id] || rawCurrentVideo
     : rawCurrentVideo;
@@ -210,13 +252,21 @@ export function FullscreenPlayer({
     () => (currentVideo ? collectVideoMedia(currentVideo) : []),
     [currentVideo]
   );
-  const currentMedia = mediaItems[mediaIndex] || mediaItems[0] || null;
+  const safeInitialMediaIndexForOpen = Math.min(
+    Math.max(initialMediaIndex, 0),
+    Math.max(mediaItems.length - 1, 0)
+  );
+  const activeMediaIndex = isOpeningRender ? safeInitialMediaIndexForOpen : mediaIndex;
+  const currentMedia = mediaItems[activeMediaIndex] || mediaItems[0] || null;
   const qualityOptions = useMemo(
     () => currentMedia?.type === "video" ? collectVideoQualityOptions(currentVideo, currentMedia.url) : [],
     [currentMedia?.type, currentMedia?.url, currentVideo]
   );
   const selectedQualityOption = qualityOptions.find((option) => option.key === selectedQualityKey);
-  const activeQualityOption = selectedQualityOption || qualityOptions[0] || null;
+  const activeQualityOption =
+    selectedQualityKey === "auto" || selectedQualityOption?.isAuto
+      ? null
+      : selectedQualityOption || null;
   const currentPlaybackUrl =
     currentMedia && currentMedia.type === "video" && activeQualityOption
       ? activeQualityOption.url
@@ -228,7 +278,7 @@ export function FullscreenPlayer({
     ? playerMediaProxyUrl(currentMedia.poster, "image")
     : "";
   const mediaKey = currentMedia
-    ? `${currentVideo?.aweme_id || "video"}-${mediaIndex}-${currentMedia.type}-${currentMedia.url}-${reloadKey}`
+    ? `${currentVideo?.aweme_id || "video"}-${activeMediaIndex}-${currentMedia.type}-${currentMedia.url}-${reloadKey}`
     : "empty";
   const progressPct = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
   const hasMultipleMedia = mediaItems.length > 1;
@@ -238,20 +288,34 @@ export function FullscreenPlayer({
   const authorName =
     currentVideo?.author?.nickname || currentVideo?.author?.unique_id || "用户";
   const canOpenAuthor = Boolean(onAuthor && currentVideo?.author?.sec_uid);
-  const likeCount = (currentVideo?.statistics?.digg_count || 0) + (liked ? 1 : 0);
-  const favoriteBaseCount =
-    currentVideo?.statistics?.collect_count || currentVideo?.statistics?.digg_count || 0;
-  const favoriteCount = favoriteBaseCount + (favorited ? 1 : 0);
-  const musicUrl = getVideoBgmUrl(currentVideo);
+  const likeBaseCount = currentVideo?.statistics?.digg_count || 0;
+  const favoriteBaseCount = currentVideo?.statistics?.collect_count || 0;
+  const likeCount = Math.max(
+    0,
+    likeBaseCount + (liked && !currentVideo?.is_liked ? 1 : !liked && currentVideo?.is_liked ? -1 : 0)
+  );
+  const favoriteCount =
+    Math.max(
+      0,
+      favoriteBaseCount +
+        (favorited && !currentVideo?.is_collected ? 1 : !favorited && currentVideo?.is_collected ? -1 : 0)
+    );
+  const musicUrl = getVideoBgmUrl(currentVideo, currentMedia);
   const bgmProxyUrl = musicUrl ? mediaProxyUrl(musicUrl, "audio") : "";
   const effectiveVolume = muted ? 0 : volume;
   const shouldUseBgmForCurrentMedia = Boolean(
     currentMedia &&
       musicUrl &&
-      (shouldUseSeparateBgm(currentMedia) || hasMultipleMedia)
+      (shouldUseSeparateBgmForVideo(currentMedia, currentVideo) || hasMultipleMedia)
   );
   const showQualityControl = currentMedia?.type === "video";
   const hasQualityChoices = currentMedia?.type === "video" && qualityOptions.length > 1;
+
+  useEffect(() => {
+    setLiked(Boolean(currentVideo?.is_liked));
+    setFavorited(Boolean(currentVideo?.is_collected));
+    setRelationSubmitting(null);
+  }, [currentVideo?.aweme_id, currentVideo?.is_liked, currentVideo?.is_collected]);
 
   const stopVideoProgressLoop = useCallback(() => {
     if (videoProgressRafRef.current === null) return;
@@ -279,8 +343,15 @@ export function FullscreenPlayer({
   }, []);
 
   const syncVideoProgress = useCallback((node: HTMLVideoElement) => {
-    setCurrentTime(finiteMediaTime(node.currentTime));
+    const nextTime = finiteMediaTime(node.currentTime);
     const nextDuration = readMediaDuration(node);
+    setCurrentTime((current) => {
+      if (nextTime > 0 || current <= 0) return nextTime;
+      if (node.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || nextDuration <= 0) {
+        return current;
+      }
+      return nextTime;
+    });
     if (nextDuration > 0) {
       setDuration(nextDuration);
     }
@@ -312,10 +383,23 @@ export function FullscreenPlayer({
     videoProgressRafRef.current = window.requestAnimationFrame(tick);
   }, [syncVideoProgress]);
 
+  const setVideoElementRef = useCallback((node: HTMLVideoElement | null) => {
+    if (!node) return;
+
+    const previous = videoRef.current;
+    if (previous && previous !== node) {
+      releaseMediaElement(previous);
+    }
+    videoRef.current = node;
+  }, []);
+
   const goToVideo = useCallback((index: number) => {
     if (index < 0 || index >= videos.length) return;
     desiredPlayingRef.current = true;
     mediaSwitchingRef.current = false;
+    clearLoadTimers();
+    stopVideoProgressLoop();
+    releaseMediaElement(videoRef.current);
     setMediaTransitionDirection(0);
     setCurrentIndex(index);
     setMediaIndex(0);
@@ -324,7 +408,7 @@ export function FullscreenPlayer({
     progressSampleRef.current = 0;
     setPlaying(false);
     setReloadKey((value) => value + 1);
-  }, [videos.length]);
+  }, [clearLoadTimers, stopVideoProgressLoop, videos.length]);
 
   const showNavigationNotice = useCallback((message: string) => {
     setNavigationNotice(message);
@@ -336,6 +420,141 @@ export function FullscreenPlayer({
       navigationNoticeTimerRef.current = null;
     }, 1400);
   }, []);
+
+  const patchCurrentVideoRelation = useCallback((awemeId: string, patch: Partial<VideoInfo>) => {
+    setVideoOverrides((current) => {
+      const base = current[awemeId] || videos.find((video) => video.aweme_id === awemeId);
+      if (!base) return current;
+      const nextVideo = {
+        ...base,
+        ...patch,
+        statistics: patch.statistics
+          ? {
+              ...base.statistics,
+              ...patch.statistics,
+            }
+          : base.statistics,
+      };
+      onVideoUpdate?.(nextVideo);
+      return {
+        ...current,
+        [awemeId]: nextVideo,
+      };
+    });
+  }, [onVideoUpdate, videos]);
+
+  const refreshCurrentRelationState = useCallback(async (awemeId: string) => {
+    if (!awemeId) return;
+    const requestSeq = relationRefreshSeqRef.current + 1;
+    relationRefreshSeqRef.current = requestSeq;
+    setRelationHydrating(true);
+
+    try {
+      const result = await getVideoDetail(awemeId);
+      if (relationRefreshSeqRef.current !== requestSeq || !result.success || !result.video) {
+        return;
+      }
+
+      const detail = result.video;
+      const nextLiked = Boolean(detail.is_liked);
+      const nextCollected = Boolean(detail.is_collected);
+      setLiked(nextLiked);
+      setFavorited(nextCollected);
+      patchCurrentVideoRelation(awemeId, {
+        is_liked: nextLiked,
+        is_collected: nextCollected,
+        statistics: detail.statistics,
+      });
+    } catch {
+      // Keep the list-provided relation state if the detail refresh is blocked.
+    } finally {
+      if (relationRefreshSeqRef.current === requestSeq) {
+        setRelationHydrating(false);
+      }
+    }
+  }, [patchCurrentVideoRelation]);
+
+  useEffect(() => {
+    if (!open || loadState !== "ready" || !currentVideo?.aweme_id) return;
+    if (relationRefreshedIdsRef.current.has(currentVideo.aweme_id)) return;
+    relationRefreshedIdsRef.current.add(currentVideo.aweme_id);
+    const timer = window.setTimeout(() => {
+      void refreshCurrentRelationState(currentVideo.aweme_id);
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [currentVideo?.aweme_id, loadState, open, refreshCurrentRelationState]);
+
+  const toggleLike = useCallback(async () => {
+    const awemeId = currentVideo?.aweme_id;
+    if (!awemeId || relationSubmitting) return;
+
+    const previousLiked = liked;
+    const nextLiked = !previousLiked;
+    const nextCount = Math.max(0, likeBaseCount + (nextLiked ? 1 : -1));
+    relationRefreshSeqRef.current += 1;
+    setRelationSubmitting("like");
+    setLiked(nextLiked);
+    patchCurrentVideoRelation(awemeId, {
+      is_liked: nextLiked,
+      statistics: { ...currentVideo.statistics, digg_count: nextCount },
+    });
+
+    try {
+      const result = await setVideoLiked(awemeId, nextLiked);
+      if (!result.success) throw new Error(result.message || "点赞失败");
+      const actualLiked = result.is_liked ?? nextLiked;
+      const actualCount = Math.max(0, likeBaseCount + (actualLiked && !previousLiked ? 1 : !actualLiked && previousLiked ? -1 : 0));
+      setLiked(actualLiked);
+      patchCurrentVideoRelation(awemeId, {
+        is_liked: actualLiked,
+        statistics: { ...currentVideo.statistics, digg_count: actualCount },
+      });
+      if (actualLiked !== nextLiked) {
+        throw new Error(result.message || "点赞状态未生效");
+      }
+      showNavigationNotice(actualLiked ? "已点赞" : "已取消点赞");
+    } catch (error) {
+      setLiked(previousLiked);
+      patchCurrentVideoRelation(awemeId, {
+        is_liked: previousLiked,
+        statistics: currentVideo.statistics,
+      });
+      showNavigationNotice(error instanceof Error ? error.message : "点赞失败");
+    } finally {
+      setRelationSubmitting(null);
+    }
+  }, [currentVideo, likeBaseCount, liked, patchCurrentVideoRelation, relationSubmitting, showNavigationNotice]);
+
+  const toggleCollect = useCallback(async () => {
+    const awemeId = currentVideo?.aweme_id;
+    if (!awemeId || relationSubmitting) return;
+
+    const previousCollected = favorited;
+    const nextCollected = !previousCollected;
+    const nextCount = Math.max(0, favoriteBaseCount + (nextCollected ? 1 : -1));
+    relationRefreshSeqRef.current += 1;
+    setRelationSubmitting("collect");
+    setFavorited(nextCollected);
+    patchCurrentVideoRelation(awemeId, {
+      is_collected: nextCollected,
+      statistics: { ...currentVideo.statistics, collect_count: nextCount },
+    });
+
+    try {
+      const result = await setVideoCollected(awemeId, nextCollected);
+      if (!result.success) throw new Error(result.message || "收藏失败");
+      showNavigationNotice(nextCollected ? "已收藏" : "已取消收藏");
+    } catch (error) {
+      setFavorited(previousCollected);
+      patchCurrentVideoRelation(awemeId, {
+        is_collected: previousCollected,
+        statistics: currentVideo.statistics,
+      });
+      showNavigationNotice(error instanceof Error ? error.message : "收藏失败");
+    } finally {
+      setRelationSubmitting(null);
+    }
+  }, [currentVideo, favoriteBaseCount, favorited, patchCurrentVideoRelation, relationSubmitting, showNavigationNotice]);
 
   const playNextVideo = useCallback(() => {
     if (currentIndex < videos.length - 1) {
@@ -687,6 +906,19 @@ export function FullscreenPlayer({
     });
   }, [currentMedia?.url, currentPlaybackUrl]);
 
+  const handleDownloadCurrent = useCallback((event: ReactMouseEvent) => {
+    event.stopPropagation();
+    clearPanelCloseTimer();
+    setOpenPanel(null);
+
+    if (!currentVideo || !onDownload || downloadSubmitting) return;
+
+    setDownloadSubmitting(true);
+    Promise.resolve(onDownload(currentVideo)).finally(() => {
+      window.setTimeout(() => setDownloadSubmitting(false), 350);
+    });
+  }, [clearPanelCloseTimer, currentVideo, downloadSubmitting, onDownload]);
+
   const toggleMute = useCallback((event: ReactMouseEvent) => {
     event.stopPropagation();
     if (muted && volume === 0) {
@@ -856,6 +1088,13 @@ export function FullscreenPlayer({
     const audio = bgmRef.current;
     if (!audio) return;
     audio.pause();
+    setBgmPlaying(false);
+  }, []);
+
+  const releaseBgm = useCallback(() => {
+    const audio = bgmRef.current;
+    bgmSourceKeyRef.current = "";
+    releaseMediaElement(audio);
     setBgmPlaying(false);
   }, []);
 
@@ -1039,19 +1278,56 @@ export function FullscreenPlayer({
     while (preloadedNodesRef.current.length > MAX_PRELOADED_MEDIA_NODES) {
       const removed = preloadedNodesRef.current.shift();
       if (removed instanceof HTMLVideoElement) {
-        removed.pause();
+        releaseMediaElement(removed);
+      } else if (removed) {
         removed.removeAttribute("src");
-        removed.load();
       }
     }
   }, []);
 
-  const preloadVideoAtIndex = useCallback((index: number, full = true) => {
+  const releasePreloadedMedia = useCallback(() => {
+    preloadedMediaRef.current.clear();
+    for (const node of preloadedNodesRef.current) {
+      if (node instanceof HTMLVideoElement) {
+        releaseMediaElement(node);
+      } else {
+        node.removeAttribute("src");
+      }
+    }
+    preloadedNodesRef.current = [];
+  }, []);
+
+  const preloadVideoAtIndex = useCallback((index: number, full = false) => {
     const video = videos[index];
     if (!video) return;
     const firstMedia = collectVideoMedia(video)[0];
     preloadMediaItem(firstMedia, full);
   }, [preloadMediaItem, videos]);
+
+  const releasePlayerMediaResources = useCallback(() => {
+    desiredPlayingRef.current = false;
+    playingRef.current = false;
+    mediaSwitchingRef.current = false;
+    qualitySwitchingRef.current = false;
+    clearLoadTimers();
+    stopVideoProgressLoop();
+    releaseMediaElement(videoRef.current);
+    releaseScopedMediaElements(playerRootRef.current);
+    releaseBgm();
+    releasePreloadedMedia();
+  }, [clearLoadTimers, releaseBgm, releasePreloadedMedia, stopVideoProgressLoop]);
+
+  const closePlayer = useCallback(() => {
+    wasOpenRef.current = false;
+    releasePlayerMediaResources();
+    setPlaying(false);
+    setShowLoadStatus(false);
+    onClose();
+  }, [onClose, releasePlayerMediaResources]);
+
+  useEffect(() => {
+    wasOpenRef.current = open;
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -1079,8 +1355,6 @@ export function FullscreenPlayer({
   }, [initialIndex, initialMediaIndex, initialVideoKey, open]);
 
   useEffect(() => {
-    setLiked(false);
-    setFavorited(false);
     setOpenPanel(null);
   }, [currentVideo?.aweme_id]);
 
@@ -1103,9 +1377,19 @@ export function FullscreenPlayer({
       }
       clearLoadTimers();
       stopVideoProgressLoop();
-      pauseBgm();
+      releaseBgm();
+      releasePreloadedMedia();
+      releaseMediaElement(videoRef.current);
+      releaseScopedMediaElements(playerRootRef.current);
     };
-  }, [clearLoadTimers, pauseBgm, stopVideoProgressLoop]);
+  }, [clearLoadTimers, releaseBgm, releasePreloadedMedia, stopVideoProgressLoop]);
+
+  useEffect(() => {
+    if (open) return;
+    setPlaying(false);
+    setShowLoadStatus(false);
+    releasePlayerMediaResources();
+  }, [open, releasePlayerMediaResources]);
 
   useEffect(() => {
     if (!open) return;
@@ -1139,7 +1423,7 @@ export function FullscreenPlayer({
       return;
     }
     if (qualityOptions.some((option) => option.key === selectedQualityKey)) return;
-    setSelectedQualityKey(qualityOptions[0].key);
+    setSelectedQualityKey("auto");
   }, [qualityOptions, selectedQualityKey]);
 
   useEffect(() => {
@@ -1155,8 +1439,10 @@ export function FullscreenPlayer({
     setShowLoadStatus(false);
     clearLoadTimers();
 
-    setCurrentTime(0);
-    setDuration(currentMedia?.type === "image" ? IMAGE_DURATION_SECONDS : 0);
+    if (!currentMedia || currentMedia.type === "image") {
+      setCurrentTime(0);
+      setDuration(currentMedia?.type === "image" ? IMAGE_DURATION_SECONDS : 0);
+    }
     progressSampleRef.current = 0;
     setLoadState(currentMedia ? "loading" : "error");
     setPlaying(Boolean(currentMedia && desiredPlayingRef.current));
@@ -1191,12 +1477,6 @@ export function FullscreenPlayer({
   }, [currentVideo, mediaItems.length, open, refreshCurrentVideoDetail]);
 
   useEffect(() => {
-    if (!open || !currentVideo || currentMedia?.type !== "video") return;
-    if (qualityOptions.length > 1) return;
-    void refreshCurrentVideoDetail();
-  }, [currentMedia?.type, currentVideo, open, qualityOptions.length, refreshCurrentVideoDetail]);
-
-  useEffect(() => {
     if (!open || !onLoadMore || videos.length === 0) return;
     const remaining = videos.length - currentIndex - 1;
     if (remaining > LOAD_MORE_THRESHOLD) return;
@@ -1209,20 +1489,21 @@ export function FullscreenPlayer({
     if (!open || !currentMedia || !isVideoLikeMedia(currentMedia)) return;
     if (duration <= 0 || currentTime <= 0) return;
     if (duration - currentTime > PLAYER_NEXT_VIDEO_PRELOAD_AHEAD_SECONDS) return;
-    preloadVideoAtIndex(currentIndex + 1, true);
+    preloadVideoAtIndex(currentIndex + 1, false);
   }, [currentIndex, currentMedia, currentTime, duration, open, preloadVideoAtIndex]);
 
   useEffect(() => {
-    preloadedMediaRef.current.clear();
-    for (const node of preloadedNodesRef.current) {
-      if (node instanceof HTMLVideoElement) {
-        node.pause();
-        node.removeAttribute("src");
-        node.load();
-      }
-    }
-    preloadedNodesRef.current = [];
-  }, [currentVideo?.aweme_id]);
+    if (!open) return;
+    const timer = window.setTimeout(() => {
+      prewarmVideoForPlayback(videos[currentIndex + 1]);
+      prewarmVideoForPlayback(videos[currentIndex - 1]);
+    }, loadState === "ready" ? 160 : 700);
+    return () => window.clearTimeout(timer);
+  }, [currentIndex, loadState, open, videos]);
+
+  useEffect(() => {
+    releasePreloadedMedia();
+  }, [currentVideo?.aweme_id, releasePreloadedMedia]);
 
   useEffect(() => {
     if (!open || mediaItems.length <= 1 || loadState !== "ready") return;
@@ -1239,7 +1520,7 @@ export function FullscreenPlayer({
     orderedIndexes.forEach((index, order) => {
       const timer = window.setTimeout(() => {
         if (cancelled) return;
-        preloadMediaItem(mediaItems[index], true);
+        preloadMediaItem(mediaItems[index], false);
       }, order * 140);
       timers.push(timer);
     });
@@ -1370,7 +1651,7 @@ export function FullscreenPlayer({
       let handled = true;
 
       if (key === "Escape") {
-        onClose();
+        closePlayer();
       } else if (isEditableTarget) {
         handled = false;
       } else if (key === "ArrowUp" || lowerKey === "k") {
@@ -1394,7 +1675,7 @@ export function FullscreenPlayer({
     };
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
-  }, [open, onClose, playNextMedia, playNextVideo, playPrevMedia, playPrevVideo, togglePlay]);
+  }, [closePlayer, open, playNextMedia, playNextVideo, playPrevMedia, playPrevVideo, togglePlay]);
 
   const handleWheel = useCallback((event: ReactWheelEvent) => {
     event.preventDefault();
@@ -1475,11 +1756,11 @@ export function FullscreenPlayer({
             className="absolute inset-x-0 top-0 z-30 flex items-center bg-gradient-to-b from-black/70 to-transparent px-5 py-4"
             onClick={(event) => event.stopPropagation()}
           >
-            <button
-              onClick={onClose}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-md transition-[background-color,transform] hover:bg-white/20 active:scale-[0.96]"
-              aria-label="关闭播放器"
-            >
+	            <button
+	              onClick={closePlayer}
+	              className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-md transition-[background-color,transform] hover:bg-white/20 active:scale-[0.96]"
+	              aria-label="关闭播放器"
+	            >
               <X className="h-5 w-5" />
             </button>
           </div>
@@ -1502,7 +1783,7 @@ export function FullscreenPlayer({
               >
                 {currentMedia && isVideoLikeMedia(currentMedia) && (
                   <video
-                    ref={videoRef}
+                    ref={setVideoElementRef}
                     src={currentMediaSrc}
                     poster={currentPosterSrc}
 	                    className="pointer-events-none h-full max-h-full w-full max-w-full object-contain"
@@ -1510,7 +1791,7 @@ export function FullscreenPlayer({
                     loop={!hasMultipleMedia}
                     playsInline
                     muted={shouldUseBgmForCurrentMedia || muted || volume === 0}
-	                    preload="auto"
+	                    preload="metadata"
 	                    onPointerDown={handleSurfacePointerDown}
 	                    onPointerUp={handleSurfacePointerUp}
 	                    onPointerCancel={handleSurfacePointerCancel}
@@ -1716,11 +1997,12 @@ export function FullscreenPlayer({
                 disabled={!canOpenAuthor}
                 title={canOpenAuthor ? "进入作者主页" : "作者信息不可用"}
                 aria-label={canOpenAuthor ? `进入 ${authorName} 主页` : "作者信息不可用"}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (!currentVideo || !canOpenAuthor) return;
-                  onAuthor?.(currentVideo);
-                }}
+	                    onClick={(event) => {
+	                      event.stopPropagation();
+	                      if (!currentVideo || !canOpenAuthor) return;
+	                      releasePlayerMediaResources();
+	                      onAuthor?.(currentVideo);
+	                    }}
               >
                 <div className="h-7 w-7 shrink-0 overflow-hidden rounded-full border-2 border-white/30 bg-white/10">
                   {authorAvatar ? (
@@ -1744,12 +2026,17 @@ export function FullscreenPlayer({
                   count={likeCount}
                   active={liked}
                   activeClassName="fill-accent text-accent"
+                  disabled={relationSubmitting !== null}
                   onClick={(event) => {
                     event.stopPropagation();
-                    setLiked((value) => !value);
+                    void toggleLike();
                   }}
                 >
-                  <Heart className={cn("h-4 w-4", liked && "fill-accent text-accent")} />
+                  {relationSubmitting === "like" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Heart className={cn("h-4 w-4", liked && "fill-accent text-accent")} />
+                  )}
                 </InlinePlayerButton>
 
                 <InlinePlayerButton
@@ -1757,12 +2044,17 @@ export function FullscreenPlayer({
                   count={favoriteCount}
                   active={favorited}
                   activeClassName="fill-warning text-warning"
+                  disabled={relationSubmitting !== null}
                   onClick={(event) => {
                     event.stopPropagation();
-                    setFavorited((value) => !value);
+                    void toggleCollect();
                   }}
                 >
-                  <Star className={cn("h-4 w-4", favorited && "fill-warning text-warning")} />
+                  {relationSubmitting === "collect" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Star className={cn("h-4 w-4", favorited && "fill-warning text-warning")} />
+                  )}
                 </InlinePlayerButton>
 
                 <div
@@ -1938,12 +2230,12 @@ export function FullscreenPlayer({
                   onMouseLeave={() => schedulePanelClose("download")}
                 >
                   <PlayerIconButton
-                    label="下载作品"
-                    onClick={(event) => togglePanel("download", event)}
-                    onPointerDown={(event) => openPanelOnPointerDown("download", event)}
-                    active={openPanel === "download"}
+                    label={downloadSubmitting ? "正在加入下载" : "下载作品"}
+                    onClick={handleDownloadCurrent}
+                    active={openPanel === "download" || downloadSubmitting}
+                    disabled={!onDownload || downloadSubmitting}
                   >
-                    <Download className="h-4 w-4" />
+                    {downloadSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                   </PlayerIconButton>
                   <AnimatePresence>
                     {openPanel === "download" && (
@@ -1963,16 +2255,12 @@ export function FullscreenPlayer({
                         <div className="flex flex-col gap-1">
                           <button
                             type="button"
-                            disabled={!onDownload}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onDownload?.(currentVideo);
-                              setOpenPanel(null);
-                            }}
+                            disabled={!onDownload || downloadSubmitting}
+                            onClick={handleDownloadCurrent}
                             className="flex h-8 items-center justify-center gap-1 rounded-md bg-accent/18 text-[0.72rem] font-semibold text-accent transition-colors hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-45"
                           >
-                            <Download className="h-3.5 w-3.5" />
-                            下载作品
+                            {downloadSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                            {downloadSubmitting ? "正在加入" : "下载作品"}
                           </button>
                           <button
                             type="button"
@@ -2050,10 +2338,11 @@ export function FullscreenPlayer({
                 {onShowDetail && (
                   <PlayerIconButton
                     label="查看详情"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onShowDetail(currentVideo);
-                    }}
+	                    onClick={(event) => {
+	                      event.stopPropagation();
+	                      releasePlayerMediaResources();
+	                      onShowDetail(currentVideo);
+	                    }}
                   >
                     <Info className="h-4 w-4" />
                   </PlayerIconButton>
@@ -2062,16 +2351,16 @@ export function FullscreenPlayer({
             </div>
 
             <div className="mt-0.5">
-              <ProgressBar
-                duration={duration}
-                currentTime={currentTime}
-                progressPct={progressPct}
-                mediaItems={mediaItems}
-                mediaIndex={mediaIndex}
-                previewSrc={currentMedia && isVideoLikeMedia(currentMedia) ? currentMediaSrc : ""}
-                onSeek={handleSeek}
-                onSelectMedia={switchToMedia}
-              />
+	              <ProgressBar
+	                duration={duration}
+	                currentTime={currentTime}
+	                progressPct={progressPct}
+	                mediaItems={mediaItems}
+	                mediaIndex={activeMediaIndex}
+	                previewSrc={currentMedia && isVideoLikeMedia(currentMedia) ? currentMediaSrc : ""}
+	                onSeek={handleSeek}
+	                onSelectMedia={switchToMedia}
+	              />
 
               <p className="mt-1 line-clamp-2 text-[0.82rem] leading-[1.32] text-white/90 drop-shadow-md">
                 {currentVideo.desc || "无描述"}
@@ -2353,6 +2642,8 @@ function ProgressBar({
               <ProgressFramePreview
                 src={previewSrc || ""}
                 time={hoverPreview.time}
+                duration={duration}
+                visible={hoverPreview.visible}
               />
               <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-black/78 to-transparent px-2 pb-1.5 pt-5">
                 <span className="rounded-full bg-black/72 px-2 py-0.5 text-[0.68rem] font-bold tabular-nums text-white shadow-[0_8px_18px_rgba(0,0,0,0.28)]">
@@ -2371,111 +2662,191 @@ function ProgressBar({
 function ProgressFramePreview({
   src,
   time,
+  duration,
+  visible,
 }: {
   src: string;
   time: number;
+  duration: number;
+  visible: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const latestTimeRef = useRef(time);
+  const latestVisibleRef = useRef(visible);
+  const thumbnailCacheRef = useRef<Array<{ time: number; dataUrl: string }>>([]);
+  const pendingSeekFrameRef = useRef<number | null>(null);
+  const pendingDrawFrameRef = useRef<number | null>(null);
+  const sampleTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const samplingCancelledRef = useRef(false);
+  const lastExactTimeRef = useRef(-1);
+  const [fallbackFrame, setFallbackFrame] = useState<string>("");
   const [frameReady, setFrameReady] = useState(false);
 
   useEffect(() => {
-    setFrameReady(false);
-  }, [src]);
+    latestTimeRef.current = time;
+  }, [time]);
+
+  useEffect(() => {
+    latestVisibleRef.current = visible;
+  }, [visible]);
+
+  const nearestFallbackFrame = useCallback((targetTime: number) => {
+    let best = "";
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const cached of thumbnailCacheRef.current) {
+      const distance = Math.abs(cached.time - targetTime);
+      if (distance < bestDistance) {
+        best = cached.dataUrl;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }, []);
+
+  const drawPreviewFrame = useCallback(() => {
+    const node = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!node || !canvas || !node.videoWidth || !node.videoHeight || node.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      return false;
+    }
+
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const canvasWidth = Math.round(PROGRESS_PREVIEW_WIDTH * dpr);
+    const canvasHeight = Math.round(PROGRESS_PREVIEW_HEIGHT * dpr);
+    if (canvas.width !== canvasWidth) canvas.width = canvasWidth;
+    if (canvas.height !== canvasHeight) canvas.height = canvasHeight;
+
+    const sourceAspect = node.videoWidth / node.videoHeight;
+    const targetAspect = canvasWidth / canvasHeight;
+    let sourceX = 0;
+    let sourceY = 0;
+    let sourceWidth = node.videoWidth;
+    let sourceHeight = node.videoHeight;
+
+    if (sourceAspect > targetAspect) {
+      sourceWidth = node.videoHeight * targetAspect;
+      sourceX = (node.videoWidth - sourceWidth) / 2;
+    } else {
+      sourceHeight = node.videoWidth / targetAspect;
+      sourceY = (node.videoHeight - sourceHeight) / 2;
+    }
+
+    try {
+      const context = canvas.getContext("2d");
+      if (!context) return false;
+      context.clearRect(0, 0, canvasWidth, canvasHeight);
+      context.drawImage(
+        node,
+        sourceX,
+        sourceY,
+        sourceWidth,
+        sourceHeight,
+        0,
+        0,
+        canvasWidth,
+        canvasHeight
+      );
+      setFrameReady(true);
+      lastExactTimeRef.current = node.currentTime;
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const capturePreviewDataUrl = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !drawPreviewFrame()) return "";
+    try {
+      return canvas.toDataURL("image/jpeg", 0.72);
+    } catch {
+      return "";
+    }
+  }, [drawPreviewFrame]);
+
+  const requestPreviewDraw = useCallback(() => {
+    if (pendingDrawFrameRef.current !== null) {
+      window.cancelAnimationFrame(pendingDrawFrameRef.current);
+    }
+    pendingDrawFrameRef.current = window.requestAnimationFrame(() => {
+      pendingDrawFrameRef.current = null;
+      drawPreviewFrame();
+    });
+  }, [drawPreviewFrame]);
+
+  const seekPreview = useCallback((targetTime: number) => {
+    const node = videoRef.current;
+    if (!node || !src) return;
+    const fallback = nearestFallbackFrame(targetTime);
+    if (fallback) {
+      setFallbackFrame(fallback);
+      if (Math.abs(lastExactTimeRef.current - targetTime) > 0.35) {
+        setFrameReady(false);
+      }
+    }
+    if (node.readyState < HTMLMediaElement.HAVE_METADATA) {
+      try {
+        node.load();
+      } catch {
+        // Loading the preview node is opportunistic.
+      }
+      return;
+    }
+
+    const duration = finiteMediaTime(node.duration);
+    const safeTime = duration > 0
+      ? Math.min(Math.max(0, targetTime), Math.max(0, duration - 0.05))
+      : Math.max(0, targetTime);
+    try {
+      if (Math.abs(node.currentTime - safeTime) > 0.15) {
+        node.currentTime = safeTime;
+        return;
+      }
+      requestPreviewDraw();
+    } catch {
+      // Preview seeking is best-effort; the main player owns actual playback.
+    }
+  }, [nearestFallbackFrame, requestPreviewDraw, src]);
+
+  useEffect(() => {
+    if (pendingSeekFrameRef.current !== null) {
+      window.cancelAnimationFrame(pendingSeekFrameRef.current);
+    }
+    pendingSeekFrameRef.current = window.requestAnimationFrame(() => {
+      pendingSeekFrameRef.current = null;
+      seekPreview(latestTimeRef.current);
+    });
+    return () => {
+      if (pendingSeekFrameRef.current !== null) {
+        window.cancelAnimationFrame(pendingSeekFrameRef.current);
+        pendingSeekFrameRef.current = null;
+      }
+    };
+  }, [seekPreview, time]);
 
   useEffect(() => {
     const node = videoRef.current;
     if (!node || !src) return;
 
-    let cancelled = false;
+    setFrameReady(false);
+    setFallbackFrame("");
+    thumbnailCacheRef.current = [];
+    samplingCancelledRef.current = false;
     let playFallbackTimer: ReturnType<typeof window.setTimeout> | null = null;
-    let animationFrame: number | null = null;
 
-    const drawFrame = () => {
-      if (cancelled) return false;
-      const canvas = canvasRef.current;
-      if (!canvas || !node.videoWidth || !node.videoHeight || node.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-        return false;
-      }
-
-      const dpr = Math.max(1, window.devicePixelRatio || 1);
-      const canvasWidth = Math.round(PROGRESS_PREVIEW_WIDTH * dpr);
-      const canvasHeight = Math.round(PROGRESS_PREVIEW_HEIGHT * dpr);
-      if (canvas.width !== canvasWidth) canvas.width = canvasWidth;
-      if (canvas.height !== canvasHeight) canvas.height = canvasHeight;
-
-      const sourceAspect = node.videoWidth / node.videoHeight;
-      const targetAspect = canvasWidth / canvasHeight;
-      let sourceX = 0;
-      let sourceY = 0;
-      let sourceWidth = node.videoWidth;
-      let sourceHeight = node.videoHeight;
-
-      if (sourceAspect > targetAspect) {
-        sourceWidth = node.videoHeight * targetAspect;
-        sourceX = (node.videoWidth - sourceWidth) / 2;
-      } else {
-        sourceHeight = node.videoWidth / targetAspect;
-        sourceY = (node.videoHeight - sourceHeight) / 2;
-      }
-
-      try {
-        const context = canvas.getContext("2d");
-        if (!context) return false;
-        context.clearRect(0, 0, canvasWidth, canvasHeight);
-        context.drawImage(
-          node,
-          sourceX,
-          sourceY,
-          sourceWidth,
-          sourceHeight,
-          0,
-          0,
-          canvasWidth,
-          canvasHeight
-        );
-        setFrameReady(true);
-        return true;
-      } catch {
-        return false;
-      }
-    };
-
-    const seekPreview = () => {
-      const duration = finiteMediaTime(node.duration);
-      const safeTime = duration > 0
-        ? Math.min(Math.max(0, time), Math.max(0, duration - 0.05))
-        : Math.max(0, time);
-      try {
-        if (Math.abs(node.currentTime - safeTime) > 0.08) {
-          node.currentTime = safeTime;
-          return;
-        }
-        drawFrame();
-      } catch {
-        // Preview seeking is best-effort; the main player owns actual playback.
-      }
-    };
-    const requestDraw = () => {
-      if (animationFrame !== null) {
-        window.cancelAnimationFrame(animationFrame);
-      }
-      animationFrame = window.requestAnimationFrame(() => {
-        animationFrame = null;
-        drawFrame();
-      });
-    };
+    const handleLoadedMetadata = () => seekPreview(latestTimeRef.current);
     const triggerMutedDecode = () => {
-      if (drawFrame()) return;
+      if (drawPreviewFrame()) return;
       const playResult = node.play();
       if (playResult && typeof playResult.then === "function") {
         playResult
           .then(() => {
             node.pause();
-            requestDraw();
+            requestPreviewDraw();
           })
           .catch(() => {
-            requestDraw();
+            requestPreviewDraw();
           });
       }
     };
@@ -2483,13 +2854,14 @@ function ProgressFramePreview({
     node.muted = true;
     node.playsInline = true;
 
-    node.addEventListener("loadedmetadata", seekPreview);
-    node.addEventListener("loadeddata", requestDraw);
-    node.addEventListener("canplay", requestDraw);
-    node.addEventListener("seeked", requestDraw);
+    node.addEventListener("loadedmetadata", handleLoadedMetadata);
+    node.addEventListener("loadeddata", requestPreviewDraw);
+    node.addEventListener("canplay", requestPreviewDraw);
+    node.addEventListener("seeked", requestPreviewDraw);
+    node.addEventListener("timeupdate", requestPreviewDraw);
 
     if (node.readyState >= HTMLMediaElement.HAVE_METADATA) {
-      seekPreview();
+      seekPreview(latestTimeRef.current);
     } else {
       try {
         node.load();
@@ -2501,19 +2873,77 @@ function ProgressFramePreview({
     playFallbackTimer = window.setTimeout(triggerMutedDecode, 180);
 
     return () => {
-      cancelled = true;
+      samplingCancelledRef.current = true;
       if (playFallbackTimer !== null) {
         window.clearTimeout(playFallbackTimer);
       }
-      if (animationFrame !== null) {
-        window.cancelAnimationFrame(animationFrame);
+      if (sampleTimerRef.current !== null) {
+        window.clearTimeout(sampleTimerRef.current);
+        sampleTimerRef.current = null;
       }
-      node.removeEventListener("loadedmetadata", seekPreview);
-      node.removeEventListener("loadeddata", requestDraw);
-      node.removeEventListener("canplay", requestDraw);
-      node.removeEventListener("seeked", requestDraw);
+      if (pendingDrawFrameRef.current !== null) {
+        window.cancelAnimationFrame(pendingDrawFrameRef.current);
+        pendingDrawFrameRef.current = null;
+      }
+      node.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      node.removeEventListener("loadeddata", requestPreviewDraw);
+      node.removeEventListener("canplay", requestPreviewDraw);
+      node.removeEventListener("seeked", requestPreviewDraw);
+      node.removeEventListener("timeupdate", requestPreviewDraw);
+      releaseMediaElement(node);
     };
-  }, [src, time]);
+  }, [drawPreviewFrame, requestPreviewDraw, seekPreview, src]);
+
+  useEffect(() => {
+    const node = videoRef.current;
+    if (!node || !src || duration <= 0) return;
+    if (thumbnailCacheRef.current.length > 0) return;
+
+    samplingCancelledRef.current = false;
+    const sampleTimes = PROGRESS_PREVIEW_SAMPLE_RATIOS
+      .map((ratio) => Math.min(Math.max(0.05, duration * ratio), Math.max(0.05, duration - 0.08)));
+    let index = 0;
+
+    const runNextSample = () => {
+      if (samplingCancelledRef.current || latestVisibleRef.current || index >= sampleTimes.length) {
+        return;
+      }
+      if (node.readyState < HTMLMediaElement.HAVE_METADATA) {
+        sampleTimerRef.current = window.setTimeout(runNextSample, 180);
+        return;
+      }
+
+      const sampleTime = sampleTimes[index];
+      index += 1;
+
+      const handleSeeked = () => {
+        node.removeEventListener("seeked", handleSeeked);
+        if (!samplingCancelledRef.current && !latestVisibleRef.current) {
+          const dataUrl = capturePreviewDataUrl();
+          if (dataUrl) {
+            thumbnailCacheRef.current.push({ time: sampleTime, dataUrl });
+          }
+        }
+        sampleTimerRef.current = window.setTimeout(runNextSample, 160);
+      };
+
+      try {
+        node.addEventListener("seeked", handleSeeked, { once: true });
+        node.currentTime = sampleTime;
+      } catch {
+        node.removeEventListener("seeked", handleSeeked);
+        sampleTimerRef.current = window.setTimeout(runNextSample, 160);
+      }
+    };
+
+    sampleTimerRef.current = window.setTimeout(runNextSample, 260);
+    return () => {
+      if (sampleTimerRef.current !== null) {
+        window.clearTimeout(sampleTimerRef.current);
+        sampleTimerRef.current = null;
+      }
+    };
+  }, [capturePreviewDataUrl, duration, src]);
 
   if (!src) {
     return (
@@ -2524,12 +2954,29 @@ function ProgressFramePreview({
   }
 
   return (
-    <div className="relative h-full w-full bg-black">
+    <div
+      className={cn(
+        "relative h-full w-full bg-black transition-opacity duration-100",
+        visible ? "opacity-100" : "opacity-0"
+      )}
+    >
       <canvas
         ref={canvasRef}
-        className={cn("h-full w-full transition-opacity duration-100", frameReady ? "opacity-100" : "opacity-0")}
+        className={cn("relative z-10 h-full w-full transition-opacity duration-75", frameReady ? "opacity-100" : "opacity-0")}
       />
-      {!frameReady && (
+      {fallbackFrame && (
+        <img
+          src={fallbackFrame}
+          alt=""
+          aria-hidden="true"
+          className={cn(
+            "absolute inset-0 h-full w-full object-cover transition-opacity duration-75",
+            frameReady ? "opacity-0" : "opacity-100"
+          )}
+          draggable={false}
+        />
+      )}
+      {!frameReady && !fallbackFrame && (
         <div className="absolute inset-0 flex items-center justify-center bg-white/[0.04] text-[0.72rem] font-medium text-white/55">
           正在预览
         </div>
@@ -2562,6 +3009,7 @@ function InlinePlayerButton({
   count,
   active,
   activeClassName,
+  disabled,
   onClick,
 }: {
   children: ReactNode;
@@ -2569,6 +3017,7 @@ function InlinePlayerButton({
   count: number;
   active?: boolean;
   activeClassName?: string;
+  disabled?: boolean;
   onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
 }) {
   return (
@@ -2576,8 +3025,9 @@ function InlinePlayerButton({
       <button
         type="button"
         onClick={onClick}
+        disabled={disabled}
         className={cn(
-          "flex h-8 w-8 items-center justify-center rounded-full bg-transparent text-white transition-[background-color,transform,color] hover:scale-[1.08] hover:bg-white/10 active:scale-95",
+          "flex h-8 w-8 items-center justify-center rounded-full bg-transparent text-white transition-[background-color,transform,color,opacity] hover:scale-[1.08] hover:bg-white/10 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100",
           active && activeClassName
         )}
         aria-label={label}
@@ -2596,23 +3046,27 @@ function PlayerIconButton({
   children,
   label,
   active,
+  disabled,
   onClick,
   onPointerDown,
 }: {
   children: ReactNode;
   label: string;
   active?: boolean;
+  disabled?: boolean;
   onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
   onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
       onPointerDown={onPointerDown}
       className={cn(
         "flex h-8 w-8 items-center justify-center rounded-full bg-transparent text-white transition-[background-color,color] hover:bg-white/10 active:bg-white/15",
-        active && "bg-white/10"
+        active && "bg-white/10",
+        disabled && "cursor-not-allowed opacity-50 hover:bg-transparent active:bg-transparent"
       )}
       aria-label={label}
       title={label}
