@@ -93,6 +93,9 @@ class Config:
     FILENAME_TEMPLATE = "{title}"
     FOLDER_NAME_TEMPLATE = "{author}"
     AUTO_CREATE_FOLDER = True
+    IM_FRIEND_SEC_USER_IDS = []
+    IM_FRIEND_INCLUDE_ALL_USERS = False
+    IM_FRIEND_REFRESH_INTERVAL_SECONDS = 5
     
     @classmethod
     def load_config(cls):
@@ -120,6 +123,28 @@ class Config:
                         cls.FOLDER_NAME_TEMPLATE,
                     )
                     cls.AUTO_CREATE_FOLDER = bool(config_data.get("auto_create_folder", cls.AUTO_CREATE_FOLDER))
+                    cls.IM_FRIEND_SEC_USER_IDS = cls.normalize_sec_user_ids(
+                        config_data.get("im_friend_sec_user_ids", cls.IM_FRIEND_SEC_USER_IDS)
+                    )
+                    cls.IM_FRIEND_INCLUDE_ALL_USERS = bool(
+                        config_data.get("im_friend_include_all_users", cls.IM_FRIEND_INCLUDE_ALL_USERS)
+                    )
+                    try:
+                        cls.IM_FRIEND_REFRESH_INTERVAL_SECONDS = max(
+                            1,
+                            min(
+                                3600,
+                                int(
+                                    config_data.get(
+                                        "im_friend_refresh_interval_seconds",
+                                        cls.IM_FRIEND_REFRESH_INTERVAL_SECONDS,
+                                    )
+                                    or 5
+                                ),
+                            ),
+                        )
+                    except Exception:
+                        cls.IM_FRIEND_REFRESH_INTERVAL_SECONDS = 5
                     try:
                         cls.MAX_CONCURRENT = max(1, min(10, int(config_data.get("max_concurrent", cls.MAX_CONCURRENT) or 3)))
                     except Exception:
@@ -190,6 +215,23 @@ class Config:
         return value[:160]
 
     @classmethod
+    def normalize_sec_user_ids(cls, values):
+        """归一化 IM 好友 sec_user_id 缓存。"""
+        if not isinstance(values, list):
+            return []
+        normalized = []
+        seen = set()
+        for item in values:
+            value = str(item or '').strip()
+            if not value or not value.startswith('MS4w'):
+                continue
+            if value in seen:
+                continue
+            seen.add(value)
+            normalized.append(value)
+        return normalized
+
+    @classmethod
     def save_config(
         cls,
         cookie,
@@ -200,6 +242,9 @@ class Config:
         filename_template=None,
         folder_name_template=None,
         auto_create_folder=None,
+        im_friend_sec_user_ids=None,
+        im_friend_include_all_users=None,
+        im_friend_refresh_interval_seconds=None,
     ):
         """保存配置到配置文件"""
         resolved_quality = str(download_quality or cls.DOWNLOAD_QUALITY or "auto")
@@ -216,6 +261,28 @@ class Config:
             cls.FOLDER_NAME_TEMPLATE,
         )
         resolved_auto_create_folder = cls.AUTO_CREATE_FOLDER if auto_create_folder is None else bool(auto_create_folder)
+        resolved_im_friend_sec_user_ids = cls.normalize_sec_user_ids(
+            im_friend_sec_user_ids if im_friend_sec_user_ids is not None else cls.IM_FRIEND_SEC_USER_IDS
+        )
+        resolved_im_friend_include_all_users = (
+            cls.IM_FRIEND_INCLUDE_ALL_USERS
+            if im_friend_include_all_users is None
+            else bool(im_friend_include_all_users)
+        )
+        try:
+            resolved_im_friend_refresh_interval_seconds = max(
+                1,
+                min(
+                    3600,
+                    int(
+                        im_friend_refresh_interval_seconds
+                        if im_friend_refresh_interval_seconds is not None
+                        else cls.IM_FRIEND_REFRESH_INTERVAL_SECONDS
+                    ),
+                ),
+            )
+        except Exception:
+            resolved_im_friend_refresh_interval_seconds = 5
 
         config_data = {
             "cookie": cookie,
@@ -226,6 +293,9 @@ class Config:
             "filename_template": resolved_filename_template,
             "folder_name_template": resolved_folder_name_template,
             "auto_create_folder": resolved_auto_create_folder,
+            "im_friend_sec_user_ids": resolved_im_friend_sec_user_ids,
+            "im_friend_include_all_users": resolved_im_friend_include_all_users,
+            "im_friend_refresh_interval_seconds": resolved_im_friend_refresh_interval_seconds,
         }
         try:
             config_dir = os.path.dirname(cls.CONFIG_FILE)

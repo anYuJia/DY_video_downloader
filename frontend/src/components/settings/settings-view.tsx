@@ -34,6 +34,7 @@ import {
   FileText,
   FolderTree,
   Download as DownloadIcon,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -71,7 +72,9 @@ type SettingsField =
   | "max_concurrent"
   | "filename_template"
   | "folder_name_template"
-  | "auto_create_folder";
+  | "auto_create_folder"
+  | "im_friend_include_all_users"
+  | "im_friend_refresh_interval_seconds";
 type SavingFields = Partial<Record<SettingsField, boolean>>;
 type SettingsPatch = Parameters<typeof saveConfig>[0];
 type SettingStatus = "saving" | "saved" | "error";
@@ -123,6 +126,8 @@ export function SettingsView() {
   const [filenameTemplate, setFilenameTemplate] = useState("{title}");
   const [folderNameTemplate, setFolderNameTemplate] = useState("{author}");
   const [autoCreateFolder, setAutoCreateFolder] = useState(true);
+  const [imFriendIncludeAllUsers, setImFriendIncludeAllUsers] = useState(false);
+  const [imFriendRefreshIntervalSeconds, setImFriendRefreshIntervalSeconds] = useState("5");
   const [choosingDirectory, setChoosingDirectory] = useState(false);
   const [savingFields, setSavingFields] = useState<SavingFields>({});
   const [savedFields, setSavedFields] = useState<SavingFields>({});
@@ -135,6 +140,8 @@ export function SettingsView() {
     filenameTemplate: "{title}",
     folderNameTemplate: "{author}",
     autoCreateFolder: true,
+    imFriendIncludeAllUsers: false,
+    imFriendRefreshIntervalSeconds: "5",
     theme,
   });
 
@@ -178,12 +185,16 @@ export function SettingsView() {
         const nextFilenameTemplate = config.filename_template || "{title}";
         const nextFolderNameTemplate = config.folder_name_template || "{author}";
         const nextAutoCreateFolder = config.auto_create_folder ?? true;
+        const nextImFriendIncludeAllUsers = config.im_friend_include_all_users ?? false;
+        const nextImFriendRefreshIntervalSeconds = String(config.im_friend_refresh_interval_seconds || 5);
         setDownloadPath(nextDownloadPath);
         setDownloadQuality(nextDownloadQuality);
         setMaxConcurrent(nextMaxConcurrent);
         setFilenameTemplate(nextFilenameTemplate);
         setFolderNameTemplate(nextFolderNameTemplate);
         setAutoCreateFolder(nextAutoCreateFolder);
+        setImFriendIncludeAllUsers(nextImFriendIncludeAllUsers);
+        setImFriendRefreshIntervalSeconds(nextImFriendRefreshIntervalSeconds);
         savedSettingsRef.current = {
           ...savedSettingsRef.current,
           downloadPath: nextDownloadPath,
@@ -192,6 +203,8 @@ export function SettingsView() {
           filenameTemplate: nextFilenameTemplate,
           folderNameTemplate: nextFolderNameTemplate,
           autoCreateFolder: nextAutoCreateFolder,
+          imFriendIncludeAllUsers: nextImFriendIncludeAllUsers,
+          imFriendRefreshIntervalSeconds: nextImFriendRefreshIntervalSeconds,
         };
         if (config.cookie_set) {
           verifyCookie()
@@ -646,6 +659,47 @@ export function SettingsView() {
     }
   };
 
+  const handleImFriendIncludeAllUsersChange = async (value: boolean) => {
+    const previousValue = savedSettingsRef.current.imFriendIncludeAllUsers;
+    setImFriendIncludeAllUsers(value);
+    if (value === previousValue || savingFields.im_friend_include_all_users) return;
+
+    const saved = await saveSetting(
+      "im_friend_include_all_users",
+      { im_friend_include_all_users: value },
+      value ? "好友状态已显示全部用户" : "好友状态已切回仅互关",
+      value ? "好友状态已显示全部用户" : "好友状态已切回仅互关",
+      false
+    );
+    if (saved) {
+      savedSettingsRef.current.imFriendIncludeAllUsers = value;
+    } else {
+      setImFriendIncludeAllUsers(previousValue);
+    }
+  };
+
+  const saveImFriendRefreshInterval = async (value: string) => {
+    const previousValue = savedSettingsRef.current.imFriendRefreshIntervalSeconds;
+    const parsed = Math.floor(Number(value));
+    const nextSeconds = Number.isFinite(parsed) ? Math.max(1, Math.min(3600, parsed)) : 5;
+    const nextValue = String(nextSeconds);
+    setImFriendRefreshIntervalSeconds(nextValue);
+    if (nextValue === previousValue || savingFields.im_friend_refresh_interval_seconds) return;
+
+    const saved = await saveSetting(
+      "im_friend_refresh_interval_seconds",
+      { im_friend_refresh_interval_seconds: nextSeconds },
+      "好友状态刷新间隔已保存",
+      `好友状态刷新间隔已保存: ${nextSeconds} 秒`,
+      false
+    );
+    if (saved) {
+      savedSettingsRef.current.imFriendRefreshIntervalSeconds = nextValue;
+    } else {
+      setImFriendRefreshIntervalSeconds(previousValue);
+    }
+  };
+
   const appendFilenameToken = (token: string) => {
     const separator = filenameTemplate.trim() ? "_" : "";
     setFilenameTemplate(`${filenameTemplate}${separator}${token}`);
@@ -724,6 +778,24 @@ export function SettingsView() {
 
     return () => window.clearTimeout(timer);
   }, [folderNameTemplate, autoCreateFolder, savingFields.folder_name_template]);
+
+  useEffect(() => {
+    const parsed = Math.floor(Number(imFriendRefreshIntervalSeconds));
+    if (!Number.isFinite(parsed) || parsed < 1) return;
+    const nextValue = String(Math.max(1, Math.min(3600, parsed)));
+    if (
+      nextValue === savedSettingsRef.current.imFriendRefreshIntervalSeconds ||
+      savingFields.im_friend_refresh_interval_seconds
+    ) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void saveImFriendRefreshInterval(nextValue);
+    }, 800);
+
+    return () => window.clearTimeout(timer);
+  }, [imFriendRefreshIntervalSeconds, savingFields.im_friend_refresh_interval_seconds]);
 
   const handleCheckUpdate = async () => {
     setUpdateStatus("checking");
@@ -1037,6 +1109,72 @@ export function SettingsView() {
                 <span className="relative">{label}</span>
               </button>
             ))}
+          </div>
+        </SettingGroup>
+
+        <SettingGroup
+          icon={Users}
+          label="好友在线状态"
+          status={fieldStatus("im_friend_include_all_users") || fieldStatus("im_friend_refresh_interval_seconds")}
+        >
+          <div className="space-y-3">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={imFriendIncludeAllUsers}
+              aria-label="显示全部用户"
+              onClick={() => void handleImFriendIncludeAllUsersChange(!imFriendIncludeAllUsers)}
+              disabled={savingFields.im_friend_include_all_users}
+              className={cn(
+                "flex h-10 w-full items-center justify-between rounded-xl border px-3 transition-[background-color,border-color,opacity,box-shadow] duration-200",
+                imFriendIncludeAllUsers
+                  ? "border-accent/20 bg-accent/[0.07] shadow-[inset_0_0_0_1px_rgba(254,44,85,0.04)]"
+                  : "border-border bg-[var(--color-setting-card)]",
+                savingFields.im_friend_include_all_users && "opacity-70"
+              )}
+            >
+              <span className="text-sm font-semibold text-text">
+                {imFriendIncludeAllUsers ? "显示全部用户" : "仅显示互关用户"}
+              </span>
+              <span
+                className={cn(
+                  "relative h-5 w-9 rounded-full transition-colors duration-200",
+                  imFriendIncludeAllUsers ? "bg-accent" : "bg-[var(--color-toggle-track)]"
+                )}
+              >
+                <span
+                  className={cn(
+                    "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
+                    imFriendIncludeAllUsers ? "translate-x-[18px]" : "translate-x-0"
+                  )}
+                />
+              </span>
+            </button>
+
+            <div>
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-text-muted">
+                自动刷新间隔（秒）
+              </label>
+              <Input
+                type="number"
+                min={1}
+                max={3600}
+                step={1}
+                value={imFriendRefreshIntervalSeconds}
+                onChange={(event) => setImFriendRefreshIntervalSeconds(event.target.value)}
+                onBlur={() => void saveImFriendRefreshInterval(imFriendRefreshIntervalSeconds)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.currentTarget.blur();
+                  }
+                }}
+                disabled={savingFields.im_friend_refresh_interval_seconds}
+                className="h-10"
+              />
+            </div>
+            <p className="text-xs text-text-muted">
+              进入好友在线状态页面后按该间隔后台刷新，默认 5 秒。
+            </p>
           </div>
         </SettingGroup>
 

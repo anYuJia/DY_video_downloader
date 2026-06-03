@@ -12,6 +12,9 @@ export interface AppConfig {
   save_metadata: boolean;
   proxy: string | null;
   cookie: string;
+  im_friend_sec_user_ids?: string[];
+  im_friend_include_all_users?: boolean;
+  im_friend_refresh_interval_seconds?: number;
   theme: string;
   language: string;
   cookie_set?: boolean;
@@ -190,6 +193,12 @@ export interface LikedVideosResponse extends ApiResponse {
 export interface LikedAuthorsResponse extends ApiResponse {
   data?: UserInfo[];
   count?: number;
+}
+
+export interface FriendOnlineStatusResponse extends ApiResponse {
+  sec_user_ids?: string[];
+  user_info?: unknown;
+  active_status?: unknown;
 }
 
 export interface CollectedVideosResponse extends ApiResponse {

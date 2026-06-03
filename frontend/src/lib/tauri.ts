@@ -13,6 +13,7 @@ import type {
   CollectedVideosResponse,
   DownloadFilesResult,
   DownloadProgress,
+  FriendOnlineStatusResponse,
   HistoryItem,
   LikedAuthorsResponse,
   LikedVideosResponse,
@@ -634,6 +635,11 @@ export async function getConfig(): Promise<AppConfig> {
       save_metadata: Boolean(result.save_metadata ?? true),
       proxy: (result.proxy as string | null) ?? null,
       cookie: "",
+      im_friend_sec_user_ids: Array.isArray(result.im_friend_sec_user_ids)
+        ? result.im_friend_sec_user_ids.filter((item): item is string => typeof item === "string")
+        : [],
+      im_friend_include_all_users: Boolean(result.im_friend_include_all_users ?? false),
+      im_friend_refresh_interval_seconds: Number(result.im_friend_refresh_interval_seconds || 5) || 5,
       theme: String(result.theme || "dark"),
       language: String(result.language || "zh-CN"),
       cookie_set: Boolean(result.cookie_set ?? false),
@@ -652,6 +658,11 @@ export async function saveConfig(config: Partial<AppConfig>): Promise<{ success:
       filename_template: config.filename_template ?? current.filename_template ?? "{title}",
       folder_name_template: config.folder_name_template ?? current.folder_name_template ?? "{author}",
       auto_create_folder: config.auto_create_folder ?? current.auto_create_folder ?? true,
+      im_friend_sec_user_ids: config.im_friend_sec_user_ids ?? current.im_friend_sec_user_ids ?? [],
+      im_friend_include_all_users:
+        config.im_friend_include_all_users ?? current.im_friend_include_all_users ?? false,
+      im_friend_refresh_interval_seconds:
+        config.im_friend_refresh_interval_seconds ?? current.im_friend_refresh_interval_seconds ?? 5,
       proxy: config.proxy ?? current.proxy ?? null,
     };
     if (typeof config.cookie === "string") {
@@ -674,6 +685,11 @@ export async function saveConfig(config: Partial<AppConfig>): Promise<{ success:
     save_metadata: config.save_metadata ?? current.save_metadata ?? true,
     proxy: config.proxy ?? current.proxy ?? null,
     cookie: config.cookie ?? "",
+    im_friend_sec_user_ids: config.im_friend_sec_user_ids ?? current.im_friend_sec_user_ids ?? [],
+    im_friend_include_all_users:
+      config.im_friend_include_all_users ?? current.im_friend_include_all_users ?? false,
+    im_friend_refresh_interval_seconds:
+      config.im_friend_refresh_interval_seconds ?? current.im_friend_refresh_interval_seconds ?? 5,
     theme: config.theme ?? current.theme ?? "dark",
     language: config.language ?? current.language ?? "zh-CN",
   };
@@ -1080,6 +1096,29 @@ export async function getComments(awemeId: string, count: number, cursor?: numbe
     }).catch(() => []);
   }
   return invoke("get_comments", { awemeId, count, cursor });
+}
+
+export async function getFriendOnlineStatus(
+  secUserIds: string[],
+  convIds: string[] = []
+): Promise<FriendOnlineStatusResponse> {
+  if (shouldUseBrowserBridge()) {
+    return requestJson("/api/get_friend_online_status", {
+      method: "POST",
+      body: JSON.stringify({
+        sec_user_ids: secUserIds,
+        secUserIds,
+        conv_ids: convIds,
+        convIds,
+      }),
+    });
+  }
+  return invoke("get_friend_online_status", {
+    secUserIds,
+    sec_user_ids: secUserIds,
+    convIds,
+    conv_ids: convIds,
+  });
 }
 
 export async function verifyCookie(): Promise<CookieStatus> {

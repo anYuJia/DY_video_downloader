@@ -11,6 +11,7 @@ import sys
 import random
 import string
 import threading
+import time
 from src.api import sign as douyin_sign
 
 # Configure a session with retry/SSL resilience
@@ -530,6 +531,177 @@ class DouyinAPI:
             return json_response, False
 
         return json_response, True
+
+    def _im_common_headers(self, path: str) -> dict:
+        headers = dict(self.common_headers)
+        headers.update({
+            "Cookie": self.cookie,
+            "Referer": "https://www.douyin.com/",
+            "Origin": "https://www.douyin.com",
+            "sec-fetch-site": "same-site",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "x-secsdk-csrf-token": "DOWNGRADE",
+        })
+        cookie_dict = self._cookies_to_dict(self.cookie)
+        uifid = cookie_dict.get('UIFID')
+        if uifid:
+            headers['uifid'] = uifid
+        if '/im/' in path:
+            headers.update({
+                "sec-ch-ua": '"Chromium";v="148", "Microsoft Edge";v="148", "Not/A)Brand";v="99"',
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0",
+            })
+        return headers
+
+    async def _request_im(self, uri: str, endpoint_params: dict | None = None, body_params: dict | None = None, method: str = 'GET') -> tuple[dict, bool]:
+        endpoint_params = dict(endpoint_params or {})
+        body_params = dict(body_params or {})
+        params = dict(self.common_params)
+        params.update({
+            "update_version_code": "170400",
+            "version_code": "170400",
+            "version_name": "17.4.0",
+            "browser_version": "148.0.0.0",
+            "engine_version": "148.0.0.0",
+            "round_trip_time": "0",
+        })
+        params.update(endpoint_params)
+        headers = self._im_common_headers(uri)
+        if method.upper() == 'GET':
+            headers.pop("Content-Type", None)
+
+        params = await self._deal_params(params, headers)
+        query = '&'.join([f'{k}={urllib.parse.quote(str(v))}' for k, v in params.items()])
+        try:
+            params["a_bogus"] = douyin_sign.sign_detail(query, headers["User-Agent"])
+        except Exception as e:
+            return {
+                'status_code': -1,
+                'status_msg': '签名生成失败',
+                'message': f'签名生成失败: {e}',
+            }, False
+
+        url = f'https://www-hj.douyin.com{uri}'
+        try:
+            if method.upper() == 'POST':
+                response = await asyncio.to_thread(
+                    _api_post,
+                    url,
+                    params=params,
+                    data=body_params,
+                    headers=headers,
+                    timeout=(10, 30),
+                )
+            else:
+                response = await asyncio.to_thread(
+                    _api_get,
+                    url,
+                    params=params,
+                    headers=headers,
+                    timeout=(10, 30),
+                )
+        except requests.RequestException as e:
+            return {
+                'status_code': -1,
+                'status_msg': '网络请求失败',
+                'message': f'网络请求失败: {e}',
+            }, False
+
+        if response.status_code != 200 or len(response.content) == 0:
+            return {
+                'status_code': response.status_code,
+                'status_msg': '请求失败',
+                'message': f'IM接口请求失败（HTTP {response.status_code}）',
+            }, False
+
+        try:
+            data = response.json()
+        except Exception:
+            return {'status_code': -1, 'status_msg': 'JSON解析失败', 'message': 'IM接口返回解析失败'}, False
+
+        if data.get('status_code', 0) != 0:
+            if self._looks_like_logged_out_error(data):
+                return self._build_login_required_error(data), False
+            return data, False
+
+        return data, True
+
+    @staticmethod
+    def _collect_spotlight_sec_user_ids(response: dict, include_all_users: bool, limit: int) -> list[str]:
+        ids = []
+        seen = set()
+
+        def push_id(item):
+            if not isinstance(item, dict):
+                return
+            for key in ('sec_uid', 'sec_user_id'):
+                value = str(item.get(key) or '').strip()
+                if value and value not in seen:
+                    seen.add(value)
+                    ids.append(value)
+                    return
+
+        for item in response.get('followings') or []:
+            if not isinstance(item, dict):
+                continue
+            is_mutual = int(item.get('follow_status') or 0) > 0 and int(item.get('follower_status') or 0) > 0
+            if include_all_users or is_mutual:
+                push_id(item)
+
+        for item in response.get('sorted_info') or []:
+            if isinstance(item, dict) and int(item.get('conv_type') or 0) == 0:
+                push_id(item)
+
+        if include_all_users:
+            for key in ('mix_recent_share_day_sort', 'mix_recent_share_users', 'single_recent_share_users'):
+                for item in response.get(key) or []:
+                    push_id(item)
+            recent_share_users = response.get('recent_share_users')
+            if isinstance(recent_share_users, dict):
+                for item in recent_share_users.get('data') or []:
+                    push_id(item)
+
+        return ids[:limit]
+
+    async def get_im_spotlight_relation_sec_user_ids(self, limit: int = 500, include_all_users: bool = False) -> tuple[list[str], bool, dict]:
+        params = {
+            "count": "100",
+            "source": "coldup",
+            "max_time": str(int(time.time() * 1000)),
+            "min_time": "0",
+            "need_remove_share_panel": "true",
+            "need_sorted_info": "true",
+            "with_fstatus": "1",
+        }
+        response, success = await self._request_im('/aweme/v1/web/im/spotlight/relation/', params, method='GET')
+        if not success:
+            return [], False, response
+        return self._collect_spotlight_sec_user_ids(response, include_all_users, limit), True, response
+
+    async def get_im_user_info(self, sec_user_ids: list[str]) -> tuple[dict, bool]:
+        ids = [str(value).strip() for value in sec_user_ids if str(value).strip()]
+        if not ids:
+            return {'message': '好友ID不能为空'}, False
+        return await self._request_im(
+            '/aweme/v1/web/im/user/info/',
+            body_params={'sec_user_ids': json.dumps(ids, ensure_ascii=False)},
+            method='POST',
+        )
+
+    async def get_im_user_active_status(self, sec_user_ids: list[str], conv_ids: list[str] | None = None) -> tuple[dict, bool]:
+        ids = [str(value).strip() for value in sec_user_ids if str(value).strip()]
+        if not ids:
+            return {'message': '好友ID不能为空'}, False
+        conv_ids = [str(value).strip() for value in (conv_ids or []) if str(value).strip()]
+        return await self._request_im(
+            '/aweme/v1/web/im/user/active/status/',
+            body_params={
+                'conv_ids': json.dumps(conv_ids, ensure_ascii=False),
+                'sec_user_ids': json.dumps(ids, ensure_ascii=False),
+                'source': 'heartbeat',
+            },
+            method='POST',
+        )
 
     async def get_current_user(self) -> tuple[dict, bool]:
         """获取当前登录用户，用于强校验 Cookie 是否仍被抖音服务端认可。"""

@@ -12,6 +12,7 @@ import {
   Settings,
   Star,
   Circle,
+  Activity,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,7 @@ const navItems: NavItem[] = [
   { id: "downloads", label: "我的下载", icon: FolderOpen },
   { id: "liked", label: "点赞视频", icon: Heart },
   { id: "collected", label: "收藏视频", icon: Star },
+  { id: "friends-status", label: "好友状态", icon: Activity },
   { id: "settings", label: "设置", icon: Settings },
 ];
 

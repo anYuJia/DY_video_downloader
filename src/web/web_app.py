@@ -1915,6 +1915,9 @@ def get_config():
         'filename_template': getattr(Config, 'FILENAME_TEMPLATE', '{title}'),
         'folder_name_template': getattr(Config, 'FOLDER_NAME_TEMPLATE', '{author}'),
         'auto_create_folder': getattr(Config, 'AUTO_CREATE_FOLDER', True),
+        'im_friend_sec_user_ids': getattr(Config, 'IM_FRIEND_SEC_USER_IDS', []),
+        'im_friend_include_all_users': getattr(Config, 'IM_FRIEND_INCLUDE_ALL_USERS', False),
+        'im_friend_refresh_interval_seconds': getattr(Config, 'IM_FRIEND_REFRESH_INTERVAL_SECONDS', 5),
         'app_version': _get_current_app_version(),
     })
 
@@ -1948,6 +1951,17 @@ def set_config():
             )
         if 'auto_create_folder' in data:
             Config.AUTO_CREATE_FOLDER = bool(data.get('auto_create_folder'))
+        if 'im_friend_sec_user_ids' in data:
+            Config.IM_FRIEND_SEC_USER_IDS = Config.normalize_sec_user_ids(data.get('im_friend_sec_user_ids'))
+        if 'im_friend_include_all_users' in data:
+            Config.IM_FRIEND_INCLUDE_ALL_USERS = bool(data.get('im_friend_include_all_users'))
+        if 'im_friend_refresh_interval_seconds' in data:
+            Config.IM_FRIEND_REFRESH_INTERVAL_SECONDS = _coerce_int(
+                data.get('im_friend_refresh_interval_seconds'),
+                5,
+                1,
+                3600,
+            )
 
         move_existing_files = bool(data.get('move_existing_files'))
         history_dirs = list(getattr(Config, 'HISTORY_DIRS', []))
@@ -1983,6 +1997,9 @@ def set_config():
             filename_template=Config.FILENAME_TEMPLATE,
             folder_name_template=Config.FOLDER_NAME_TEMPLATE,
             auto_create_folder=Config.AUTO_CREATE_FOLDER,
+            im_friend_sec_user_ids=Config.IM_FRIEND_SEC_USER_IDS,
+            im_friend_include_all_users=Config.IM_FRIEND_INCLUDE_ALL_USERS,
+            im_friend_refresh_interval_seconds=Config.IM_FRIEND_REFRESH_INTERVAL_SECONDS,
         )
 
         if previous_download_dir.lower() != new_download_dir.lower():
@@ -2004,6 +2021,9 @@ def set_config():
             'filename_template': Config.FILENAME_TEMPLATE,
             'folder_name_template': Config.FOLDER_NAME_TEMPLATE,
             'auto_create_folder': Config.AUTO_CREATE_FOLDER,
+            'im_friend_sec_user_ids': Config.IM_FRIEND_SEC_USER_IDS,
+            'im_friend_include_all_users': Config.IM_FRIEND_INCLUDE_ALL_USERS,
+            'im_friend_refresh_interval_seconds': Config.IM_FRIEND_REFRESH_INTERVAL_SECONDS,
         })
     except Exception as e:
         return jsonify({'success': False, 'message': f'配置保存失败: {str(e)}'}), 500
@@ -3322,6 +3342,151 @@ def get_mix_videos_api():
         return jsonify({'success': False, 'message': '获取合集视频失败'}), 500
     except Exception as e:
         return jsonify({'success': False, 'message': f'获取合集视频失败: {str(e)}'}), 500
+
+def _sanitize_sec_user_ids(values):
+    if not isinstance(values, list):
+        return []
+    result = []
+    seen = set()
+    for item in values:
+        value = str(item or '').strip()
+        if not value or not value.startswith('MS4w') or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+def _collect_sec_uid_records(value):
+    records = []
+    seen = set()
+
+    def visit(item):
+        if isinstance(item, list):
+            for child in item:
+                visit(child)
+            return
+        if not isinstance(item, dict):
+            return
+        sec_uid = str(item.get('sec_uid') or item.get('sec_user_id') or '').strip()
+        if sec_uid and sec_uid not in seen:
+            seen.add(sec_uid)
+            records.append(item)
+        for child in item.values():
+            if isinstance(child, (dict, list)):
+                visit(child)
+
+    visit(value)
+    return records
+
+def _save_im_friend_cache(sec_user_ids=None):
+    if sec_user_ids is not None:
+        Config.IM_FRIEND_SEC_USER_IDS = Config.normalize_sec_user_ids(sec_user_ids)
+    Config.save_config(
+        Config.COOKIE,
+        Config.BASE_DIR,
+        Config.HISTORY_DIRS,
+        download_quality=Config.DOWNLOAD_QUALITY,
+        max_concurrent=Config.MAX_CONCURRENT,
+        filename_template=Config.FILENAME_TEMPLATE,
+        folder_name_template=Config.FOLDER_NAME_TEMPLATE,
+        auto_create_folder=Config.AUTO_CREATE_FOLDER,
+        im_friend_sec_user_ids=Config.IM_FRIEND_SEC_USER_IDS,
+        im_friend_include_all_users=Config.IM_FRIEND_INCLUDE_ALL_USERS,
+        im_friend_refresh_interval_seconds=Config.IM_FRIEND_REFRESH_INTERVAL_SECONDS,
+    )
+
+@app.route('/api/get_friend_online_status', methods=['POST'])
+def get_friend_online_status_api():
+    """获取 IM 好友资料与在线状态。"""
+    try:
+        data = _request_json()
+        provided_ids = data.get('sec_user_ids') or data.get('secUserIds') or []
+        conv_ids = data.get('conv_ids') or data.get('convIds') or []
+        sec_user_ids = _sanitize_sec_user_ids(provided_ids)
+        has_provided_ids = bool(sec_user_ids)
+
+        if has_provided_ids:
+            merged = Config.normalize_sec_user_ids([*getattr(Config, 'IM_FRIEND_SEC_USER_IDS', []), *sec_user_ids])
+            if merged != getattr(Config, 'IM_FRIEND_SEC_USER_IDS', []):
+                _save_im_friend_cache(merged)
+
+        if not sec_user_ids:
+            sec_user_ids = Config.normalize_sec_user_ids(getattr(Config, 'IM_FRIEND_SEC_USER_IDS', []))
+
+        if not api:
+            return jsonify({'success': False, 'need_login': True, 'message': '请先设置 Cookie'})
+
+        fetched_ids, auto_success, auto_response = run_async(
+            api.get_im_spotlight_relation_sec_user_ids(
+                500,
+                bool(getattr(Config, 'IM_FRIEND_INCLUDE_ALL_USERS', False)),
+            )
+        )
+        if auto_success:
+            sec_user_ids = Config.normalize_sec_user_ids(fetched_ids)
+            if sec_user_ids != getattr(Config, 'IM_FRIEND_SEC_USER_IDS', []):
+                _save_im_friend_cache(sec_user_ids)
+        elif not sec_user_ids:
+            return jsonify({
+                'success': False,
+                'message': _api_message(auto_response, '没有获取到 IM 好友关系；Cookie 可用，但 spotlight relation 没有返回可用 sec_user_id。'),
+            })
+
+        if not sec_user_ids:
+            return jsonify({
+                'success': False,
+                'message': '没有获取到 IM 好友关系；Cookie 可用，但 spotlight relation 没有返回可用 sec_user_id。',
+            })
+
+        user_info_data = []
+        active_status_data = []
+        user_info_extra = None
+        active_status_extra = None
+        conv_ids = [str(value).strip() for value in conv_ids if str(value).strip()] if isinstance(conv_ids, list) else []
+
+        for index in range(0, len(sec_user_ids), 20):
+            chunk = sec_user_ids[index:index + 20]
+            user_info, user_success = run_async(api.get_im_user_info(chunk))
+            if not user_success:
+                return jsonify({
+                    'success': False,
+                    'message': _api_message(user_info, '获取好友资料失败'),
+                    'need_login': bool(isinstance(user_info, dict) and user_info.get('_need_login')),
+                    'need_verify': bool(isinstance(user_info, dict) and user_info.get('_need_verify')),
+                    'verify_url': user_info.get('_verify_url') if isinstance(user_info, dict) else None,
+                })
+            if user_info_extra is None and isinstance(user_info, dict):
+                user_info_extra = user_info.get('extra')
+            user_info_data.extend(_collect_sec_uid_records(user_info))
+
+            active_status, active_success = run_async(api.get_im_user_active_status(chunk, conv_ids))
+            if not active_success:
+                return jsonify({
+                    'success': False,
+                    'message': _api_message(active_status, '获取好友在线状态失败'),
+                    'need_login': bool(isinstance(active_status, dict) and active_status.get('_need_login')),
+                    'need_verify': bool(isinstance(active_status, dict) and active_status.get('_need_verify')),
+                    'verify_url': active_status.get('_verify_url') if isinstance(active_status, dict) else None,
+                })
+            if active_status_extra is None and isinstance(active_status, dict):
+                active_status_extra = active_status.get('extra')
+            active_status_data.extend(_collect_sec_uid_records(active_status))
+
+        return jsonify({
+            'success': True,
+            'message': '获取好友在线状态成功',
+            'sec_user_ids': sec_user_ids,
+            'user_info': {
+                'data': user_info_data,
+                'extra': user_info_extra,
+            },
+            'active_status': {
+                'data': active_status_data,
+                'extra': active_status_extra,
+            },
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取好友在线状态失败: {str(e)}'}), 500
 
 @app.route('/api/user_videos', methods=['POST'])
 def get_user_videos():
