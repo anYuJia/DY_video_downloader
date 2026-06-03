@@ -868,21 +868,21 @@ export function SettingsView() {
       initial={false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
-      className="mx-auto w-full max-w-[680px] p-6 lg:p-8"
+      className="mx-auto w-full max-w-[980px] p-4 lg:p-6"
     >
-      <h1 className="text-xl font-bold text-text mb-1">设置</h1>
-      <p className="mb-6 text-sm text-text-muted">
+      <h1 className="mb-1 text-lg font-bold text-text">设置</h1>
+      <p className="mb-4 text-xs text-text-muted">
         更改后自动保存，无需手动提交
       </p>
 
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-3.5">
         {/* Cookie Section */}
         <SettingGroup icon={Key} label="Cookie 登录">
           {/* Already logged in */}
           {cookieLoggedIn && loginStatus === "idle" ? (
-            <div className="rounded-xl bg-success/[0.05] p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-lg bg-success/10 flex items-center justify-center">
+            <div className="rounded-xl bg-success/[0.05] p-3.5">
+              <div className="mb-2.5 flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-success/10">
                   <ShieldCheck className="w-5 h-5 text-success" />
                 </div>
                 <div className="flex-1">
@@ -911,10 +911,10 @@ export function SettingsView() {
             </div>
           ) : loginStatus === "idle" ? (
             /* Not logged in — show login card */
-            <div className="rounded-xl bg-[var(--color-setting-card)] p-5">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
-                  <Globe className="w-5 h-5 text-accent" />
+            <div className="rounded-xl bg-[var(--color-setting-card)] p-3.5">
+              <div className="mb-3 flex items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10">
+                  <Globe className="h-[18px] w-[18px] text-accent" />
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-text mb-1">
@@ -926,14 +926,14 @@ export function SettingsView() {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-2 mb-4">
+              <div className="mb-3 grid gap-1.5 sm:grid-cols-3">
                 {["系统打开浏览器窗口", "在浏览器中登录抖音账号", "登录成功后 Cookie 自动保存"].map(
                   (step, i) => (
-                    <div key={i} className="flex items-center gap-2.5">
-                      <span className="w-5 h-5 rounded-full bg-[var(--color-subtle-bg)] flex items-center justify-center text-[0.625rem] font-bold text-text-muted">
+                    <div key={i} className="flex min-w-0 items-center gap-2 rounded-lg bg-surface/50 px-2 py-1.5">
+                      <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-[var(--color-subtle-bg)] text-[0.6rem] font-bold text-text-muted">
                         {i + 1}
                       </span>
-                      <span className="text-xs text-text-secondary">
+                      <span className="truncate text-xs text-text-secondary">
                         {step}
                       </span>
                     </div>
@@ -941,8 +941,8 @@ export function SettingsView() {
                 )}
               </div>
 
-              <div className="mb-4">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-text-muted">
+              <div className="mb-3">
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-text-muted">
                   浏览器类型
                 </p>
                 <Select value={browserType} onValueChange={setBrowserType}>
@@ -959,7 +959,7 @@ export function SettingsView() {
 
               <Button
                 onClick={startLogin}
-                className="w-full h-11 rounded-xl text-sm font-bold gap-2"
+                className="h-10 w-full gap-2 rounded-xl text-sm font-bold"
               >
                 <ExternalLink className="w-4 h-4" />
                 打开浏览器登录
@@ -967,11 +967,11 @@ export function SettingsView() {
             </div>
           ) : (
             /* Login in progress / result */
-            <div className="rounded-xl bg-[var(--color-setting-card)] p-5">
-              <div className="flex items-center gap-3 mb-4">
+            <div className="rounded-xl bg-[var(--color-setting-card)] p-3.5">
+              <div className="mb-3 flex items-center gap-3">
                 <div
                   className={cn(
-                    "w-10 h-10 rounded-lg flex items-center justify-center shrink-0",
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
                     (loginStatus === "starting" || loginStatus === "waiting") && "bg-info/10",
                     loginStatus === "success" && "bg-success/10",
                     loginStatus === "error" && "bg-danger/10",
@@ -1039,7 +1039,7 @@ export function SettingsView() {
 
           {/* Manual cookie input */}
           {!cookieLoggedIn && loginStatus === "idle" && (
-            <div className="mt-4">
+            <div className="mt-3">
               <p className="text-xs text-text-muted mb-2">
                 或粘贴 Cookie，检测通过后自动保存
               </p>
@@ -1050,7 +1050,7 @@ export function SettingsView() {
                 }}
                 onBlur={handleValidateCookie}
                 placeholder="从浏览器开发者工具复制抖音 Cookie..."
-                rows={4}
+                rows={3}
               />
               {savingCookie ? (
                 <p className="text-xs text-info mt-1.5 flex items-center gap-1">
@@ -1075,8 +1075,9 @@ export function SettingsView() {
           )}
         </SettingGroup>
 
-        {/* Theme */}
-        <SettingGroup icon={Palette} label="外观主题" status={fieldStatus("theme")}>
+        <div className="grid gap-3.5 lg:grid-cols-2">
+          {/* Theme */}
+          <SettingGroup icon={Palette} label="外观主题" status={fieldStatus("theme")}>
           <div className="flex gap-1.5 p-1 rounded-xl bg-[var(--color-setting-card)]">
             {(
               [
@@ -1110,14 +1111,14 @@ export function SettingsView() {
               </button>
             ))}
           </div>
-        </SettingGroup>
+          </SettingGroup>
 
         <SettingGroup
           icon={Users}
           label="好友在线状态"
           status={fieldStatus("im_friend_include_all_users") || fieldStatus("im_friend_refresh_interval_seconds")}
         >
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             <button
               type="button"
               role="switch"
@@ -1172,8 +1173,8 @@ export function SettingsView() {
                 className="h-10"
               />
             </div>
-            <p className="text-xs text-text-muted">
-              进入好友在线状态页面后按该间隔后台刷新，默认 5 秒。
+            <p className="text-xs text-text-muted leading-relaxed">
+              好友页后台刷新，默认 5 秒。
             </p>
           </div>
         </SettingGroup>
@@ -1208,14 +1209,14 @@ export function SettingsView() {
               {choosingDirectory ? "选择中" : savingFields.download_path ? "保存中" : "选择"}
             </Button>
           </div>
-          <p className="text-xs text-text-muted mt-2">
-            输入后自动保存，选择目录后立即生效。
+          <p className="text-xs text-text-muted mt-1.5">
+            输入或选择后自动保存。
           </p>
         </SettingGroup>
 
         {/* Naming */}
         <SettingGroup icon={FileText} label="文件命名规则" status={fieldStatus("filename_template")}>
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             <Select
               value={FILENAME_PRESETS.some((preset) => preset.value === filenameTemplate) ? filenameTemplate : "custom"}
               onValueChange={(value) => {
@@ -1266,14 +1267,14 @@ export function SettingsView() {
                 </button>
               ))}
             </div>
-            <p className="text-xs text-text-muted">
-              即使模板不包含作品ID，保存时也会自动补上，避免同名作品互相覆盖。
+            <p className="text-xs text-text-muted leading-relaxed">
+              保存时会自动补作品ID，避免同名覆盖。
             </p>
           </div>
         </SettingGroup>
 
         <SettingGroup icon={FolderTree} label="作者目录规则" status={fieldStatus("folder_name_template") || fieldStatus("auto_create_folder")}>
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             <button
               type="button"
               role="switch"
@@ -1349,8 +1350,8 @@ export function SettingsView() {
               <SelectItem value="smallest">最小体积</SelectItem>
             </SelectContent>
           </Select>
-          <p className="text-xs text-text-muted mt-2">
-            只影响视频作品；图片、图集和 Live Photo 会按原始媒体下载。
+          <p className="text-xs text-text-muted mt-1.5 leading-relaxed">
+            只影响视频；图片、图集和 Live Photo 按原始媒体下载。
           </p>
         </SettingGroup>
 
@@ -1369,13 +1370,14 @@ export function SettingsView() {
             </SelectContent>
           </Select>
         </SettingGroup>
+        </div>
 
         {/* Divider */}
         <div className="h-px bg-[var(--color-subtle-bg)]" />
 
         {/* About */}
         <SettingGroup icon={Info} label="关于">
-          <div className="flex items-center justify-between py-3 px-4 rounded-xl bg-[var(--color-setting-card)]">
+          <div className="flex items-center justify-between rounded-xl bg-[var(--color-setting-card)] px-3 py-2.5">
             <span className="text-sm text-text-muted">当前版本</span>
             <span className="text-sm text-text font-mono font-semibold">
               {appVersion ? `v${appVersion}` : "读取中"}
@@ -1479,10 +1481,10 @@ function SettingGroup({
   children: React.ReactNode;
 }) {
   return (
-    <div className={cn("rounded-2xl border border-border bg-surface-solid/50 p-5 transition-colors", className)}>
-      <div className="flex items-center justify-between gap-3 mb-4">
+    <div className={cn("rounded-xl border border-border bg-surface-solid/50 p-4 transition-colors", className)}>
+      <div className="mb-3 flex items-center justify-between gap-3">
         <label className="flex items-center gap-2.5 text-sm font-semibold text-text">
-          <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent/10">
             <Icon className="w-4 h-4 text-accent" />
           </div>
           {label}
