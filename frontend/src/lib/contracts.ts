@@ -240,6 +240,11 @@ export interface FriendMessageHistoryResponse extends ApiResponse {
   conversation?: unknown;
 }
 
+export interface FriendChatStateResponse extends ApiResponse {
+  summaries?: Record<string, unknown>;
+  unreadCounts?: Record<string, number>;
+}
+
 export interface CollectedVideosResponse extends ApiResponse {
   data?: VideoInfo[];
   count?: number;
@@ -320,6 +325,9 @@ export interface CookieStatus {
   valid: boolean;
   user_name: string | null;
   user_id: string | null;
+  avatar_thumb?: string | null;
+  avatar_medium?: string | null;
+  avatar_larger?: string | null;
   expires_at: number | null;
   need_login?: boolean;
   need_verify?: boolean;

@@ -27,6 +27,8 @@ export interface AppState {
   cookieLoggedIn: boolean;
   cookieNickname: string;
   setCookieLoggedIn: (loggedIn: boolean, nickname?: string) => void;
+  friendUnreadCount: number;
+  setFriendUnreadCount: (count: number) => void;
 }
 
 export interface DownloadTask {

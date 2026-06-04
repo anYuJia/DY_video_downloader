@@ -6,7 +6,7 @@ import { GlobalAlert, GlobalLoader, GlobalVerifyRecovery } from "@/components/la
 import { useAlertStore, useAppStore, useLoaderStore, useLogStore } from "@/stores/app-store";
 import { useSocket } from "@/lib/socket";
 import { useKeyboard } from "@/hooks/use-keyboard";
-import { checkUpdate, downloadUpdate, getConfig, initClient, listenEvent, restartApp, verifyCookie } from "@/lib/tauri";
+import { checkUpdate, downloadUpdate, getConfig, getFriendChatState, initClient, listenEvent, restartApp, verifyCookie } from "@/lib/tauri";
 import { useRecommendedStore } from "@/stores/recommended-store";
 
 const BOOTSTRAP_STEP_TIMEOUT_MS = 8_000;
@@ -32,6 +32,7 @@ function withBootstrapTimeout<T>(
 
 export default function App() {
   const setCookieLoggedIn = useAppStore((s) => s.setCookieLoggedIn);
+  const setFriendUnreadCount = useAppStore((s) => s.setFriendUnreadCount);
   const showAlert = useAlertStore((s) => s.showAlert);
   const { showLoader, hideLoader } = useLoaderStore();
   const lastCookieInvalidLogAt = useRef(0);
@@ -121,6 +122,21 @@ export default function App() {
       updateInFlightRef.current = false;
     }
   }, [showAlert, showUpdateReadyPrompt]);
+
+  useEffect(() => {
+    let disposed = false;
+    void getFriendChatState()
+      .then((state) => {
+        if (disposed) return;
+        const unreadCounts = state.unreadCounts && typeof state.unreadCounts === "object" ? state.unreadCounts : {};
+        const total = Object.values(unreadCounts).reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
+        setFriendUnreadCount(total);
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, [setFriendUnreadCount]);
 
   useEffect(() => {
     const handleCookieInvalid = (event: Event) => {

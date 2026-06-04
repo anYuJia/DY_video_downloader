@@ -51,6 +51,7 @@ frontend/tsconfig.tsbuildinfo
 
 # 项目特定文件
 config.json
+friend_chat_state.json
 data/
 /src/data/
 *.log

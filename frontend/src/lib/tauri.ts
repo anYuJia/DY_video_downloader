@@ -13,6 +13,7 @@ import type {
   CollectedVideosResponse,
   DownloadFilesResult,
   DownloadProgress,
+  FriendChatStateResponse,
   FriendMessageHistoryResponse,
   FriendOnlineStatusResponse,
   HistoryItem,
@@ -1202,6 +1203,26 @@ export async function getFriendMessageHistory(payload: {
   return invoke("get_friend_message_history", {
     ...body,
   });
+}
+
+export async function getFriendChatState(): Promise<FriendChatStateResponse> {
+  if (shouldUseBrowserBridge()) {
+    return requestJson<FriendChatStateResponse>("/api/friend_chat_state");
+  }
+  return { success: true, summaries: {}, unreadCounts: {} };
+}
+
+export async function saveFriendChatState(payload: {
+  summaries?: Record<string, unknown>;
+  unreadCounts?: Record<string, number>;
+}): Promise<ApiResponse> {
+  if (shouldUseBrowserBridge()) {
+    return requestJson<ApiResponse>("/api/friend_chat_state", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+  return { success: true };
 }
 
 export async function verifyCookie(): Promise<CookieStatus> {

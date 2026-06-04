@@ -1985,6 +1985,117 @@ def get_config():
         'app_version': _get_current_app_version(),
     })
 
+def _friend_chat_state_path() -> Path:
+    return Path(Config.CONFIG_FILE).with_name('friend_chat_state.json')
+
+
+def _sanitize_friend_chat_message(value):
+    if not isinstance(value, dict):
+        return None
+    text = str(value.get('text') or '').strip()
+    if not text:
+        return None
+    try:
+        created_at = int(float(value.get('createdAt') or value.get('created_at') or 0))
+    except Exception:
+        created_at = 0
+    if created_at <= 0:
+        return None
+    direction = str(value.get('direction') or '').strip()
+    if direction not in ('in', 'out'):
+        direction = 'out'
+    status = str(value.get('status') or '').strip()
+    if status not in ('pending', 'sent', 'error'):
+        status = 'sent'
+    return {
+        'id': str(value.get('id') or f'message-{created_at}')[:160],
+        'text': text[:1000],
+        'createdAt': created_at,
+        'status': status,
+        'direction': direction,
+        'senderUid': str(value.get('senderUid') or value.get('sender_uid') or '')[:80],
+    }
+
+
+def _sanitize_friend_chat_state(value):
+    if not isinstance(value, dict):
+        return {'summaries': {}, 'unreadCounts': {}}
+    raw_summaries = value.get('summaries') if isinstance(value.get('summaries'), dict) else {}
+    raw_unread = value.get('unreadCounts') if isinstance(value.get('unreadCounts'), dict) else {}
+    summaries = {}
+    unread_counts = {}
+    for raw_sec_uid, raw_summary in raw_summaries.items():
+        sec_uid = str(raw_sec_uid or '').strip()
+        if not sec_uid or len(sec_uid) > 220 or not isinstance(raw_summary, dict):
+            continue
+        latest_message = _sanitize_friend_chat_message(raw_summary.get('latestMessage'))
+        try:
+            latest_at = int(float(raw_summary.get('latestMessageAt') or 0))
+        except Exception:
+            latest_at = 0
+        try:
+            unread_count = max(0, min(999, int(float(raw_summary.get('unreadCount') or 0))))
+        except Exception:
+            unread_count = 0
+        if latest_message:
+            latest_at = max(latest_at, int(latest_message.get('createdAt') or 0))
+        if latest_at <= 0 and unread_count <= 0:
+            continue
+        summaries[sec_uid] = {
+            'latestMessage': latest_message,
+            'latestMessageAt': latest_at,
+            'unreadCount': unread_count,
+        }
+        if unread_count > 0:
+            unread_counts[sec_uid] = unread_count
+    for raw_sec_uid, raw_count in raw_unread.items():
+        sec_uid = str(raw_sec_uid or '').strip()
+        if not sec_uid or len(sec_uid) > 220:
+            continue
+        try:
+            count = max(0, min(999, int(float(raw_count or 0))))
+        except Exception:
+            count = 0
+        if count > 0:
+            unread_counts[sec_uid] = count
+            if sec_uid in summaries:
+                summaries[sec_uid]['unreadCount'] = max(int(summaries[sec_uid].get('unreadCount') or 0), count)
+    return {
+        'summaries': summaries,
+        'unreadCounts': unread_counts,
+    }
+
+
+@app.route('/api/friend_chat_state', methods=['GET'])
+def get_friend_chat_state():
+    try:
+        state_path = _friend_chat_state_path()
+        if not state_path.exists():
+            return jsonify({'success': True, 'summaries': {}, 'unreadCounts': {}})
+        with open(state_path, 'r', encoding='utf-8') as state_file:
+            state = _sanitize_friend_chat_state(json.load(state_file))
+        return jsonify({'success': True, **state})
+    except Exception as error:
+        logger.warning('读取好友聊天状态失败: %s', error)
+        return jsonify({'success': True, 'summaries': {}, 'unreadCounts': {}})
+
+
+@app.route('/api/friend_chat_state', methods=['POST'])
+def save_friend_chat_state():
+    try:
+        state = _sanitize_friend_chat_state(_request_json())
+        state_path = _friend_chat_state_path()
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = state_path.with_suffix(f'{state_path.suffix}.tmp')
+        with open(temp_path, 'w', encoding='utf-8') as state_file:
+            json.dump(state, state_file, ensure_ascii=False, indent=2)
+            state_file.write('\n')
+        os.replace(temp_path, state_path)
+        return jsonify({'success': True})
+    except Exception as error:
+        logger.warning('保存好友聊天状态失败: %s', error)
+        return jsonify({'success': False, 'message': f'保存好友聊天状态失败: {str(error)}'}), 500
+
 @app.route('/api/config', methods=['POST'])
 def set_config():
     """设置配置"""
@@ -5037,6 +5148,9 @@ def verify_cookie():
             'valid': True,
             'user_name': result.get('nickname') or None,
             'user_id': result.get('user_id') or result.get('sec_uid') or None,
+            'avatar_thumb': result.get('avatar_thumb') or None,
+            'avatar_medium': result.get('avatar_medium') or None,
+            'avatar_larger': result.get('avatar_larger') or None,
             'expires_at': None,
             'message': 'Cookie 可用',
         })
@@ -5154,6 +5268,9 @@ def _verify_native_cookie_login(cookie: str) -> dict:
             'nickname': (user.get('nickname') or '').strip(),
             'user_id': user.get('uid') or user.get('sec_uid') or '',
             'sec_uid': user.get('sec_uid') or '',
+            'avatar_thumb': safe_get_url(user.get('avatar_thumb') or {}),
+            'avatar_medium': safe_get_url(user.get('avatar_medium') or {}),
+            'avatar_larger': safe_get_url(user.get('avatar_larger') or {}),
         }
     except Exception as error:
         logger.warning('原生 Cookie 登录校验失败: %s', error)
@@ -5295,7 +5412,10 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                             latest_signer = extract_relation_signer_entries(latest_entries)
                             if latest_signer:
                                 latest_signer['uid'] = user_id
-                                relation_signer = latest_signer
+                                relation_signer = {
+                                    **(relation_signer if isinstance(relation_signer, dict) else {}),
+                                    **latest_signer,
+                                }
                             latest_cookie_string = serialize_cookie_entries(latest_entries)
                             if latest_cookie_string:
                                 cookie_string = latest_cookie_string
@@ -5303,16 +5423,16 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                                 break
                     if isinstance(relation_signer, dict):
                         relation_signer['uid'] = user_id
-
                 if isinstance(relation_signer, dict):
                     logger.info(
-                        '原生登录窗口采集关系动作参数: uid=%s ticket_len=%s ts_sign_len=%s public_key_len=%s ecdh_key_len=%s dtrait_len=%s',
+                        '原生登录窗口采集关系动作参数: uid=%s ticket_len=%s ts_sign_len=%s public_key_len=%s ecdh_key_len=%s dtrait_len=%s creator_ticket_len=%s',
                         relation_signer.get('uid') or '',
                         len(str(relation_signer.get('ticket') or '')),
                         len(str(relation_signer.get('ts_sign') or '')),
                         len(str(relation_signer.get('public_key') or '')),
                         len(str(relation_signer.get('ecdh_key') or '')),
                         len(str(relation_signer.get('dtrait') or '')),
+                        len(str(relation_signer.get('creator_ticket') or '')),
                     )
 
                 if not relation_signer_ready_for_uid(relation_signer, user_id):

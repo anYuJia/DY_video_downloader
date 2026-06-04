@@ -35,8 +35,11 @@ export function AppShell() {
       <main className="flex-1 flex flex-col min-w-0 relative">
         <div ref={scrollRef} className="flex-1 overflow-x-hidden overflow-y-auto">
           <AnimatePresence initial={false} mode="wait">
-            {renderView(currentView)}
+            {currentView !== "friends-status" ? renderView(currentView) : null}
           </AnimatePresence>
+          <div className={currentView === "friends-status" ? "box-border h-full min-h-0 p-4" : "hidden"}>
+            <FriendsStatusView />
+          </div>
         </div>
         <BottomBar />
       </main>
@@ -110,12 +113,6 @@ function renderView(view: string) {
       return (
         <motion.div key="collected" {...variants} transition={transition} className="p-6">
           <CollectedView />
-        </motion.div>
-      );
-    case "friends-status":
-      return (
-        <motion.div key="friends-status" {...variants} transition={transition} className="p-6">
-          <FriendsStatusView />
         </motion.div>
       );
     case "settings":

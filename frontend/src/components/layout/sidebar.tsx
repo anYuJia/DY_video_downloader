@@ -12,7 +12,7 @@ import {
   Settings,
   Star,
   Circle,
-  Activity,
+  Users,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -32,7 +32,7 @@ const navItems: NavItem[] = [
   { id: "downloads", label: "我的下载", icon: FolderOpen },
   { id: "liked", label: "点赞视频", icon: Heart },
   { id: "collected", label: "收藏视频", icon: Star },
-  { id: "friends-status", label: "好友状态", icon: Activity },
+  { id: "friends-status", label: "好友", icon: Users },
   { id: "settings", label: "设置", icon: Settings },
 ];
 
@@ -52,6 +52,7 @@ export function Sidebar() {
   const currentView = useAppStore((s) => s.currentView);
   const setView = useAppStore((s) => s.setView);
   const cookieLoggedIn = useAppStore((s) => s.cookieLoggedIn);
+  const friendUnreadCount = useAppStore((s) => s.friendUnreadCount);
   const activeCount = useDownloadStore((s) => s.activeCount);
 
   const handleNavClick = (item: NavItem) => {
@@ -117,6 +118,11 @@ export function Sidebar() {
               {item.id === "downloads" && activeCount > 0 && (
                 <Badge variant="default" size="sm" className="ml-auto max-lg:absolute max-lg:-right-1 max-lg:-top-1 max-lg:ml-0">
                   {activeCount}
+                </Badge>
+              )}
+              {item.id === "friends-status" && friendUnreadCount > 0 && (
+                <Badge variant="default" size="sm" className="ml-auto max-lg:absolute max-lg:-right-1 max-lg:-top-1 max-lg:ml-0">
+                  {friendUnreadCount > 99 ? "99+" : friendUnreadCount}
                 </Badge>
               )}
             </motion.button>

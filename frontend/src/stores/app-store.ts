@@ -42,6 +42,9 @@ export const useAppStore = create<AppState>((set) => ({
   cookieNickname: "",
   setCookieLoggedIn: (loggedIn: boolean, nickname?: string) =>
     set({ cookieLoggedIn: loggedIn, cookieNickname: nickname || "" }),
+
+  friendUnreadCount: 0,
+  setFriendUnreadCount: (count: number) => set({ friendUnreadCount: Math.max(0, count) }),
 }));
 
 // ── Alert Store ──
