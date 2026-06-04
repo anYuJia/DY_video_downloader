@@ -351,6 +351,27 @@ class DouyinUserManager:
         selected_url = self._select_video_url(video_data)
         return [{'type': 'video', 'url': selected_url}] if selected_url else []
 
+    def _video_display_url(self, video_data: dict, media_urls: list[dict] | None = None) -> str:
+        selected_url = self._select_video_url(video_data or {})
+        if selected_url:
+            return selected_url
+
+        for item in media_urls or []:
+            if not isinstance(item, dict):
+                continue
+            url = self._first_url(item.get('url') or item.get('play_addr') or item.get('download_addr'))
+            if url and str(item.get('type') or '').lower() == 'video':
+                return self._clean_video_download_url(url)
+
+        for item in media_urls or []:
+            if not isinstance(item, dict):
+                continue
+            url = self._first_url(item.get('url') or item.get('play_addr') or item.get('download_addr'))
+            if url:
+                return self._clean_video_download_url(url)
+
+        return ''
+
     def _normalize_duration_seconds(self, value) -> int:
         try:
             duration = float(value or 0)

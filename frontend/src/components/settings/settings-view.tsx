@@ -868,19 +868,19 @@ export function SettingsView() {
       initial={false}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
-      className="mx-auto w-full max-w-[980px] p-4 lg:p-6"
+      className="mx-auto w-full max-w-[1040px] p-4 lg:p-6"
     >
       <h1 className="mb-1 text-lg font-bold text-text">设置</h1>
       <p className="mb-4 text-xs text-text-muted">
         更改后自动保存，无需手动提交
       </p>
 
-      <div className="flex flex-col gap-3.5">
+      <div className="flex flex-col gap-3">
         {/* Cookie Section */}
         <SettingGroup icon={Key} label="Cookie 登录">
           {/* Already logged in */}
           {cookieLoggedIn && loginStatus === "idle" ? (
-            <div className="rounded-xl bg-success/[0.05] p-3.5">
+            <div className="rounded-[var(--radius-sm)] border border-success/15 bg-success/[0.04] p-3">
               <div className="mb-2.5 flex items-center gap-3">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-success/10">
                   <ShieldCheck className="w-5 h-5 text-success" />
@@ -911,9 +911,9 @@ export function SettingsView() {
             </div>
           ) : loginStatus === "idle" ? (
             /* Not logged in — show login card */
-            <div className="rounded-xl bg-[var(--color-setting-card)] p-3.5">
+            <div className="rounded-[var(--radius-sm)] border border-border bg-surface p-3">
               <div className="mb-3 flex items-start gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-solid">
                   <Globe className="h-[18px] w-[18px] text-accent" />
                 </div>
                 <div>
@@ -929,8 +929,8 @@ export function SettingsView() {
               <div className="mb-3 grid gap-1.5 sm:grid-cols-3">
                 {["系统打开浏览器窗口", "在浏览器中登录抖音账号", "登录成功后 Cookie 自动保存"].map(
                   (step, i) => (
-                    <div key={i} className="flex min-w-0 items-center gap-2 rounded-lg bg-surface/50 px-2 py-1.5">
-                      <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-[var(--color-subtle-bg)] text-[0.6rem] font-bold text-text-muted">
+                    <div key={i} className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-surface-solid/50 px-2 py-1.5">
+                      <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-surface text-[0.6rem] font-bold text-text-muted">
                         {i + 1}
                       </span>
                       <span className="truncate text-xs text-text-secondary">
@@ -959,7 +959,7 @@ export function SettingsView() {
 
               <Button
                 onClick={startLogin}
-                className="h-10 w-full gap-2 rounded-xl text-sm font-bold"
+                className="h-10 w-full gap-2 rounded-[var(--radius-sm)] text-sm font-semibold"
               >
                 <ExternalLink className="w-4 h-4" />
                 打开浏览器登录
@@ -967,7 +967,7 @@ export function SettingsView() {
             </div>
           ) : (
             /* Login in progress / result */
-            <div className="rounded-xl bg-[var(--color-setting-card)] p-3.5">
+            <div className="rounded-[var(--radius-sm)] border border-border bg-surface p-3">
               <div className="mb-3 flex items-center gap-3">
                 <div
                   className={cn(
@@ -1006,7 +1006,7 @@ export function SettingsView() {
               </div>
 
               {loginStatus === "waiting" && countdown > 0 && (
-                <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-[var(--color-setting-card)] mb-3">
+                <div className="mb-3 flex items-center justify-between rounded-lg border border-border bg-surface-solid/50 px-3 py-2">
                   <span className="text-xs text-text-muted">剩余时间</span>
                   <span className="text-sm font-mono font-semibold text-text tabular-nums">
                     {formatCountdown(countdown)}
@@ -1019,7 +1019,7 @@ export function SettingsView() {
                   <Button
                     variant="outline"
                     onClick={handleCancel}
-                    className="flex-1 h-10 rounded-xl text-danger hover:text-danger"
+                    className="flex-1 h-10 rounded-[var(--radius-sm)] text-danger hover:text-danger"
                   >
                     取消
                   </Button>
@@ -1028,7 +1028,7 @@ export function SettingsView() {
                   <Button
                     variant="outline"
                     onClick={resetLogin}
-                    className="flex-1 h-10 rounded-xl"
+                    className="flex-1 h-10 rounded-[var(--radius-sm)]"
                   >
                     {loginStatus === "success" ? "完成" : "重试"}
                   </Button>
@@ -1075,10 +1075,10 @@ export function SettingsView() {
           )}
         </SettingGroup>
 
-        <div className="grid gap-3.5 lg:grid-cols-2">
-          {/* Theme */}
-          <SettingGroup icon={Palette} label="外观主题" status={fieldStatus("theme")}>
-          <div className="flex gap-1.5 p-1 rounded-xl bg-[var(--color-setting-card)]">
+        <div className="grid gap-3 lg:grid-cols-2">
+        {/* Theme */}
+        <SettingGroup icon={Palette} label="外观主题" status={fieldStatus("theme")}>
+          <div className="flex gap-1.5 rounded-[var(--radius-sm)] border border-border bg-surface p-1">
             {(
               [
                 { value: "light", icon: Sun, label: "亮色" },
@@ -1102,7 +1102,7 @@ export function SettingsView() {
                 {theme === value && (
                   <motion.div
                     layoutId="theme-tab-bg"
-                    className="absolute inset-0 rounded-lg bg-accent/[0.12] shadow-[0_0_12px_rgba(254,44,85,0.08)]"
+                    className="absolute inset-0 rounded-lg bg-surface-solid shadow-[inset_0_0_0_1px_var(--color-border-strong)]"
                     transition={{ type: "spring", stiffness: 400, damping: 30 }}
                   />
                 )}
@@ -1111,7 +1111,7 @@ export function SettingsView() {
               </button>
             ))}
           </div>
-          </SettingGroup>
+        </SettingGroup>
 
         <SettingGroup
           icon={Users}
@@ -1127,10 +1127,10 @@ export function SettingsView() {
               onClick={() => void handleImFriendIncludeAllUsersChange(!imFriendIncludeAllUsers)}
               disabled={savingFields.im_friend_include_all_users}
               className={cn(
-                "flex h-10 w-full items-center justify-between rounded-xl border px-3 transition-[background-color,border-color,opacity,box-shadow] duration-200",
+                "flex h-10 w-full items-center justify-between rounded-[var(--radius-sm)] border px-3 transition-[background-color,border-color,opacity,box-shadow] duration-200",
                 imFriendIncludeAllUsers
-                  ? "border-accent/20 bg-accent/[0.07] shadow-[inset_0_0_0_1px_rgba(254,44,85,0.04)]"
-                  : "border-border bg-[var(--color-setting-card)]",
+                  ? "border-accent/25 bg-accent-soft"
+                  : "border-border bg-surface",
                 savingFields.im_friend_include_all_users && "opacity-70"
               )}
             >
@@ -1260,7 +1260,7 @@ export function SettingsView() {
                   type="button"
                   onClick={() => appendFilenameToken(item.token)}
                   disabled={savingFields.filename_template}
-                  className="inline-flex h-7 items-center rounded-lg border border-border bg-[var(--color-setting-card)] px-2 font-mono text-xs text-text-secondary transition-[background-color,color,border-color,opacity] hover:border-accent/30 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
+                  className="inline-flex h-7 items-center rounded-lg border border-border bg-surface px-2 font-mono text-xs text-text-secondary transition-[background-color,color,border-color,opacity] hover:border-accent/30 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
                   title={item.label}
                 >
                   {item.token}
@@ -1283,10 +1283,10 @@ export function SettingsView() {
               onClick={() => void handleAutoCreateFolderChange(!autoCreateFolder)}
               disabled={savingFields.auto_create_folder}
               className={cn(
-                "flex h-10 w-full items-center justify-between rounded-xl border px-3 transition-[background-color,border-color,opacity,box-shadow] duration-200",
+                "flex h-10 w-full items-center justify-between rounded-[var(--radius-sm)] border px-3 transition-[background-color,border-color,opacity,box-shadow] duration-200",
                 autoCreateFolder
-                  ? "border-accent/20 bg-accent/[0.07] shadow-[inset_0_0_0_1px_rgba(254,44,85,0.04)]"
-                  : "border-border bg-[var(--color-setting-card)]",
+                  ? "border-accent/25 bg-accent-soft"
+                  : "border-border bg-surface",
                 savingFields.auto_create_folder && "opacity-70"
               )}
             >
@@ -1327,7 +1327,7 @@ export function SettingsView() {
                   type="button"
                   onClick={() => appendFolderToken(item.token)}
                   disabled={!autoCreateFolder || savingFields.folder_name_template}
-                  className="inline-flex h-7 items-center rounded-lg border border-border bg-[var(--color-setting-card)] px-2 font-mono text-xs text-text-secondary transition-[background-color,color,border-color,opacity] hover:border-accent/30 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
+                  className="inline-flex h-7 items-center rounded-lg border border-border bg-surface px-2 font-mono text-xs text-text-secondary transition-[background-color,color,border-color,opacity] hover:border-accent/30 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
                   title={item.label}
                 >
                   {item.token}
@@ -1377,7 +1377,7 @@ export function SettingsView() {
 
         {/* About */}
         <SettingGroup icon={Info} label="关于">
-          <div className="flex items-center justify-between rounded-xl bg-[var(--color-setting-card)] px-3 py-2.5">
+          <div className="flex items-center justify-between rounded-[var(--radius-sm)] border border-border bg-surface px-3 py-2.5">
             <span className="text-sm text-text-muted">当前版本</span>
             <span className="text-sm text-text font-mono font-semibold">
               {appVersion ? `v${appVersion}` : "读取中"}
@@ -1386,26 +1386,26 @@ export function SettingsView() {
           {updateMessage && (
             <div
               className={cn(
-                "mt-3 rounded-xl border px-3 py-2.5 text-xs leading-relaxed",
+                "mt-3 rounded-[var(--radius-sm)] border px-3 py-2.5 text-xs leading-relaxed",
                 updateStatus === "error"
                   ? "border-danger/20 bg-danger-soft text-danger"
                   : updateStatus === "available"
                     ? "border-info/20 bg-info/10 text-info"
                     : updateStatus === "ready"
                       ? "border-success/20 bg-success-soft text-success"
-                      : "border-border bg-[var(--color-setting-card)] text-text-muted"
+                      : "border-border bg-surface text-text-muted"
               )}
             >
               {updateMessage}
             </div>
           )}
           {updateInfo?.notes && (
-            <div className="mt-3 max-h-[160px] overflow-y-auto rounded-xl border border-border bg-[var(--color-setting-card)] p-3 text-xs leading-relaxed text-text-secondary whitespace-pre-wrap">
+            <div className="mt-3 max-h-[160px] overflow-y-auto rounded-[var(--radius-sm)] border border-border bg-surface p-3 text-xs leading-relaxed text-text-secondary whitespace-pre-wrap">
               {updateInfo.notes}
             </div>
           )}
           {updateAssetName(updateInfo) && updateStatus === "available" && (
-            <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-border bg-[var(--color-setting-card)] px-3 py-2 text-xs text-text-muted">
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-[var(--radius-sm)] border border-border bg-surface px-3 py-2 text-xs text-text-muted">
               <span className="min-w-0 truncate">{updateAssetName(updateInfo)}</span>
               {formatBytes(updateInfo?.asset_size) && (
                 <span className="shrink-0 font-mono tabular-nums">{formatBytes(updateInfo?.asset_size)}</span>
@@ -1427,7 +1427,7 @@ export function SettingsView() {
             variant="outline"
             onClick={handleCheckUpdate}
             disabled={updateStatus === "checking" || updateStatus === "downloading"}
-            className="w-full h-10 rounded-xl mt-3"
+            className="w-full h-10 rounded-[var(--radius-sm)] mt-3"
           >
             <RefreshCw className={cn("w-4 h-4", updateStatus === "checking" && "animate-spin")} />
             {updateStatus === "checking" ? "检查中..." : "检查更新"}
@@ -1436,7 +1436,7 @@ export function SettingsView() {
             <Button
               variant="default"
               onClick={handleDownloadUpdate}
-              className="mt-2 w-full h-10 rounded-xl"
+              className="mt-2 w-full h-10 rounded-[var(--radius-sm)]"
             >
               <DownloadIcon className="w-4 h-4" />
               立即更新
@@ -1447,14 +1447,14 @@ export function SettingsView() {
               <Button
                 variant="outline"
                 onClick={() => setUpdateCanRestart(false)}
-                className="h-10 rounded-xl"
+                className="h-10 rounded-[var(--radius-sm)]"
               >
                 稍后重启
               </Button>
               <Button
                 variant="default"
                 onClick={handleRestart}
-                className="h-10 rounded-xl"
+                className="h-10 rounded-[var(--radius-sm)]"
               >
                 <RefreshCw className="w-4 h-4" />
                 立即重启
@@ -1481,10 +1481,10 @@ function SettingGroup({
   children: React.ReactNode;
 }) {
   return (
-    <div className={cn("rounded-xl border border-border bg-surface-solid/50 p-4 transition-colors", className)}>
+    <div className={cn("rounded-[var(--radius-lg)] border border-border bg-surface-solid/45 p-3.5 transition-colors", className)}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <label className="flex items-center gap-2.5 text-sm font-semibold text-text">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent/10">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-surface">
             <Icon className="w-4 h-4 text-accent" />
           </div>
           {label}

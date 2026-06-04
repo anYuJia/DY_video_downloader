@@ -19,6 +19,7 @@ LOGIN_MARKER_KEYS = {
 }
 
 RELATION_SIGNER_COOKIE_NAME = 'dy_relation_signer'
+RELATION_SIGNER_DEBUG_COOKIE_NAME = 'dy_relation_signer_debug'
 
 
 @dataclass
@@ -208,14 +209,47 @@ def extract_relation_signer_entries(entries: list[dict[str, str]]) -> dict[str, 
     if not isinstance(signer, dict):
         return None
     required = ('ticket', 'ts_sign', 'public_key', 'ecdh_key', 'uid')
-    if any(not str(signer.get(key) or '').strip() for key in required):
+    creator_required = ('creator_ticket', 'creator_ts_sign', 'creator_client_cert')
+    has_relation_signer = all(str(signer.get(key) or '').strip() for key in required)
+    has_creator_signer = all(str(signer.get(key) or '').strip() for key in creator_required)
+    if not has_relation_signer and not has_creator_signer:
         return None
-    result = {key: str(signer.get(key) or '').strip() for key in required}
-    for optional_key in ('dtrait', 'client_cert', 'private_key'):
+    result = {
+        key: str(signer.get(key) or '').strip()
+        for key in required
+        if str(signer.get(key) or '').strip()
+    }
+    for optional_key in (
+        'dtrait',
+        'client_cert',
+        'private_key',
+        'creator_ticket',
+        'creator_ts_sign',
+        'creator_client_cert',
+        'creator_public_key',
+    ):
         value = str(signer.get(optional_key) or '').strip()
         if value:
             result[optional_key] = value
     return result
+
+
+def extract_relation_signer_debug(entries: list[dict[str, str]]) -> dict[str, str] | None:
+    raw_value = ''
+    for entry in reversed(entries or []):
+        if entry.get('name') == RELATION_SIGNER_DEBUG_COOKIE_NAME:
+            raw_value = entry.get('value') or ''
+            break
+    if not raw_value:
+        return None
+
+    try:
+        decoded = urllib.parse.unquote(raw_value)
+        debug = json.loads(base64.b64decode(decoded).decode('utf-8'))
+    except Exception:
+        return None
+
+    return debug if isinstance(debug, dict) else None
 
 
 def relation_signer_ready(signer: dict[str, str] | None) -> bool:
@@ -263,6 +297,22 @@ def inject_relation_signer_probe(window: Any) -> None:
                     document.cookie = `dy_relation_signer=${encodeURIComponent(encoded)}; domain=.douyin.com; path=/; max-age=600`;
                     document.cookie = `dy_relation_signer=${encodeURIComponent(encoded)}; path=/; max-age=600`;
                 } catch (error) {}
+            };
+            const saveDebug = (payload) => {
+                try {
+                    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+                    document.cookie = `dy_relation_signer_debug=${encodeURIComponent(encoded)}; domain=.douyin.com; path=/; max-age=600`;
+                    document.cookie = `dy_relation_signer_debug=${encodeURIComponent(encoded)}; path=/; max-age=600`;
+                } catch (error) {}
+            };
+            const readExistingSigner = () => {
+                try {
+                    const match = document.cookie.match(/(?:^|; )dy_relation_signer=([^;]+)/);
+                    if (!match) return {};
+                    return JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(match[1])))));
+                } catch (error) {
+                    return {};
+                }
             };
             const bytesToBase64 = (value) => {
                 const bytes = Array.from(value instanceof Uint8Array ? value : Object.values(value || {}));
@@ -382,8 +432,18 @@ def inject_relation_signer_probe(window: Any) -> None:
             });
             (async () => {
                 try {
+                    const isCreator = String(location.hostname || "").includes("creator.douyin.com");
                     const crypto = window.securitySDK && window.securitySDK.cryptoSDK;
-                    if (!crypto) throw new Error("security sdk not ready");
+                    if (!crypto) {
+                        if (isCreator) saveDebug({
+                            host: location.hostname || "",
+                            href: location.href || "",
+                            hasSecuritySDK: !!window.securitySDK,
+                            hasCryptoSDK: false,
+                            error: "security sdk not ready",
+                        });
+                        throw new Error("security sdk not ready");
+                    }
                     const info = await crypto.getKeysInfoWithOrigin({ certType: "header", scene: "web_protect" });
                     const ecdh = await crypto.initECDHKey();
                     let privateKey = "";
@@ -394,28 +454,61 @@ def inject_relation_signer_probe(window: Any) -> None:
                         privateKey = inner && inner.ec_privateKey || "";
                     } catch (error) {}
                     const clientCert = info && info.sign && info.sign.client_cert || "";
-                    const payload = {
+                    const existing = readExistingSigner();
+                    if (isCreator) saveDebug({
+                        host: location.hostname || "",
+                        href: location.href || "",
+                        hasSecuritySDK: !!window.securitySDK,
+                        hasCryptoSDK: !!crypto,
+                        hasInfo: !!info,
+                        hasSign: !!(info && info.sign),
+                        ticketLen: String(info && info.sign && info.sign.ticket || "").length,
+                        tsSignLen: String(info && info.sign && info.sign.ts_sign || "").length,
+                        clientCertLen: String(clientCert || "").length,
+                        b64PubKeyLen: String(info && info.b64PubKey || "").length,
+                    });
+                    const payload = isCreator ? {
+                        ...existing,
+                        creator_ticket: info && info.sign && info.sign.ticket || "",
+                        creator_ts_sign: info && info.sign && info.sign.ts_sign || "",
+                        creator_public_key: info && (info.b64PubKey || clientCert.replace(/^pub\\./, "")) || "",
+                        creator_client_cert: clientCert,
+                        private_key: privateKey || existing.private_key || "",
+                    } : {
+                        ...existing,
                         ticket: info && info.sign && info.sign.ticket || "",
                         ts_sign: info && info.sign && info.sign.ts_sign || "",
                         public_key: info && (info.b64PubKey || clientCert.replace(/^pub\\./, "")) || "",
                         client_cert: clientCert,
                         private_key: privateKey,
                         ecdh_key: bytesToBase64(ecdh),
-                        uid: window.SSR_RENDER_DATA && window.SSR_RENDER_DATA.app && window.SSR_RENDER_DATA.app.odin && window.SSR_RENDER_DATA.app.odin.user_id || "",
-                        dtrait: "",
+                        uid: window.SSR_RENDER_DATA && window.SSR_RENDER_DATA.app && window.SSR_RENDER_DATA.app.odin && window.SSR_RENDER_DATA.app.odin.user_id || existing.uid || "",
+                        dtrait: existing.dtrait || "",
                     };
                     patchDtraitCapture((value) => {
                         payload.dtrait = value || payload.dtrait;
-                        if (payload.ticket && payload.ts_sign && payload.public_key && payload.ecdh_key && payload.dtrait) save(payload);
+                        if (isCreator || (payload.ticket && payload.ts_sign && payload.public_key && payload.ecdh_key && payload.dtrait)) save(payload);
                     });
-                    payload.dtrait = await captureDtrait();
-                    if (payload.ticket && payload.ts_sign && payload.public_key && payload.ecdh_key) {
+                    if (!isCreator) payload.dtrait = await captureDtrait();
+                    if (
+                        (isCreator && payload.creator_ticket && payload.creator_ts_sign && payload.creator_client_cert)
+                        || (!isCreator && payload.ticket && payload.ts_sign && payload.public_key && payload.ecdh_key)
+                    ) {
                         save(payload);
                         if (!payload.dtrait) window.__dyRelationSignerProbeStarted = false;
                     } else {
                         window.__dyRelationSignerProbeStarted = false;
                     }
                 } catch (error) {
+                    try {
+                        if (String(location.hostname || "").includes("creator.douyin.com")) saveDebug({
+                            host: location.hostname || "",
+                            href: location.href || "",
+                            hasSecuritySDK: !!window.securitySDK,
+                            hasCryptoSDK: !!(window.securitySDK && window.securitySDK.cryptoSDK),
+                            error: String(error && error.message || error || ""),
+                        });
+                    } catch (debugError) {}
                     window.__dyRelationSignerProbeStarted = false;
                 }
             })();
