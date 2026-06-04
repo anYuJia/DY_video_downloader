@@ -13,6 +13,7 @@ import type {
   CollectedVideosResponse,
   DownloadFilesResult,
   DownloadProgress,
+  FriendMessageHistoryResponse,
   FriendOnlineStatusResponse,
   HistoryItem,
   LikedAuthorsResponse,
@@ -1171,6 +1172,35 @@ export async function sendFriendMessage(payload: {
     toUserId: payload.toUserId,
     uid: payload.toUserId,
     content: payload.content,
+  });
+}
+
+export async function getFriendMessageHistory(payload: {
+  cursor?: number;
+  toUserId?: string;
+  conversationId?: string;
+  conversationShortId?: string | number;
+  conversationType?: string | number;
+} = {}): Promise<FriendMessageHistoryResponse> {
+  const body = {
+    cursor: payload.cursor || 0,
+    to_user_id: payload.toUserId,
+    toUserId: payload.toUserId,
+    conversation_id: payload.conversationId,
+    conversationId: payload.conversationId,
+    conversation_short_id: payload.conversationShortId,
+    conversationShortId: payload.conversationShortId,
+    conversation_type: payload.conversationType,
+    conversationType: payload.conversationType,
+  };
+  if (shouldUseBrowserBridge()) {
+    return requestJson("/api/get_friend_message_history", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+  return invoke("get_friend_message_history", {
+    ...body,
   });
 }
 

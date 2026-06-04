@@ -3,11 +3,11 @@ import { Activity, Clock3, Loader2, MessageCircle, RefreshCw, Send, UserRound, U
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { getConfig, getFriendOnlineStatus, listenEvent, saveConfig, sendFriendMessage, type FriendOnlineStatusResponse } from "@/lib/tauri";
+import { getConfig, getFriendMessageHistory, getFriendOnlineStatus, listenEvent, saveConfig, sendFriendMessage, type FriendOnlineStatusResponse } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
 import { useSearchStore } from "@/stores/search-store";
-import type { UserInfo } from "@/lib/contracts";
+import type { FriendMessageHistoryItem, UserInfo } from "@/lib/contracts";
 
 interface FriendStatusItem {
   secUid: string;
@@ -269,6 +269,8 @@ export function FriendsStatusView() {
   const [chatDrafts, setChatDrafts] = useState<ChatDrafts>(() => readChatDrafts());
   const [chatMessages, setChatMessages] = useState<ChatMessages>(() => readChatMessages());
   const [selectedFriendId, setSelectedFriendId] = useState("");
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
   const [savedIds, setSavedIds] = useState<string[]>([]);
   const [savedCount, setSavedCount] = useState(0);
   const [includeAllUsers, setIncludeAllUsers] = useState(false);
@@ -391,6 +393,66 @@ export function FriendsStatusView() {
   const selectFriend = useCallback((friend: FriendStatusItem) => {
     setSelectedFriendId(friend.secUid);
   }, []);
+
+  const mergeHistoryMessages = useCallback((items: FriendMessageHistoryItem[], fallbackFriend?: FriendStatusItem | null) => {
+    if (!items.length) return 0;
+    let mergedCount = 0;
+    setChatMessages((current) => {
+      const next: ChatMessages = { ...current };
+      for (const item of items) {
+        const conversationId = stringField(item as JsonRecord, ["conversation_id", "conversationId"]);
+        const senderUid = stringField(item as JsonRecord, ["sender_uid", "senderUid"]);
+        const text = stringField(item as JsonRecord, ["content", "text"]);
+        const messageId = stringField(item as JsonRecord, ["server_message_id", "message_id", "id"]);
+        if (!text) continue;
+        const friend = fallbackFriend || friends.find((candidate) =>
+          (senderUid && candidate.uid === senderUid) ||
+          (candidate.uid && conversationId.includes(candidate.uid))
+        );
+        if (!friend) continue;
+        const rawCreatedAt = numberField(item as JsonRecord, ["created_at", "createdAt", "create_time", "createTime"]);
+        const createdAt = rawCreatedAt > 0 && rawCreatedAt < 10_000_000_000
+          ? rawCreatedAt * 1000
+          : rawCreatedAt || Date.now();
+        const message: LocalChatMessage = {
+          id: messageId || `${friend.secUid}-${createdAt}`,
+          text,
+          createdAt,
+          status: "sent",
+          direction: senderUid && senderUid === friend.uid ? "in" : "out",
+          senderUid,
+        };
+        const currentMessages = next[friend.secUid] || [];
+        if (currentMessages.some((existing) => existing.id === message.id)) continue;
+        next[friend.secUid] = [...currentMessages, message].sort((a, b) => a.createdAt - b.createdAt);
+        mergedCount += 1;
+      }
+      if (mergedCount > 0) {
+        localStorage.setItem(CHAT_MESSAGES_KEY, JSON.stringify(next));
+        return next;
+      }
+      return current;
+    });
+    return mergedCount;
+  }, [friends]);
+
+  const loadHistoryMessages = useCallback(async () => {
+    if (historyLoading) return;
+    if (!selectedFriend) return;
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      const result = await getFriendMessageHistory({ cursor: 0, toUserId: selectedFriend.uid });
+      if (!result.success) {
+        throw new Error(result.message || "获取历史消息失败");
+      }
+      mergeHistoryMessages(Array.isArray(result.messages) ? result.messages : [], selectedFriend);
+    } catch (caught) {
+      setHistoryError(caught instanceof Error ? caught.message : "获取历史消息失败");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyLoading, mergeHistoryMessages, selectedFriend]);
 
   useEffect(() => {
     let disposed = false;
@@ -666,8 +728,11 @@ export function FriendsStatusView() {
         friend={selectedFriend}
         draft={selectedFriend ? chatDrafts[selectedFriend.secUid] || "" : ""}
         messages={selectedMessages}
+        historyError={historyError}
+        historyLoading={historyLoading}
         onDraftChange={updateDraft}
         onSendMessage={sendLocalMessage}
+        onLoadHistory={loadHistoryMessages}
         onOpenProfile={openFriendProfile}
       />
       </div>
@@ -765,20 +830,39 @@ function ChatWorkspace({
   friend,
   draft,
   messages,
+  historyError,
+  historyLoading,
   onDraftChange,
   onSendMessage,
+  onLoadHistory,
   onOpenProfile,
 }: {
   friend: FriendStatusItem | null;
   draft: string;
   messages: LocalChatMessage[];
+  historyError: string;
+  historyLoading: boolean;
   onDraftChange: (secUid: string, value: string) => void;
   onSendMessage: (friend: FriendStatusItem, value: string) => Promise<void>;
+  onLoadHistory: () => Promise<void>;
   onOpenProfile: (friend: FriendStatusItem) => Promise<void>;
 }) {
   const displayName = friendDisplayName(friend);
   const hasDraft = Boolean(draft.trim());
   const sending = messages.some((message) => message.status === "pending");
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const latestMessageId = messages.length > 0 ? messages[messages.length - 1].id : "";
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const scroller = scrollRef.current;
+      if (scroller) {
+        scroller.scrollTop = scroller.scrollHeight;
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [friend?.secUid, latestMessageId, messages.length, historyLoading]);
+
   const handleSendMessage = () => {
     if (!friend || !hasDraft) return;
     void onSendMessage(friend, draft);
@@ -819,6 +903,16 @@ function ChatWorkspace({
           <Button
             variant="outline"
             size="sm"
+            disabled={!friend || historyLoading}
+            onClick={() => void onLoadHistory()}
+            className="h-8"
+          >
+            {historyLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock3 className="h-3.5 w-3.5" />}
+            历史
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             disabled={!friend}
             onClick={() => friend && void onOpenProfile(friend)}
             className="h-8"
@@ -830,7 +924,12 @@ function ChatWorkspace({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex-1 overflow-y-auto px-4 py-4">
+        {historyError && (
+          <div className="border-b border-danger/15 bg-danger-soft px-4 py-2 text-[0.72rem] text-danger">
+            {historyError}
+          </div>
+        )}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
           {friend ? (
             <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
               <TimelineNotice

@@ -76,26 +76,33 @@ def build_request(
     body: bytes,
     headers: dict[str, str],
     sequence_id: int,
+    sdk_version: str = "1.1.3",
+    build_number: str = "5fa6ff1:Detached: 5fa6ff1111fd53aafc4c753505d3c93daad74d27",
+    inbox_type: int = 0,
+    device_platform: str = "douyin_pc",
+    auth_type: int = 4,
+    biz: str = "douyin_web",
 ) -> bytes:
     payload = bytearray()
     payload += _int_field(1, cmd)
     payload += _int_field(2, sequence_id)
-    payload += _string_field(3, "1.1.3")
+    payload += _string_field(3, sdk_version)
     payload += _string_field(4, token)
     payload += _int_field(5, 3)
-    payload += _int_field(6, 0)
-    payload += _string_field(7, "5fa6ff1:Detached: 5fa6ff1111fd53aafc4c753505d3c93daad74d27")
+    payload += _int_field(6, inbox_type)
+    payload += _string_field(7, build_number)
     payload += _bytes_field(8, body)
     payload += _string_field(9, "0")
-    payload += _string_field(11, "douyin_pc")
+    payload += _string_field(11, device_platform)
     for key, value in headers.items():
         payload += _map_entry(15, key, value)
-    payload += _int_field(18, 4)
-    payload += _string_field(21, "douyin_web")
+    payload += _int_field(18, auth_type)
+    payload += _string_field(21, biz)
     payload += _string_field(22, "web_sdk")
     payload += _string_field(23, ts_sign)
     payload += _string_field(24, sdk_cert)
-    payload += _string_field(25, request_sign)
+    if request_sign:
+        payload += _string_field(25, request_sign)
     return bytes(payload)
 
 
@@ -130,26 +137,84 @@ def build_send_message_body(
     return _bytes_field(100, bytes(inner))
 
 
+def build_messages_per_user_init_body(cursor: int = 0) -> bytes:
+    inner = _int_field(1, int(cursor or 0))
+    return _bytes_field(203, inner)
+
+
+def build_get_user_message_body(cursor: int = 0) -> bytes:
+    inner = bytearray()
+    inner += _bytes_field(1, _int_field(1, int(cursor or 0)) + _int_field(3, 0) + _bytes_field(4, _int_field(1, 0) + _int_field(2, 0)))
+    return _bytes_field(128, bytes(inner))
+
+
+def build_get_conversation_info_list_body(
+    *,
+    conversation_id: str,
+    conversation_short_id: int,
+    conversation_type: int = 1,
+) -> bytes:
+    item = bytearray()
+    item += _string_field(1, conversation_id)
+    item += _int_field(2, int(conversation_short_id or 0))
+    item += _int_field(3, int(conversation_type or 1))
+    return _bytes_field(610, _bytes_field(1, bytes(item)))
+
+
+def build_get_by_conversation_body(
+    *,
+    conversation_id: str,
+    conversation_short_id: int,
+    conversation_type: int = 1,
+    cursor: int = 0,
+    count: int = 50,
+) -> bytes:
+    inner = bytearray()
+    inner += _string_field(1, conversation_id)
+    inner += _int_field(2, int(conversation_type or 1))
+    inner += _int_field(3, int(conversation_short_id or 0))
+    inner += _int_field(4, 1)
+    if int(cursor or 0) > 0:
+        inner += _int_field(5, int(cursor or 0))
+    inner += _int_field(6, max(1, min(int(count or 50), 100)))
+    return _bytes_field(301, bytes(inner))
+
+
 def parse_response(data: bytes) -> dict[str, Any]:
     fields = _parse_fields(data)
     body = _first_bytes(fields, 6)
+    cmd = _first_int(fields, 1)
     return {
-        "cmd": _first_int(fields, 1),
+        "cmd": cmd,
         "sequence_id": _first_int(fields, 2),
         "error_desc": _first_string(fields, 3),
         "message": _first_string(fields, 4),
-        "body": parse_response_body(body) if body else {},
+        "body": parse_response_body(body, cmd=cmd) if body else {},
     }
 
 
-def parse_response_body(data: bytes) -> dict[str, Any]:
+def parse_response_body(data: bytes, cmd: int = 0) -> dict[str, Any]:
     fields = _parse_fields(data)
+    by_conversation = _first_bytes(fields, 301)
+    if by_conversation:
+        return {"get_by_conversation_body": parse_messages_by_conversation(by_conversation)}
+    user_message = _first_bytes(fields, 128)
+    if user_message:
+        return {"get_user_message_body": parse_messages_by_conversation(user_message)}
+    history = _first_bytes(fields, 203)
+    if history:
+        return {"messages_per_user_init_v2_body": parse_messages_per_user_init(history)}
     notify = _first_bytes(fields, 500)
     if notify:
         return {"new_message_notify": parse_new_message_notify(notify)}
     create = _first_bytes(fields, 609)
     if create:
         return {"create_conversation_v2_body": parse_conversation_info_list(create)}
+    info_list = _first_bytes(fields, 610)
+    if info_list:
+        return {"get_conversation_info_list_body": parse_conversation_info_list(info_list)}
+    if cmd in (128, 301) and data:
+        return {"get_by_conversation_body": parse_messages_by_conversation(data)}
     return {}
 
 
@@ -185,6 +250,15 @@ def parse_new_message_notify(data: bytes) -> dict[str, Any]:
 
 def parse_message_body(data: bytes) -> dict[str, Any]:
     fields = _parse_fields(data)
+    ext = {}
+    for field in (9, 15):
+        for raw in fields.get(field, []):
+            if raw[0] == 2:
+                entry_fields = _parse_fields(raw[1])
+                key = _first_string(entry_fields, 1)
+                value = _first_string(entry_fields, 2)
+                if key:
+                    ext[key] = value
     return {
         "conversation_id": _first_string(fields, 1),
         "conversation_type": _first_int(fields, 2),
@@ -194,6 +268,43 @@ def parse_message_body(data: bytes) -> dict[str, Any]:
         "message_type": _first_int(fields, 6),
         "sender": _first_int(fields, 7),
         "content": _first_string(fields, 8),
+        "create_time": _first_int(fields, 9),
+        "status": _first_int(fields, 11),
+        "order_in_conversation": _first_int(fields, 12),
+        "ext": ext,
+        "sec_sender": _first_string(fields, 18) or _first_string(fields, 16) or _first_string(fields, 14),
+    }
+
+
+def parse_messages_per_user_init(data: bytes) -> dict[str, Any]:
+    fields = _parse_fields(data)
+    messages = []
+    conversations = []
+    for raw in fields.get(1, []):
+        if raw[0] == 2:
+            messages.append(parse_message_body(raw[1]))
+    for raw in fields.get(2, []):
+        if raw[0] == 2:
+            conversations.append(parse_conversation_info(raw[1]))
+    return {
+        "messages": messages,
+        "conversations": conversations,
+        "per_user_cursor": _first_int(fields, 3),
+        "next_cursor": _first_int(fields, 4),
+        "has_more": bool(_first_int(fields, 5)),
+    }
+
+
+def parse_messages_by_conversation(data: bytes) -> dict[str, Any]:
+    fields = _parse_fields(data)
+    messages = []
+    for raw in fields.get(1, []):
+        if raw[0] == 2:
+            messages.append(parse_message_body(raw[1]))
+    return {
+        "messages": messages,
+        "next_cursor": _first_int(fields, 2) or _first_int(fields, 3) or _first_int(fields, 5),
+        "has_more": bool(_first_int(fields, 4) or _first_int(fields, 6)),
     }
 
 

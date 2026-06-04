@@ -219,6 +219,27 @@ export interface SendFriendMessageResponse extends ApiResponse {
   raw?: unknown;
 }
 
+export interface FriendMessageHistoryItem {
+  conversation_id?: string;
+  conversation_short_id?: string | number;
+  conversation_type?: string | number;
+  server_message_id?: string | number;
+  sender_uid?: string;
+  senderUid?: string;
+  content?: string;
+  text?: string;
+  create_time?: number;
+  created_at?: number;
+  message_type?: number;
+}
+
+export interface FriendMessageHistoryResponse extends ApiResponse {
+  messages?: FriendMessageHistoryItem[];
+  next_cursor?: number;
+  has_more?: boolean;
+  conversation?: unknown;
+}
+
 export interface CollectedVideosResponse extends ApiResponse {
   data?: VideoInfo[];
   count?: number;

@@ -3731,6 +3731,35 @@ def send_friend_message_api():
     except Exception as e:
         return jsonify({'success': False, 'message': f'发送私信失败: {str(e)}'}), 500
 
+@app.route('/api/get_friend_message_history', methods=['POST'])
+def get_friend_message_history_api():
+    """获取最近的 IM 历史消息。"""
+    try:
+        data = _request_json()
+        cursor = _coerce_int(data.get('cursor'), 0, 0)
+        to_user_id = data.get('to_user_id') or data.get('toUserId') or data.get('uid') or None
+        conversation_id = data.get('conversation_id') or data.get('conversationId') or None
+        conversation_short_id = _coerce_int(data.get('conversation_short_id') or data.get('conversationShortId'), 0, 0)
+        conversation_type = _coerce_int(data.get('conversation_type') or data.get('conversationType'), 1, 1)
+        if not api:
+            return jsonify({'success': False, 'need_login': True, 'message': '请先设置 Cookie'})
+        result, success = run_async(
+            api.get_im_history_messages(
+                cursor=cursor,
+                to_user_id=to_user_id,
+                conversation_id=conversation_id,
+                conversation_short_id=conversation_short_id,
+                conversation_type=conversation_type,
+            ),
+            timeout=60,
+        )
+        return jsonify({
+            'success': bool(success),
+            **(result if isinstance(result, dict) else {'message': str(result)}),
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取历史消息失败: {str(e)}'}), 500
+
 @app.route('/api/user_videos', methods=['POST'])
 def get_user_videos():
     """获取用户视频列表（支持分页渐进加载）"""
