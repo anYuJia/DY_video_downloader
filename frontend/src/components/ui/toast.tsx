@@ -78,7 +78,7 @@ export function Toaster() {
   const dismiss = useToastStore((s) => s.dismiss);
 
   return (
-    <div className="fixed inset-x-4 bottom-4 z-[8500] flex flex-col items-stretch gap-3 pointer-events-none sm:inset-x-auto sm:bottom-6 sm:right-6 sm:items-end">
+    <div className="fixed inset-x-3 bottom-3 z-[8500] flex flex-col items-stretch gap-2 pointer-events-none sm:inset-x-auto sm:bottom-4 sm:right-4 sm:items-end">
       <AnimatePresence mode="popLayout" initial={false}>
         {toasts.map((toast, index) => (
           <ToastItem
@@ -155,37 +155,37 @@ function ToastItem({
         originY: 1,
       }}
       className={cn(
-        "pointer-events-auto relative flex w-full flex-col overflow-hidden rounded-[20px] sm:w-[340px]",
-        "bg-surface-solid/80 backdrop-blur-3xl shadow-[0_24px_48px_-12px_rgba(0,0,0,0.5)]",
+        "pointer-events-auto relative flex w-full flex-col overflow-hidden rounded-[14px] sm:w-[292px]",
+        "bg-surface-solid/80 backdrop-blur-3xl shadow-[0_18px_36px_-16px_rgba(0,0,0,0.45)]",
         "border border-white/[0.08] transition-colors duration-300",
         toast.type === "loading" && "border-accent/30 shadow-[0_0_40px_-12px_rgba(254,44,85,0.2)]",
         toast.type === "success" && "border-success/30 shadow-[0_0_40px_-12px_rgba(34,197,94,0.15)]",
         toast.type === "error" && "border-danger/30 shadow-[0_0_40px_-12px_rgba(239,68,68,0.15)]"
       )}
     >
-      <div className="flex items-start gap-4 p-5">
+      <div className="flex items-start gap-3 p-3">
         <div className={cn(
-          "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-surface-raised shadow-sm border border-white/[0.05]",
+          "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] bg-surface-raised shadow-sm border border-white/[0.05]",
           colorMap[toast.type],
         )}>
-          <Icon className={cn("h-4.5 w-4.5", toast.type === "loading" && "animate-spin")} />
+          <Icon className={cn("h-3.5 w-3.5", toast.type === "loading" && "animate-spin")} />
         </div>
         
-        <div className="flex-1 min-w-0 pt-0.5">
+        <div className="flex-1 min-w-0">
           {toast.title && (
-            <div className="text-[0.88rem] font-black leading-tight text-text mb-1.5 tracking-tight truncate">
+            <div className="mb-1 truncate text-[0.78rem] font-black leading-tight text-text tracking-tight">
               {toast.title}
             </div>
           )}
           <div className={cn(
-            "text-[0.82rem] leading-[1.5] text-text-secondary line-clamp-3",
-            !toast.title && "font-bold text-text text-[0.88rem]"
+            "text-[0.74rem] leading-[1.45] text-text-secondary line-clamp-3",
+            !toast.title && "font-bold text-text text-[0.78rem]"
           )}>
             {toast.message}
           </div>
 
           {toast.action && (
-            <div className="mt-4 flex justify-end">
+            <div className="mt-3 flex justify-end">
               <button
                 type="button"
                 aria-label={toast.action.label}
@@ -194,10 +194,10 @@ function ToastItem({
                   toast.action?.onClick();
                   onDismiss();
                 }}
-                className="group relative flex items-center justify-center h-8 px-4 rounded-[10px] bg-accent text-[0.72rem] font-black text-white shadow-lg shadow-accent/20 active:scale-[0.96] transition-[background-color,color,box-shadow,transform,opacity]"
+                className="group relative flex h-7 items-center justify-center rounded-[8px] bg-accent px-3 text-[0.68rem] font-black text-white shadow-lg shadow-accent/20 active:scale-[0.96] transition-[background-color,color,box-shadow,transform,opacity]"
               >
                 <span className="relative z-10">{toast.action.label}</span>
-                <div className="absolute inset-0 rounded-[10px] bg-white opacity-0 group-hover:opacity-10 transition-opacity" />
+                <div className="absolute inset-0 rounded-[8px] bg-white opacity-0 group-hover:opacity-10 transition-opacity" />
               </button>
             </div>
           )}
@@ -207,9 +207,9 @@ function ToastItem({
           type="button"
           aria-label="关闭通知"
           onClick={onDismiss}
-          className="shrink-0 -mr-1 -mt-1 flex h-10 w-10 items-center justify-center rounded-full text-text-muted hover:text-text hover:bg-white/[0.05] active:scale-[0.96] transition-[background-color,color,transform,opacity]"
+          className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-text-muted hover:text-text hover:bg-white/[0.05] active:scale-[0.96] transition-[background-color,color,transform,opacity]"
         >
-          <X className="h-4 w-4" />
+          <X className="h-3.5 w-3.5" />
         </button>
       </div>
 
