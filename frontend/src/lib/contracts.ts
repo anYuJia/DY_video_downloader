@@ -211,6 +211,14 @@ export interface FriendOnlineStatusResponse extends ApiResponse {
   active_status?: unknown;
 }
 
+export interface SendFriendMessageResponse extends ApiResponse {
+  client_message_id?: string;
+  message_id?: string | number;
+  conversation_id?: string;
+  conversation?: Record<string, unknown>;
+  raw?: unknown;
+}
+
 export interface CollectedVideosResponse extends ApiResponse {
   data?: VideoInfo[];
   count?: number;

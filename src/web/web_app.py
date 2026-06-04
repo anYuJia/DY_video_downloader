@@ -119,6 +119,7 @@ from src.api.native_cookie_login import (
     relation_signer_has_ticket_guard,
     serialize_cookie_entries,
 )
+from src.api import douyin_im_proto
 from src.downloader.downloader import DouyinDownloader, build_download_name, build_download_title
 from src.utils.download_history_index import (
     get_download_history_items,
@@ -162,6 +163,10 @@ downloader = None
 user_manager = None
 download_tasks = {} # 用于存储任务状态和元数据（同步Dict）
 active_tasks = {} # 用于存储活跃的 asyncio.Future 和 asyncio.Event
+_im_message_ws = None
+_im_message_thread = None
+_im_message_stop_event = threading.Event()
+_im_message_lock = threading.Lock()
 
 TERMINAL_TASK_STATUSES = {'completed', 'failed', 'error', 'cancelled', 'canceled'}
 
@@ -3448,11 +3453,173 @@ def _save_im_friend_cache(sec_user_ids=None):
         im_friend_refresh_interval_seconds=Config.IM_FRIEND_REFRESH_INTERVAL_SECONDS,
     )
 
+
+def _im_cookie_dict(cookie: str) -> dict:
+    result = {}
+    for item in str(cookie or '').split(';'):
+        if '=' in item:
+            key, value = item.strip().split('=', 1)
+            if key:
+                result[key] = value
+    return result
+
+
+def _extract_text_message(message: dict) -> str:
+    content = str((message or {}).get('content') or '')
+    if not content:
+        return ''
+    try:
+        parsed = json.loads(content)
+        if isinstance(parsed, dict):
+            return str(parsed.get('text') or '')
+    except Exception:
+        pass
+    return content
+
+
+def _emit_im_message(response: dict) -> None:
+    sent = douyin_im_proto.sent_message(response)
+    if not sent:
+        return
+    try:
+        content = _extract_text_message({'content': sent.content})
+        payload = {
+            'conversation_id': sent.conversation_id,
+            'conversation_short_id': sent.conversation_short_id,
+            'conversation_type': sent.conversation_type,
+            'server_message_id': sent.server_message_id,
+            'index_in_conversation': sent.index_in_conversation,
+            'sender_uid': str(sent.sender or ''),
+            'content': content,
+            'raw_content': sent.content,
+            'created_at': int(time.time() * 1000),
+        }
+        logger.info(
+            'Douyin IM websocket message: conversation=%s sender=%s message_id=%s text_len=%s',
+            payload['conversation_id'],
+            payload['sender_uid'],
+            payload['server_message_id'],
+            len(content),
+        )
+        socketio.emit('im_message', payload)
+    except Exception as error:
+        logger.warning('解析 IM WebSocket 消息失败: %s', error)
+
+
+def _stop_im_message_listener() -> None:
+    global _im_message_ws
+    _im_message_stop_event.set()
+    ws = _im_message_ws
+    _im_message_ws = None
+    if ws is not None:
+        try:
+            ws.close()
+        except Exception:
+            pass
+
+
+def _ensure_im_message_listener() -> None:
+    global _im_message_thread
+    if not api or not Config.COOKIE:
+        return
+    with _im_message_lock:
+        if _im_message_thread and _im_message_thread.is_alive():
+            return
+        _im_message_stop_event.clear()
+        _im_message_thread = threading.Thread(target=_run_im_message_listener, daemon=True)
+        _im_message_thread.start()
+
+
+def _run_im_message_listener() -> None:
+    global _im_message_ws
+    try:
+        try:
+            import websocket
+        except Exception:
+            logger.warning('未安装 websocket-client，无法接收 IM 消息')
+            socketio.emit('im_status', {'connected': False, 'message': '缺少 websocket-client，无法接收私信'})
+            return
+        import ssl
+
+        cookie_dict = _im_cookie_dict(Config.COOKIE)
+        sessionid = cookie_dict.get('sessionid') or cookie_dict.get('sessionid_ss') or ''
+        if not sessionid:
+            logger.info('IM WebSocket 未启动：Cookie 缺少 sessionid')
+            return
+
+        device_id, success, response = run_async(api.get_im_device_id(), timeout=30)
+        if not success or not device_id:
+            logger.warning('IM WebSocket 获取 device_id 失败: %s', _api_message(response, '未知错误') if isinstance(response, dict) else response)
+            return
+
+        app_key = 'e1bd35ec9db7b8d846de66ed140b1ad9'
+        fp_id = '9'
+        access_key = hashlib.md5(f'{fp_id}{app_key}{device_id}f8a69f1719916z'.encode('utf-8')).hexdigest()
+        params = urlencode({
+            'aid': '6383',
+            'device_platform': 'douyin_pc',
+            'fpid': fp_id,
+            'device_id': device_id,
+            'token': sessionid,
+            'access_key': access_key,
+        })
+        url = f'wss://frontier-im.douyin.com/ws/v2?{params}'
+
+        def on_open(ws):
+            logger.info('Douyin IM WebSocket 已连接')
+            socketio.emit('im_status', {'connected': True, 'message': '私信接收已连接'})
+
+        def on_message(ws, message):
+            try:
+                data = message if isinstance(message, bytes) else bytes(message or b'')
+                frame = douyin_im_proto.parse_push_frame(data)
+                response_data = frame.get('response')
+                if isinstance(response_data, dict):
+                    _emit_im_message(response_data)
+                elif frame.get('payload_type') == 'text/json':
+                    logger.debug('Douyin IM WebSocket JSON: %s', frame.get('payload'))
+            except Exception as error:
+                logger.warning('处理 IM WebSocket 消息失败: %s', error)
+
+        def on_error(ws, error):
+            logger.warning('Douyin IM WebSocket 错误: %s', error)
+            socketio.emit('im_status', {'connected': False, 'message': f'私信接收连接错误: {error}'})
+
+        def on_close(ws, close_status_code, close_msg):
+            logger.info('Douyin IM WebSocket 已关闭: status=%s msg=%s', close_status_code, close_msg)
+            socketio.emit('im_status', {'connected': False, 'message': '私信接收已断开'})
+
+        _im_message_ws = websocket.WebSocketApp(
+            url,
+            header={
+                'Pragma': 'no-cache',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6',
+                'User-Agent': getattr(api, 'common_headers', {}).get('User-Agent', ''),
+                'Cache-Control': 'no-cache',
+                'Sec-WebSocket-Protocol': 'binary, base64, pbbp2',
+                'Sec-WebSocket-Extensions': 'permessage-deflate; client_max_window_bits',
+            },
+            cookie=Config.COOKIE,
+            on_open=on_open,
+            on_message=on_message,
+            on_error=on_error,
+            on_close=on_close,
+        )
+        _im_message_ws.run_forever(
+            origin='https://www.douyin.com',
+            sslopt={'cert_reqs': ssl.CERT_NONE, 'check_hostname': False},
+        )
+    except Exception as error:
+        logger.warning('IM WebSocket 监听线程退出: %s', error)
+    finally:
+        _im_message_ws = None
+
 @app.route('/api/get_friend_online_status', methods=['POST'])
 def get_friend_online_status_api():
     """获取 IM 好友资料与在线状态。"""
     try:
         data = _request_json()
+        _ensure_im_message_listener()
         provided_ids = data.get('sec_user_ids') or data.get('secUserIds') or []
         conv_ids = data.get('conv_ids') or data.get('convIds') or []
         sec_user_ids = _sanitize_sec_user_ids(provided_ids)
@@ -3540,6 +3707,29 @@ def get_friend_online_status_api():
         })
     except Exception as e:
         return jsonify({'success': False, 'message': f'获取好友在线状态失败: {str(e)}'}), 500
+
+@app.route('/api/send_friend_message', methods=['POST'])
+def send_friend_message_api():
+    """发送文本私信。"""
+    try:
+        _ensure_im_message_listener()
+        data = _request_json()
+        to_user_id = data.get('to_user_id') or data.get('toUserId') or data.get('uid') or ''
+        content = str(data.get('content') or data.get('message') or '').strip()
+        if not str(to_user_id).strip():
+            return jsonify({'success': False, 'message': '缺少好友数字 uid，无法发送私信'}), 400
+        if not content:
+            return jsonify({'success': False, 'message': '消息内容不能为空'}), 400
+        if not api:
+            return jsonify({'success': False, 'need_login': True, 'message': '请先设置 Cookie'})
+
+        result, success = run_async(api.send_im_text_message(to_user_id, content), timeout=60)
+        return jsonify({
+            'success': bool(success),
+            **(result if isinstance(result, dict) else {'message': str(result)}),
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'发送私信失败: {str(e)}'}), 500
 
 @app.route('/api/user_videos', methods=['POST'])
 def get_user_videos():
@@ -4861,6 +5051,7 @@ def get_tasks():
 def handle_connect():
     """客户端连接"""
     logger.debug("客户端已连接")
+    _ensure_im_message_listener()
     emit('connected', {'message': '连接成功'})
 
 @socketio.on('disconnect')
@@ -4944,7 +5135,9 @@ def _save_cookie_login_success(cookie: str, nickname: str = '', relation_signer:
     Config.COOKIE = cookie
     Config.RELATION_SIGNER = relation_signer
     Config.save_config(Config.COOKIE, Config.BASE_DIR, Config.HISTORY_DIRS, relation_signer=Config.RELATION_SIGNER)
+    _stop_im_message_listener()
     init_app()
+    _ensure_im_message_listener()
 
     success_message = 'Cookie 获取成功！已自动保存。'
     if nickname:

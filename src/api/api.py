@@ -16,7 +16,9 @@ import time
 import hmac
 import hashlib
 import logging
+import uuid
 from src.api import sign as douyin_sign
+from src.api import douyin_im_proto
 
 logger = logging.getLogger('api')
 
@@ -1033,6 +1035,261 @@ class DouyinAPI:
             },
             method='POST',
         )
+
+    async def get_im_device_id(self) -> tuple[str, bool, dict]:
+        response, success = await self.common_request(
+            '/aweme/v1/web/query/user',
+            {'publish_video_strategy_type': '2'},
+            {'Referer': 'https://www.douyin.com/discover'},
+        )
+        if not success:
+            return '', False, response
+        device_id = str(response.get('id') or '').strip()
+        if not device_id:
+            return '', False, {'message': '未获取到 IM device_id', 'raw': response}
+        return device_id, True, response
+
+    def _im_proto_signer(self) -> dict | None:
+        try:
+            from src.config.config import Config
+            signer = Config.RELATION_SIGNER if isinstance(Config.RELATION_SIGNER, dict) else None
+        except Exception:
+            signer = None
+        if not signer:
+            return None
+
+        ticket = str(signer.get('ticket') or '').strip()
+        ts_sign = str(signer.get('ts_sign') or '').strip()
+        client_cert = str(signer.get('client_cert') or '').strip()
+        private_key = str(signer.get('private_key') or '').strip()
+        if not ticket or not ts_sign or not client_cert or not private_key:
+            return None
+        return signer
+
+    def _ecdsa_request_sign(self, value: str, private_key: str) -> tuple[str, str | None]:
+        try:
+            from cryptography.hazmat.primitives import hashes, serialization
+            from cryptography.hazmat.primitives.asymmetric import ec
+        except Exception:
+            return '', '缺少 cryptography 依赖，请先安装 requirements.txt 后重试'
+
+        pem = str(private_key or '').strip().replace('\\n', '\n')
+        try:
+            key = serialization.load_pem_private_key(pem.encode('utf-8'), password=None)
+            signature = key.sign(value.encode('utf-8'), ec.ECDSA(hashes.SHA256()))
+        except Exception as error:
+            return '', f'私信签名生成失败: {error}'
+        return base64.b64encode(signature).decode('ascii'), None
+
+    def _build_im_request_common_headers(self, signer: dict) -> dict[str, str]:
+        cookie_dict = self._cookies_to_dict(self.cookie)
+        return {
+            'session_aid': '6383',
+            'session_did': '0',
+            'app_name': 'douyin_pc',
+            'priority_region': 'cn',
+            'user_agent': self.common_headers.get('User-Agent', ''),
+            'cookie_enabled': 'true',
+            'browser_language': 'zh-CN',
+            'browser_platform': 'Win32',
+            'browser_name': 'Mozilla',
+            'browser_version': self.common_headers.get('User-Agent', '').split('Mozilla/')[-1],
+            'browser_online': 'true',
+            'screen_width': '1680',
+            'screen_height': '1050',
+            'referer': '',
+            'timezone_name': 'Etc/GMT-8',
+            'deviceId': '0',
+            'webid': cookie_dict.get('webid') or cookie_dict.get('ttwid') or '',
+            'fp': cookie_dict.get('s_v_web_id') or self._generate_s_v_web_id(),
+            'is-retry': '0',
+        }
+
+    def _build_im_proto_request(
+        self,
+        *,
+        cmd: int,
+        body: bytes,
+        request_sign: str,
+        signer: dict,
+    ) -> bytes:
+        sdk_cert = str(signer.get('client_cert') or '')
+        return douyin_im_proto.build_request(
+            cmd=cmd,
+            token=str(signer.get('ticket') or ''),
+            ts_sign=str(signer.get('ts_sign') or ''),
+            sdk_cert=base64.b64encode(sdk_cert.encode('utf-8')).decode('ascii'),
+            request_sign=request_sign,
+            body=body,
+            headers=self._build_im_request_common_headers(signer),
+            sequence_id=random.randint(10000, 11000),
+        )
+
+    async def _post_im_proto(self, url: str, payload: bytes, with_signed_query: bool = False) -> tuple[dict, bool]:
+        headers = {
+            'User-Agent': self.common_headers.get('User-Agent', ''),
+            'accept': 'application/x-protobuf',
+            'content-type': 'application/x-protobuf',
+            'referer': 'https://www.douyin.com/',
+            'origin': 'https://www.douyin.com',
+        }
+        params = None
+        if with_signed_query:
+            cookie_dict = self._cookies_to_dict(self.cookie)
+            fp = cookie_dict.get('s_v_web_id') or self._generate_s_v_web_id()
+            params = {
+                'verifyFp': fp,
+                'fp': fp,
+                'msToken': self._get_ms_token(),
+            }
+            query = urllib.parse.urlencode(params)
+            params['a_bogus'] = douyin_sign.sign_detail(query, headers['User-Agent'])
+
+        try:
+            response = await asyncio.to_thread(
+                _api_post,
+                url,
+                params=params,
+                headers=headers,
+                cookies=self._cookies_to_dict(self.cookie),
+                data=payload,
+                timeout=(10, 30),
+            )
+        except requests.RequestException as e:
+            return {'message': f'网络请求失败: {e}'}, False
+
+        if response.status_code != 200 or not response.content:
+            return {'message': f'IM protobuf 接口失败（HTTP {response.status_code}）'}, False
+
+        parsed = douyin_im_proto.parse_response(response.content)
+        body_keys = list((parsed.get('body') or {}).keys()) if isinstance(parsed.get('body'), dict) else []
+        logger.info(
+            'Douyin IM protobuf response: url=%s http=%s cmd=%s seq=%s error=%s message=%s body_keys=%s body_len=%s',
+            url,
+            response.status_code,
+            parsed.get('cmd'),
+            parsed.get('sequence_id'),
+            parsed.get('error_desc') or '',
+            parsed.get('message') or '',
+            body_keys,
+            len(response.content),
+        )
+        response_message = str(parsed.get('message') or '').strip()
+        message_is_error = response_message and response_message.lower() not in ('ok', 'success')
+        if parsed.get('error_desc') or message_is_error:
+            message = parsed.get('error_desc') or parsed.get('message') or 'IM protobuf 接口返回错误'
+            return {'message': message, 'raw': parsed}, False
+        return parsed, True
+
+    async def create_im_conversation(self, to_user_id: str | int) -> tuple[dict, bool]:
+        signer = self._im_proto_signer()
+        if not signer:
+            return {'message': '私信安全参数未采集完整，请在设置中重新登录 Cookie 后重试'}, False
+
+        current_user, current_success = await self.get_current_user()
+        if not current_success:
+            return current_user, False
+
+        try:
+            to_uid = int(str(to_user_id).strip())
+            my_uid = int(str(current_user.get('uid') or '').strip())
+        except Exception:
+            return {'message': '缺少可用的数字 uid，无法创建私信会话'}, False
+        if not to_uid or not my_uid:
+            return {'message': '缺少可用的数字 uid，无法创建私信会话'}, False
+
+        sign_data = f'avatar_url=&idempotent_id=&name=&participants={to_uid},{my_uid}'
+        request_sign, sign_error = self._ecdsa_request_sign(sign_data, str(signer.get('private_key') or ''))
+        if sign_error:
+            return {'message': sign_error}, False
+        body = douyin_im_proto.build_create_conversation_body(to_uid, my_uid)
+        payload = self._build_im_proto_request(
+            cmd=609,
+            body=body,
+            request_sign=request_sign,
+            signer=signer,
+        )
+        response, success = await self._post_im_proto('https://imapi.douyin.com/v2/conversation/create', payload)
+        if not success:
+            return response, False
+        conversation = douyin_im_proto.first_conversation(response)
+        if not conversation:
+            return {'message': '创建会话成功但未返回会话信息', 'raw': response}, False
+        return {
+            'conversation_id': conversation.conversation_id,
+            'conversation_short_id': conversation.conversation_short_id,
+            'conversation_type': conversation.conversation_type,
+            'ticket': conversation.ticket,
+            'raw': response,
+        }, True
+
+    async def send_im_text_message(self, to_user_id: str | int, content: str) -> tuple[dict, bool]:
+        message = str(content or '').strip()
+        if not message:
+            return {'message': '消息内容不能为空'}, False
+        conversation, success = await self.create_im_conversation(to_user_id)
+        if not success:
+            return conversation, False
+
+        signer = self._im_proto_signer()
+        if not signer:
+            return {'message': '私信安全参数未采集完整，请在设置中重新登录 Cookie 后重试'}, False
+
+        client_message_id = str(uuid.uuid4())
+        msg_content = json.dumps({
+            'mention_users': [],
+            'aweType': 700,
+            'richTextInfos': [],
+            'text': message,
+        }, ensure_ascii=False, separators=(',', ':'))
+        sign_data = (
+            f'content={msg_content}'
+            f'&conversation_id={conversation["conversation_id"]}'
+            f'&conversation_short_id={conversation["conversation_short_id"]}'
+        )
+        request_sign, sign_error = self._ecdsa_request_sign(sign_data, str(signer.get('private_key') or ''))
+        if sign_error:
+            return {'message': sign_error}, False
+        body = douyin_im_proto.build_send_message_body(
+            conversation_id=conversation['conversation_id'],
+            conversation_short_id=int(conversation['conversation_short_id']),
+            ticket=conversation['ticket'],
+            content=msg_content,
+            client_message_id=client_message_id,
+            now_ms=int(time.time() * 1000),
+        )
+        payload = self._build_im_proto_request(
+            cmd=100,
+            body=body,
+            request_sign=request_sign,
+            signer=signer,
+        )
+        response, send_success = await self._post_im_proto(
+            'https://imapi.douyin.com/v1/message/send',
+            payload,
+            with_signed_query=True,
+        )
+        if not send_success:
+            return response, False
+        sent_message = douyin_im_proto.sent_message(response)
+        if not sent_message:
+            logger.info('Douyin IM send returned OK without inline message ack: %s', response)
+            return {
+                'message': '发送请求已提交，等待私信通道确认',
+                'client_message_id': client_message_id,
+                'pending_ack': True,
+                'conversation': conversation,
+                'raw': response,
+            }, True
+        return {
+            'message': '发送成功',
+            'client_message_id': client_message_id,
+            'message_id': sent_message.server_message_id,
+            'conversation_id': sent_message.conversation_id,
+            'conversation_short_id': sent_message.conversation_short_id,
+            'conversation': conversation,
+            'raw': response,
+        }, True
 
     async def get_current_user(self) -> tuple[dict, bool]:
         """获取当前登录用户，用于强校验 Cookie 是否仍被抖音服务端认可。"""

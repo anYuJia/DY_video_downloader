@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ElementType } from "react";
-import { motion } from "framer-motion";
-import { Activity, ChevronDown, Loader2, RefreshCw, Users, Wifi, WifiOff } from "lucide-react";
+import { Activity, Clock3, Loader2, MessageCircle, RefreshCw, Send, UserRound, Users, Wifi, WifiOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { getConfig, getFriendOnlineStatus, saveConfig, type FriendOnlineStatusResponse } from "@/lib/tauri";
+import { getConfig, getFriendOnlineStatus, listenEvent, saveConfig, sendFriendMessage, type FriendOnlineStatusResponse } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/stores/app-store";
+import { useSearchStore } from "@/stores/search-store";
+import type { UserInfo } from "@/lib/contracts";
 
 interface FriendStatusItem {
   secUid: string;
+  uid: string;
   nickname: string;
   remarkName: string;
   avatar: string;
@@ -22,8 +25,74 @@ interface FriendStatusItem {
 type JsonRecord = Record<string, unknown>;
 
 const STORAGE_KEY = "douyin.friendStatus.secUserIds";
+const CHAT_DRAFTS_KEY = "douyin.friendStatus.chatDrafts";
+const CHAT_MESSAGES_KEY = "douyin.friendStatus.chatMessages";
 const ONLINE_WINDOW_SECONDS = 60;
 const DEFAULT_REFRESH_INTERVAL_SECONDS = 5;
+
+type ChatDrafts = Record<string, string>;
+interface LocalChatMessage {
+  id: string;
+  text: string;
+  createdAt: number;
+  status: "pending" | "sent" | "error";
+  direction?: "in" | "out";
+  senderUid?: string;
+  error?: string;
+}
+type ChatMessages = Record<string, LocalChatMessage[]>;
+
+function readChatDrafts(): ChatDrafts {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CHAT_DRAFTS_KEY) || "{}");
+    return isRecord(parsed) ? Object.fromEntries(
+      Object.entries(parsed).filter(([, value]) => typeof value === "string"),
+    ) as ChatDrafts : {};
+  } catch {
+    return {};
+  }
+}
+
+function readChatMessages(): ChatMessages {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CHAT_MESSAGES_KEY) || "{}");
+    if (!isRecord(parsed)) return {};
+    const result: ChatMessages = {};
+    for (const [secUid, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      const messages: LocalChatMessage[] = value
+        .filter(isRecord)
+        .map((message) => ({
+          id: stringField(message, ["id"]) || `${secUid}-${numberField(message, ["createdAt"])}-${Math.random()}`,
+          text: stringField(message, ["text"]),
+          createdAt: numberField(message, ["createdAt"]),
+          status: normalizeMessageStatus(stringField(message, ["status"])),
+          direction: normalizeMessageDirection(stringField(message, ["direction"])),
+          senderUid: stringField(message, ["senderUid", "sender_uid"]),
+          error: stringField(message, ["error"]) || undefined,
+        }))
+        .filter((message) => message.text && message.createdAt > 0);
+      if (messages.length > 0) {
+        result[secUid] = messages;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function friendDisplayName(friend: FriendStatusItem | null | undefined) {
+  return friend?.remarkName || friend?.nickname || "未知用户";
+}
+
+function normalizeMessageStatus(value: string): LocalChatMessage["status"] {
+  return value === "pending" || value === "sent" || value === "error" ? value : "sent";
+}
+
+function normalizeMessageDirection(value: string): LocalChatMessage["direction"] {
+  return value === "in" ? "in" : "out";
+}
 
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -128,6 +197,16 @@ function formatUpdateTime(value: number) {
   });
 }
 
+function formatMessageTime(value: number) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function collectRecordsBySecUid(value: unknown) {
   const map = new Map<string, JsonRecord>();
   const direct = arrayField(value);
@@ -164,6 +243,7 @@ function mapResponse(response: FriendOnlineStatusResponse): FriendStatusItem[] {
 
       return {
         secUid,
+        uid: stringField(user, ["uid", "user_id", "id", "uid_str", "short_id"]),
         nickname: stringField(user, ["nickname", "nick_name", "display_name", "unique_id"]),
         remarkName: stringField(user, ["remark_name"]),
         avatar: extractAvatar(user),
@@ -183,7 +263,12 @@ function mapResponse(response: FriendOnlineStatusResponse): FriendStatusItem[] {
 }
 
 export function FriendsStatusView() {
+  const setView = useAppStore((state) => state.setView);
+  const openUser = useSearchStore((state) => state.openUser);
   const [input, setInput] = useState(() => localStorage.getItem(STORAGE_KEY) || "");
+  const [chatDrafts, setChatDrafts] = useState<ChatDrafts>(() => readChatDrafts());
+  const [chatMessages, setChatMessages] = useState<ChatMessages>(() => readChatMessages());
+  const [selectedFriendId, setSelectedFriendId] = useState("");
   const [savedIds, setSavedIds] = useState<string[]>([]);
   const [savedCount, setSavedCount] = useState(0);
   const [includeAllUsers, setIncludeAllUsers] = useState(false);
@@ -201,9 +286,149 @@ export function FriendsStatusView() {
 
   const ids = useMemo(() => extractIds(input), [input]);
   const friends = useMemo(() => (response?.success ? mapResponse(response) : []), [response]);
+  const selectedFriend = useMemo(
+    () => friends.find((friend) => friend.secUid === selectedFriendId) || friends[0] || null,
+    [friends, selectedFriendId],
+  );
+  const selectedMessages = selectedFriend ? chatMessages[selectedFriend.secUid] || [] : [];
   const onlineCount = friends.filter((friend) => friend.online).length;
   const offlineCount = friends.filter((friend) => !friend.online).length;
   const isInitialLoading = loading && friends.length === 0;
+
+  const openFriendProfile = useCallback(
+    async (friend: FriendStatusItem) => {
+      const user: UserInfo = {
+        uid: friend.uid,
+        nickname: friend.remarkName || friend.nickname || "未知用户",
+        avatar_thumb: friend.avatar,
+        avatar_medium: friend.avatar,
+        avatar_larger: friend.avatar,
+        signature: friend.signature,
+        follower_count: 0,
+        following_count: 0,
+        total_favorited: 0,
+        aweme_count: 0,
+        favoriting_count: 0,
+        is_follow: false,
+        sec_uid: friend.secUid,
+        unique_id: "",
+        verify_status: 0,
+      };
+      setView("user");
+      await openUser(user, { loadVideos: true });
+    },
+    [openUser, setView],
+  );
+
+  const updateDraft = useCallback((secUid: string, value: string) => {
+    setChatDrafts((current) => {
+      const next = { ...current };
+      if (value) {
+        next[secUid] = value;
+      } else {
+        delete next[secUid];
+      }
+      localStorage.setItem(CHAT_DRAFTS_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const patchMessage = useCallback((secUid: string, messageId: string, patch: Partial<LocalChatMessage>) => {
+    setChatMessages((current) => {
+      const next = {
+        ...current,
+        [secUid]: (current[secUid] || []).map((message) =>
+          message.id === messageId ? { ...message, ...patch } : message,
+        ),
+      };
+      localStorage.setItem(CHAT_MESSAGES_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const sendLocalMessage = useCallback(async (friend: FriendStatusItem, value: string) => {
+    const text = value.trim();
+    if (!text) return;
+    const message: LocalChatMessage = {
+      id: `${friend.secUid}-${Date.now()}`,
+      text,
+      createdAt: Date.now(),
+      status: "pending",
+      direction: "out",
+    };
+    setChatMessages((current) => {
+      const next = {
+        ...current,
+        [friend.secUid]: [...(current[friend.secUid] || []), message],
+      };
+      localStorage.setItem(CHAT_MESSAGES_KEY, JSON.stringify(next));
+      return next;
+    });
+    updateDraft(friend.secUid, "");
+
+    if (!friend.uid) {
+      patchMessage(friend.secUid, message.id, {
+        status: "error",
+        error: "缺少好友数字 uid，无法发送",
+      });
+      return;
+    }
+
+    try {
+      const result = await sendFriendMessage({ toUserId: friend.uid, content: text });
+      if (!result.success) {
+        throw new Error(result.message || "发送失败");
+      }
+      patchMessage(friend.secUid, message.id, { status: "sent", error: "" });
+    } catch (caught) {
+      patchMessage(friend.secUid, message.id, {
+        status: "error",
+        error: caught instanceof Error ? caught.message : "发送失败",
+      });
+    }
+  }, [patchMessage, updateDraft]);
+
+  const selectFriend = useCallback((friend: FriendStatusItem) => {
+    setSelectedFriendId(friend.secUid);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listenEvent<Record<string, unknown>>("im-message", (payload) => {
+      if (disposed || !payload || typeof payload !== "object") return;
+      const senderUid = stringField(payload, ["sender_uid", "senderUid"]);
+      const text = stringField(payload, ["content", "text"]);
+      const serverMessageId = stringField(payload, ["server_message_id", "message_id", "id"]);
+      if (!senderUid || !text) return;
+      const friend = friends.find((item) => item.uid === senderUid);
+      if (!friend) return;
+      const message: LocalChatMessage = {
+        id: serverMessageId || `${friend.secUid}-${Date.now()}`,
+        text,
+        createdAt: numberField(payload, ["created_at", "createdAt"]) || Date.now(),
+        status: "sent",
+        direction: "in",
+        senderUid,
+      };
+      setChatMessages((current) => {
+        const currentMessages = current[friend.secUid] || [];
+        if (currentMessages.some((item) => item.id === message.id)) return current;
+        const next = {
+          ...current,
+          [friend.secUid]: [...currentMessages, message],
+        };
+        localStorage.setItem(CHAT_MESSAGES_KEY, JSON.stringify(next));
+        return next;
+      });
+    }).then((cleanup) => {
+      unlisten = cleanup;
+    });
+    return () => {
+      disposed = true;
+      if (unlisten) unlisten();
+    };
+  }, [friends]);
 
   useEffect(() => {
     idsRef.current = ids;
@@ -212,6 +437,16 @@ export function FriendsStatusView() {
   useEffect(() => {
     savedIdsRef.current = savedIds;
   }, [savedIds]);
+
+  useEffect(() => {
+    if (friends.length === 0) {
+      setSelectedFriendId("");
+      return;
+    }
+    if (!selectedFriendId || !friends.some((friend) => friend.secUid === selectedFriendId)) {
+      setSelectedFriendId(friends[0].secUid);
+    }
+  }, [friends, selectedFriendId]);
 
   const query = useCallback(async (overrideIds?: string[], options?: { background?: boolean }) => {
     if (queryInFlightRef.current) return;
@@ -305,13 +540,13 @@ export function FriendsStatusView() {
   }, [query, refreshIntervalSeconds]);
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-[1320px] flex-col gap-3 overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <Activity className="h-4 w-4 text-accent" />
-          <h3 className="text-[0.95rem] font-semibold text-text">好友在线状态</h3>
-          <span className="text-[0.72rem] text-text-muted">
-            {friends.length || ids.length} 个好友{savedCount > 0 ? ` · 已保存 ${savedCount}` : ""}
+          <h3 className="text-[0.95rem] font-semibold text-text">好友</h3>
+          <span className="truncate text-[0.72rem] text-text-muted">
+            {savedCount > 0 ? `已保存 ${savedCount}` : `${friends.length || ids.length} 个好友`}
             {backgroundRefreshing
               ? " · 正在更新"
               : lastUpdatedAt
@@ -319,7 +554,37 @@ export function FriendsStatusView() {
                 : ""}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowManualInput((value) => !value)}
+            className="h-9"
+          >
+            备用 ID
+            <Badge variant="secondary" size="sm">{ids.length}</Badge>
+          </Button>
+          {showManualInput && (
+            <div className="absolute right-0 top-11 z-30 w-[min(420px,calc(100vw-2rem))] rounded-[var(--radius-lg)] border border-border bg-background p-3 shadow-[0_18px_42px_rgba(15,23,42,0.16)]">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-[0.76rem] font-semibold text-text-secondary">备用 ID 输入</span>
+                <button
+                  type="button"
+                  onClick={() => setShowManualInput(false)}
+                  className="text-[0.72rem] text-text-muted hover:text-text"
+                >
+                  收起
+                </button>
+              </div>
+              <Textarea
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder="MS4w... 每行一个，或粘贴 curl 参数"
+                className="min-h-[136px] resize-none bg-surface-solid"
+                spellCheck={false}
+              />
+            </div>
+          )}
           <button
             type="button"
             role="switch"
@@ -349,7 +614,7 @@ export function FriendsStatusView() {
             </span>
             {includeAllUsers ? "全部用户" : "仅互关"}
           </button>
-          <Button size="sm" onClick={() => void query()} disabled={loading}>
+          <Button size="sm" onClick={() => void query()} disabled={loading} className="h-9">
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             刷新状态
           </Button>
@@ -362,8 +627,9 @@ export function FriendsStatusView() {
         </div>
       )}
 
-      <section className="min-h-[420px] rounded-[var(--radius-lg)] border border-border bg-surface-solid/70 p-4 shadow-[var(--shadow-sm)]">
-        <div className="mb-4 grid grid-cols-3 gap-2">
+      <div className="grid min-h-0 flex-1 gap-3 overflow-hidden lg:grid-cols-[380px_minmax(0,1fr)] xl:grid-cols-[420px_minmax(0,1fr)]">
+      <section className="flex min-h-0 flex-col rounded-[var(--radius-lg)] border border-border bg-surface-solid/70 p-3 shadow-[var(--shadow-sm)]">
+        <div className="mb-3 grid shrink-0 grid-cols-3 gap-1.5">
           <Metric label="总数" value={friends.length || ids.length} icon={Users} />
           <Metric label="在线" value={onlineCount} icon={Wifi} tone="success" />
           <Metric label="未在线" value={offlineCount} icon={WifiOff} tone="muted" />
@@ -383,44 +649,28 @@ export function FriendsStatusView() {
             <p className="mt-1 text-[0.75rem] text-text-muted">点刷新自动获取；若没有返回列表，可展开备用输入缓存一次</p>
           </div>
         ) : (
-          <motion.div
-            className="grid gap-2"
-            initial={false}
-            animate="show"
-            variants={{ show: { transition: { staggerChildren: 0.03 } } }}
-          >
+          <div className="grid min-h-0 flex-1 content-start gap-1.5 overflow-y-auto pr-1">
             {friends.map((friend) => (
-              <FriendRow key={friend.secUid} friend={friend} />
+              <FriendRow
+                key={friend.secUid}
+                friend={friend}
+                selected={friend.secUid === selectedFriend?.secUid}
+                onSelect={selectFriend}
+              />
             ))}
-          </motion.div>
-        )}
-      </section>
-
-      <section className="rounded-[var(--radius-lg)] border border-border bg-surface-solid/50 shadow-[var(--shadow-sm)]">
-        <button
-          type="button"
-          onClick={() => setShowManualInput((value) => !value)}
-          className="flex h-10 w-full items-center justify-between px-4 text-left text-[0.78rem] font-semibold text-text-secondary"
-        >
-          <span>备用 ID 输入</span>
-          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showManualInput && "rotate-180")} />
-        </button>
-        {showManualInput && (
-          <div className="border-t border-border p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-[0.74rem] text-text-muted">自动采集失败时，可临时粘贴 curl 或 sec_user_id 列表</span>
-              <Badge variant="secondary" size="sm">{ids.length}</Badge>
-            </div>
-            <Textarea
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              placeholder="MS4w... 每行一个，或粘贴 curl 参数"
-              className="min-h-[140px] resize-none"
-              spellCheck={false}
-            />
           </div>
         )}
       </section>
+
+      <ChatWorkspace
+        friend={selectedFriend}
+        draft={selectedFriend ? chatDrafts[selectedFriend.secUid] || "" : ""}
+        messages={selectedMessages}
+        onDraftChange={updateDraft}
+        onSendMessage={sendLocalMessage}
+        onOpenProfile={openFriendProfile}
+      />
+      </div>
     </div>
   );
 }
@@ -437,8 +687,8 @@ function Metric({
   tone?: "default" | "success" | "muted";
 }) {
   return (
-    <div className="rounded-[var(--radius-sm)] border border-border bg-surface px-3 py-2">
-      <div className="mb-1 flex items-center gap-1.5 text-[0.7rem] text-text-muted">
+    <div className="rounded-[var(--radius-sm)] border border-border bg-surface px-2.5 py-2">
+      <div className="flex items-center gap-1.5 text-[0.68rem] text-text-muted">
         <Icon
           className={cn(
             "h-3.5 w-3.5",
@@ -448,19 +698,32 @@ function Metric({
         />
         {label}
       </div>
-      <div className="text-[1.05rem] font-bold tabular-nums text-text">{value}</div>
+      <div className="mt-0.5 text-[1rem] font-bold tabular-nums text-text">{value}</div>
     </div>
   );
 }
 
-function FriendRow({ friend }: { friend: FriendStatusItem }) {
+function FriendRow({
+  friend,
+  selected,
+  onSelect,
+}: {
+  friend: FriendStatusItem;
+  selected: boolean;
+  onSelect: (friend: FriendStatusItem) => void;
+}) {
   return (
-    <motion.div
-      variants={{ show: { opacity: 1, y: 0, transition: { duration: 0.18 } } }}
-      initial={{ opacity: 0, y: 4 }}
-      className="grid grid-cols-[42px_1fr_auto] items-center gap-3 rounded-[var(--radius-sm)] border border-border bg-surface px-3 py-2"
+    <button
+      type="button"
+      onClick={() => onSelect(friend)}
+      className={cn(
+        "grid grid-cols-[34px_1fr_auto] items-center gap-2 rounded-[var(--radius-sm)] border px-2.5 py-2 text-left transition-[background-color,border-color,box-shadow,transform]",
+        selected
+          ? "border-accent/35 bg-accent-soft shadow-[inset_0_0_0_1px_rgba(254,44,85,0.04)]"
+          : "border-border bg-surface hover:border-border-strong hover:bg-surface-raised",
+      )}
     >
-      <div className="relative h-10 w-10 overflow-hidden rounded-[12px] bg-surface-raised">
+      <div className="relative h-8 w-8 overflow-hidden rounded-[10px] bg-surface-raised">
         {friend.avatar ? (
           <img src={friend.avatar} alt="" className="h-full w-full object-cover" />
         ) : (
@@ -470,7 +733,7 @@ function FriendRow({ friend }: { friend: FriendStatusItem }) {
         )}
         <span
           className={cn(
-            "absolute bottom-0.5 right-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface",
+            "absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-surface",
             friend.online ? "bg-success" : "bg-text-muted"
           )}
         />
@@ -478,22 +741,198 @@ function FriendRow({ friend }: { friend: FriendStatusItem }) {
 
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-[0.86rem] font-semibold text-text">
+          <span className="truncate text-[0.8rem] font-semibold text-text">
             {friend.remarkName || friend.nickname || "未知用户"}
           </span>
           <Badge variant={friend.online ? "success" : "secondary"} size="sm">
             {friend.statusText}
           </Badge>
         </div>
-        <div className="mt-0.5 truncate text-[0.72rem] text-text-muted">
+        <div className="mt-0.5 truncate text-[0.68rem] text-text-muted">
           {friend.remarkName && friend.nickname ? `${friend.nickname} · ` : ""}
           {friend.signature || friend.secUid}
         </div>
       </div>
 
-      <div className="text-right text-[0.7rem] text-text-muted">
+      <div className="text-right text-[0.68rem] text-text-muted">
         {friend.lastActive}
       </div>
-    </motion.div>
+    </button>
+  );
+}
+
+function ChatWorkspace({
+  friend,
+  draft,
+  messages,
+  onDraftChange,
+  onSendMessage,
+  onOpenProfile,
+}: {
+  friend: FriendStatusItem | null;
+  draft: string;
+  messages: LocalChatMessage[];
+  onDraftChange: (secUid: string, value: string) => void;
+  onSendMessage: (friend: FriendStatusItem, value: string) => Promise<void>;
+  onOpenProfile: (friend: FriendStatusItem) => Promise<void>;
+}) {
+  const displayName = friendDisplayName(friend);
+  const hasDraft = Boolean(draft.trim());
+  const sending = messages.some((message) => message.status === "pending");
+  const handleSendMessage = () => {
+    if (!friend || !hasDraft) return;
+    void onSendMessage(friend, draft);
+  };
+
+  return (
+    <section className="flex min-h-[420px] min-w-0 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-border bg-surface-solid/70 shadow-[var(--shadow-sm)]">
+      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-border px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-[12px] bg-surface-raised">
+            {friend?.avatar ? (
+              <img src={friend.avatar} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <UserRound className="h-4 w-4 text-text-muted" />
+            )}
+            {friend && (
+              <span
+                className={cn(
+                  "absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-surface",
+                  friend.online ? "bg-success" : "bg-text-muted",
+                )}
+              />
+            )}
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-[0.86rem] font-semibold text-text">
+              {friend ? displayName : "选择好友"}
+            </p>
+            <p className="truncate text-[0.7rem] text-text-muted">
+              {friend ? `${friend.statusText} · ${friend.lastActive}` : "左侧列表会同步好友在线状态"}
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Badge variant={friend?.online ? "success" : "secondary"} size="sm">
+            {friend?.online ? "在线" : "离线"}
+          </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!friend}
+            onClick={() => friend && void onOpenProfile(friend)}
+            className="h-8"
+          >
+            <UserRound className="h-3.5 w-3.5" />
+            主页
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          {friend ? (
+            <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
+              <TimelineNotice
+                icon={Clock3}
+                title="在线状态已同步"
+                body={`${displayName} 当前显示为${friend.statusText}，最近活跃时间：${friend.lastActive}。`}
+              />
+              {friend.signature && (
+                <div className="max-w-[82%] rounded-[16px] rounded-tl-[6px] border border-border bg-surface px-3 py-2">
+                  <p className="text-[0.73rem] leading-relaxed text-text-secondary">{friend.signature}</p>
+                </div>
+              )}
+              {messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={cn(
+                    "max-w-[82%] rounded-[16px] px-3 py-2 shadow-[0_10px_20px_rgba(15,23,42,0.08)]",
+                    message.direction === "in"
+                      ? "mr-auto rounded-tl-[6px] border border-border bg-surface text-text"
+                      : "ml-auto rounded-tr-[6px] bg-accent text-white shadow-[0_10px_20px_rgba(254,44,85,0.16)]",
+                  )}
+                >
+                  <p className="whitespace-pre-wrap break-words text-[0.76rem] leading-relaxed">{message.text}</p>
+                  <div
+                    className={cn(
+                      "mt-1 flex items-center gap-1.5 text-[0.62rem]",
+                      message.direction === "in" ? "justify-start text-text-muted" : "justify-end text-white/72",
+                    )}
+                  >
+                    <span>{formatMessageTime(message.createdAt)}</span>
+                    <span>
+                      {message.direction === "in"
+                        ? "收到"
+                        : message.status === "pending"
+                          ? "发送中"
+                          : message.status === "error"
+                            ? message.error || "失败"
+                            : "已发送"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {hasDraft && (
+                <div className="ml-auto max-w-[82%] rounded-[16px] rounded-tr-[6px] border border-accent/25 bg-accent-soft px-3 py-2 text-accent">
+                  <p className="whitespace-pre-wrap break-words text-[0.76rem] leading-relaxed">{draft}</p>
+                  <p className="mt-1 text-right text-[0.62rem] text-accent/72">草稿</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex h-full min-h-[280px] flex-col items-center justify-center text-center">
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-[16px] border border-border bg-surface">
+                <MessageCircle className="h-5 w-5 text-text-muted" />
+              </div>
+              <p className="text-[0.88rem] font-semibold text-text">暂无会话</p>
+              <p className="mt-1 max-w-sm text-[0.74rem] leading-relaxed text-text-muted">
+                刷新好友状态后，选择一个好友发送文本私信。
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-border bg-surface/40 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2 text-[0.68rem] text-text-muted">
+            <span>{friend ? "发送文本私信" : "等待选择好友"}</span>
+            <span>{sending ? "正在发送" : messages.length > 0 ? `${messages.length} 条记录` : "无记录"}</span>
+          </div>
+          <div className="grid grid-cols-[1fr_auto] items-end gap-2">
+            <Textarea
+              value={draft}
+              onChange={(event) => friend && onDraftChange(friend.secUid, event.target.value)}
+              disabled={!friend}
+              placeholder={friend ? `给 ${displayName} 写点内容...` : "选择好友后输入"}
+              className="max-h-28 min-h-[68px] resize-none bg-surface-solid"
+            />
+            <Button disabled={!friend || !hasDraft || sending} onClick={handleSendMessage} className="h-10 px-4">
+              {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              发送
+            </Button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function TimelineNotice({
+  icon: Icon,
+  title,
+  body,
+}: {
+  icon: ElementType;
+  title: string;
+  body: string;
+}) {
+  return (
+    <div className="mx-auto flex max-w-md items-start gap-2 rounded-[14px] border border-border bg-surface px-3 py-2 text-left">
+      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted" />
+      <div className="min-w-0">
+        <p className="text-[0.72rem] font-semibold text-text-secondary">{title}</p>
+        <p className="mt-0.5 text-[0.68rem] leading-relaxed text-text-muted">{body}</p>
+      </div>
+    </div>
   );
 }

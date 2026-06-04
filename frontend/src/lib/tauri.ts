@@ -21,6 +21,7 @@ import type {
   MixVideosResponse,
   RecommendedResponse,
   SearchUserResponse,
+  SendFriendMessageResponse,
   Statistics,
   UserDetailResponse,
   UserInfo,
@@ -1147,6 +1148,29 @@ export async function getFriendOnlineStatus(
     sec_user_ids: secUserIds,
     convIds,
     conv_ids: convIds,
+  });
+}
+
+export async function sendFriendMessage(payload: {
+  toUserId: string | number;
+  content: string;
+}): Promise<SendFriendMessageResponse> {
+  if (shouldUseBrowserBridge()) {
+    return requestJson("/api/send_friend_message", {
+      method: "POST",
+      body: JSON.stringify({
+        to_user_id: payload.toUserId,
+        toUserId: payload.toUserId,
+        uid: payload.toUserId,
+        content: payload.content,
+      }),
+    });
+  }
+  return invoke("send_friend_message", {
+    to_user_id: payload.toUserId,
+    toUserId: payload.toUserId,
+    uid: payload.toUserId,
+    content: payload.content,
   });
 }
 

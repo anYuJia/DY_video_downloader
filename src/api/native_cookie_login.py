@@ -211,9 +211,10 @@ def extract_relation_signer_entries(entries: list[dict[str, str]]) -> dict[str, 
     if any(not str(signer.get(key) or '').strip() for key in required):
         return None
     result = {key: str(signer.get(key) or '').strip() for key in required}
-    dtrait = str(signer.get('dtrait') or '').strip()
-    if dtrait:
-        result['dtrait'] = dtrait
+    for optional_key in ('dtrait', 'client_cert', 'private_key'):
+        value = str(signer.get(optional_key) or '').strip()
+        if value:
+            result[optional_key] = value
     return result
 
 
@@ -385,10 +386,20 @@ def inject_relation_signer_probe(window: Any) -> None:
                     if (!crypto) throw new Error("security sdk not ready");
                     const info = await crypto.getKeysInfoWithOrigin({ certType: "header", scene: "web_protect" });
                     const ecdh = await crypto.initECDHKey();
+                    let privateKey = "";
+                    try {
+                        const storedCrypto = window.localStorage && window.localStorage.getItem("security-sdk/s_sdk_crypt_sdk") || "";
+                        const outer = storedCrypto ? JSON.parse(storedCrypto) : {};
+                        const inner = outer && outer.data ? JSON.parse(outer.data) : {};
+                        privateKey = inner && inner.ec_privateKey || "";
+                    } catch (error) {}
+                    const clientCert = info && info.sign && info.sign.client_cert || "";
                     const payload = {
                         ticket: info && info.sign && info.sign.ticket || "",
                         ts_sign: info && info.sign && info.sign.ts_sign || "",
-                        public_key: info && (info.b64PubKey || (info.sign && info.sign.client_cert || "").replace(/^pub\\./, "")) || "",
+                        public_key: info && (info.b64PubKey || clientCert.replace(/^pub\\./, "")) || "",
+                        client_cert: clientCert,
+                        private_key: privateKey,
                         ecdh_key: bytesToBase64(ecdh),
                         uid: window.SSR_RENDER_DATA && window.SSR_RENDER_DATA.app && window.SSR_RENDER_DATA.app.odin && window.SSR_RENDER_DATA.app.odin.user_id || "",
                         dtrait: "",
