@@ -37,6 +37,7 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { normalizeUpdateNotes } from "@/lib/update-notes";
 import {
   cancelCookieBrowserLogin,
   checkUpdate,
@@ -812,7 +813,7 @@ export function SettingsView() {
         setUpdateInfo({
           version: result.version,
           current_version: result.current_version,
-          notes: result.notes,
+          notes: normalizeUpdateNotes(result.notes),
           asset_name: result.asset_name,
           asset_size: result.asset_size,
           download_url: result.download_url,
@@ -1400,8 +1401,11 @@ export function SettingsView() {
             </div>
           )}
           {updateInfo?.notes && (
-            <div className="mt-3 max-h-[160px] overflow-y-auto rounded-[var(--radius-sm)] border border-border bg-surface p-3 text-xs leading-relaxed text-text-secondary whitespace-pre-wrap">
-              {updateInfo.notes}
+            <div className="mt-3 rounded-[var(--radius-sm)] border border-border bg-surface p-3 text-text-secondary">
+              <div className="mb-2 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-text-muted">新版本内容</div>
+              <div className="max-h-[180px] overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed">
+                {updateInfo.notes}
+              </div>
             </div>
           )}
           {updateAssetName(updateInfo) && updateStatus === "available" && (

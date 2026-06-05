@@ -14,6 +14,10 @@ on:
         description: "Optional release title"
         required: false
         type: string
+      release_notes:
+        description: "新版本内容，会显示在应用内更新提示和 Release 正文顶部"
+        required: false
+        type: string
       prerelease:
         description: "Mark release as prerelease"
         required: false
@@ -31,7 +35,7 @@ permissions:
 env:
   APP_NAME: better_douyin
   PYTHON_VERSION: "3.10"
-  RELEASE_BODY: |
+  DOWNLOAD_GUIDE: |
     ## 下载建议
 
     - Windows 安装版（推荐大多数用户）：下载 `better-douyin-v*-windows-x64-installer.exe`
@@ -404,16 +408,20 @@ jobs:
 
       - name: Resolve release metadata
         id: meta
+        env:
+          RELEASE_NOTES_INPUT: ${{ inputs.release_notes }}
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             tag_name="${{ inputs.tag_name }}"
             release_name="${{ inputs.release_name }}"
+            release_notes="${RELEASE_NOTES_INPUT:-}"
             prerelease="${{ inputs.prerelease }}"
             draft="${{ inputs.draft }}"
           else
             tag_name="${GITHUB_REF_NAME}"
             release_name=""
+            release_notes=""
             prerelease="false"
             draft="false"
           fi
@@ -421,9 +429,19 @@ jobs:
           if [ -z "$release_name" ]; then
             release_name="better-douyin ${tag_name}"
           fi
+          if [ -z "$release_notes" ]; then
+            release_notes="## 新版本内容
+
+- 本次更新内容稍后补充。"
+          fi
 
           echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
           echo "release_name=$release_name" >> "$GITHUB_OUTPUT"
+          {
+            echo "release_notes<<EOF"
+            echo "$release_notes"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
 
@@ -431,6 +449,7 @@ jobs:
         env:
           VERSION: ${{ steps.meta.outputs.tag_name }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_NOTES: ${{ steps.meta.outputs.release_notes }}
         shell: bash
         run: |
           set -euo pipefail
@@ -447,7 +466,10 @@ jobs:
           target_commitish: ${{ github.sha }}
           draft: ${{ steps.meta.outputs.draft == 'true' }}
           prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
-          body: ${{ env.RELEASE_BODY }}
+          body: |
+            ${{ steps.meta.outputs.release_notes }}
+
+            ${{ env.DOWNLOAD_GUIDE }}
           generate_release_notes: true
           files: release-assets/*
           fail_on_unmatched_files: true

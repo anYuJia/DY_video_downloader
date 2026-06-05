@@ -1086,6 +1086,18 @@ def _fetch_updater_metadata() -> dict | None:
         return None
 
 
+def _normalize_update_notes(notes: str) -> str:
+    text = str(notes or '').strip()
+    if not text:
+        return ''
+    for pattern in (r'\n##\s*下载建议\b', r'\n##\s*Download\b'):
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            text = text[:match.start()].strip()
+            break
+    return text
+
+
 def _linux_package_family() -> str:
     """Best-effort Linux package family detection for release asset selection."""
     os_release = Path('/etc/os-release')
@@ -2244,7 +2256,7 @@ def check_update():
             'has_update': has_update,
             'current_version': current_version,
             'version': latest_version or current_version,
-            'notes': (metadata or {}).get('notes') or (release or {}).get('body') or '暂无更新说明',
+            'notes': _normalize_update_notes((metadata or {}).get('notes') or (release or {}).get('body')) or '暂无更新说明',
             'html_url': (release or {}).get('html_url') or LATEST_RELEASE_PAGE_URL,
             'download_url': asset.get('url'),
             'asset_name': asset.get('name'),

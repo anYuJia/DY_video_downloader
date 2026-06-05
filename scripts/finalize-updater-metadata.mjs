@@ -15,6 +15,7 @@ if (!repository || !repository.includes('/')) {
 
 const appVersion = version.slice(1);
 const baseUrl = `https://github.com/${repository}/releases/download/${version}`;
+const releaseNotes = (process.env.RELEASE_NOTES || process.env.RELEASE_BODY || '').trim();
 
 function requireFile(name) {
   if (!fs.existsSync(name)) {
@@ -53,8 +54,8 @@ const assets = {
 
 const metadata = {
   version: appVersion,
-  notes: '',
-  pub_date: '',
+  notes: releaseNotes || `better-douyin v${appVersion}`,
+  pub_date: new Date().toISOString(),
   platforms: {
     'darwin-aarch64': platform(assets.darwinArmDmg),
     'darwin-aarch64-portable': platform(assets.darwinArmPortable),
