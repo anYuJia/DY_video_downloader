@@ -168,7 +168,7 @@ def build_get_by_conversation_body(
     conversation_short_id: int,
     conversation_type: int = 1,
     cursor: int = 0,
-    count: int = 50,
+    count: int = 20,
 ) -> bytes:
     inner = bytearray()
     inner += _string_field(1, conversation_id)
@@ -177,7 +177,7 @@ def build_get_by_conversation_body(
     inner += _int_field(4, 1)
     if int(cursor or 0) > 0:
         inner += _int_field(5, int(cursor or 0))
-    inner += _int_field(6, max(1, min(int(count or 50), 100)))
+    inner += _int_field(6, max(1, min(int(count or 20), 100)))
     return _bytes_field(301, bytes(inner))
 
 

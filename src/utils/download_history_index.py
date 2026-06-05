@@ -6,10 +6,16 @@ from pathlib import Path
 
 from src.config.config import Config
 
-_INDEX_VERSION = 1
+_INDEX_VERSION = 2
 _CACHE_LOCK = threading.Lock()
 _CACHE_ROOTS = None
 _CACHE_ITEMS = None
+
+LOCAL_MEDIA_EXTENSIONS = {
+    '.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.flv',
+    '.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.heic', '.heif',
+    '.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg',
+}
 
 
 def _index_file_path() -> Path:
@@ -50,6 +56,8 @@ def _item_from_path(path: Path, roots: list[Path]) -> dict | None:
     if not candidate.exists() or not candidate.is_file():
         return None
     if candidate.name == 'download_record.json':
+        return None
+    if candidate.suffix.lower() not in LOCAL_MEDIA_EXTENSIONS:
         return None
 
     root = next((root for root in roots if _is_subpath(candidate, root)), None)
