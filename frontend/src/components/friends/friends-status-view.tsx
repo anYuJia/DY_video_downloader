@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type ElementType, type KeyboardEvent } from "react";
-import { Activity, ImagePlus, Loader2, MessageCircle, Play, RefreshCw, Send, UserRound, Users, Wifi, WifiOff, X } from "lucide-react";
+import { Activity, ImagePlus, Loader2, MapPin, MessageCircle, Play, RefreshCw, Send, ShoppingBag, UserRound, Users, Wifi, WifiOff, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,6 +38,7 @@ const COOKIE_REQUIRED_PATTERN = /请先设置\s*Cookie/i;
 const MAX_SEND_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_PERSISTED_CHAT_MESSAGES_PER_FRIEND = 40;
 const MAX_PERSISTED_RAW_CONTENT_CHARS = 30_000;
+const LIKE_NOTICE_PATTERN = /(?:你)?(?:赞了|点赞了|点赞)/;
 
 type ChatDrafts = Record<string, string>;
 type HistoryPageState = Record<string, {
@@ -289,7 +290,7 @@ function normalizeMessageDirection(value: string): LocalChatMessage["direction"]
 }
 
 interface SharedMessageCard {
-  kind: "video" | "comment" | "image" | "share";
+  kind: "video" | "comment" | "image" | "share" | "location" | "product";
   title: string;
   subtitle: string;
   coverUrl: string;
@@ -299,20 +300,48 @@ interface SharedMessageCard {
   itemId: string;
 }
 
+function normalizeImUrl(value: string) {
+  return value
+    .trim()
+    .replace(/\\u0026/gi, "&")
+    .replace(/\\u003d/gi, "=")
+    .replace(/\\\//g, "/")
+    .replace(/&amp;/gi, "&");
+}
+
+function unsignedMediaUrl(value: string) {
+  if (!value) return "";
+  try {
+    const parsed = new URL(value);
+    return parsed.search ? `${parsed.origin}${parsed.pathname}` : "";
+  } catch {
+    return "";
+  }
+}
+
 function firstUrl(value: unknown): string {
-  if (typeof value === "string" && /^https?:\/\//.test(value)) return value;
+  if (typeof value === "string") {
+    const normalized = normalizeImUrl(value);
+    if (/^https?:\/\//.test(normalized)) return normalized;
+  }
   if (!isRecord(value)) return "";
   for (const key of ["large_url_list", "origin_url_list", "medium_url_list", "url_list", "thumb_url_list"]) {
     const list = value[key];
     if (!Array.isArray(list)) continue;
-    const url = list.find((item) => typeof item === "string");
-    if (url) return url;
+    const url = list.find((item) => typeof item === "string" && /^https?:\/\//.test(normalizeImUrl(item)));
+    if (typeof url === "string") return normalizeImUrl(url);
   }
-  const uri = value.uri;
-  if (typeof uri === "string" && /^https?:\/\//.test(uri)) return uri;
+  for (const key of ["url", "src", "download_url", "uri", "content"]) {
+    const url = value[key];
+    if (typeof url === "string") {
+      const normalized = normalizeImUrl(url);
+      if (/^https?:\/\//.test(normalized)) return normalized;
+    }
+  }
   const list = value.url_list;
   if (!Array.isArray(list)) return "";
-  return list.find((item) => typeof item === "string") || "";
+  const url = list.find((item) => typeof item === "string" && /^https?:\/\//.test(normalizeImUrl(item)));
+  return typeof url === "string" ? normalizeImUrl(url) : "";
 }
 
 function inlineImageDataUrl(value: string) {
@@ -423,11 +452,99 @@ function normalizeSharedItemId(value: string): string {
   return numericParts[numericParts.length - 1] || "";
 }
 
+function uniqueTextParts(parts: string[]) {
+  const seen = new Set<string>();
+  return parts
+    .map((part) => part.trim())
+    .filter((part) => {
+      if (!part || seen.has(part)) return false;
+      seen.add(part);
+      return true;
+    });
+}
+
+function imDynamicText(value: unknown): string {
+  const parts: string[] = [];
+  const visit = (item: unknown) => {
+    if (Array.isArray(item)) {
+      item.forEach(visit);
+      return;
+    }
+    if (!isRecord(item)) return;
+    const type = stringField(item, ["type"]);
+    if (type === "im-image" || type === "im-icon") return;
+    const normal = stringField(item, ["content@normal"]);
+    if (normal) parts.push(normal);
+    const text = stringField(item, ["text"]);
+    if (text) parts.push(text);
+    const content = item.content;
+    if (typeof content === "string") {
+      const trimmed = content.trim();
+      if (trimmed && !/^https?:\/\//.test(trimmed)) parts.push(trimmed);
+      return;
+    }
+    visit(content);
+  };
+  visit(value);
+  return uniqueTextParts(parts).join(" · ");
+}
+
+function parseDynamicPatchCard(root: JsonRecord): SharedMessageCard | null {
+  const directPatch = isRecord(root.im_dynamic_patch)
+    ? root.im_dynamic_patch
+    : isRecord(root.imDynamicPatch)
+      ? root.imDynamicPatch
+      : undefined;
+  const patch = directPatch || (stringField(root, ["card_key", "cardKey", "card_type", "cardType", "raw_data", "rawData"]) ? root : undefined);
+  if (!patch) return null;
+  const rawValue = patch.raw_data ?? patch.rawData;
+  const rawData = typeof rawValue === "string"
+    ? parseJsonContent(rawValue)
+    : isRecord(rawValue)
+      ? rawValue
+      : null;
+  const cardKey = stringField(patch, ["card_key", "cardKey"]);
+  const cardType = stringField(patch, ["card_type", "cardType"]);
+  const hint = stringField(root, ["push_detail", "description", "msgHint"]);
+  const signal = `${cardKey} ${cardType} ${hint}`.toLowerCase();
+  const aweType = Number(root.aweType || root.awe_type || 0);
+  const isLocation = aweType === 110147 || /poi|shop|地点/.test(signal);
+  const isProduct = aweType === 11052 || /product|goods|group|商品/.test(signal);
+  if (!rawData && !isLocation && !isProduct) return null;
+  const titleFromHint = hint.replace(/^分享(?:地点|商品)\s*[:：]\s*/, "");
+  const title = imDynamicText(rawData?.content_top) || titleFromHint;
+  const detailParts = uniqueTextParts([
+    imDynamicText(rawData?.content_content_top),
+    imDynamicText(rawData?.content_bottom_left),
+    imDynamicText(rawData?.content_content),
+    imDynamicText(rawData?.content_bottom_right),
+  ]).filter((part) => part !== title);
+  const kind: SharedMessageCard["kind"] = isLocation ? "location" : isProduct ? "product" : "share";
+  const subtitlePrefix = kind === "location" ? "分享地点" : kind === "product" ? "分享商品" : "分享卡片";
+  const top = isRecord(rawData?.top) ? rawData.top : undefined;
+  const coverUrl =
+    firstUrl(top?.content) ||
+    firstUrl(rawData?.top) ||
+    deepFirstUrl(rawData || {}, ["cover_url", "content_cover", "image", "url"]);
+  if (!title && !coverUrl && detailParts.length === 0) return null;
+  return {
+    kind,
+    title: title || titleFromHint || subtitlePrefix,
+    subtitle: uniqueTextParts([subtitlePrefix, ...detailParts]).join(" · "),
+    coverUrl,
+    avatarUrl: "",
+    authorName: "",
+    itemId: "",
+  };
+}
+
 function parseSharedMessage(message: LocalChatMessage): SharedMessageCard | null {
   const root = parseJsonContent(message.rawContent || message.text);
   if (!root) return null;
   const nested = parseNestedJsonField(root, ["share_content", "shareContent", "content", "text"]);
   const parsed = nested || root;
+  const dynamicCard = parseDynamicPatchCard(parsed) || (nested ? parseDynamicPatchCard(root) : null);
+  if (dynamicCard) return dynamicCard;
   const inlineImageUrl = inlineImageDataUrl(deepStringField(parsed, ["inline_pic", "inlinePic"]));
   const resourceImageUrl = deepFirstUrl(parsed, ["resource_url"]);
   const resource = isRecord(parsed.resource_url) ? parsed.resource_url : undefined;
@@ -504,8 +621,29 @@ function parseSharedMessage(message: LocalChatMessage): SharedMessageCard | null
   };
 }
 
+function normalizeLikeNoticeText(value: string) {
+  const text = value
+    .replace(/\{\{\d+\}\}/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s*分享的\s*$/g, "分享的内容")
+    .trim();
+  return text || "点赞";
+}
+
+function centerNoticeText(message: LocalChatMessage) {
+  const root = parseJsonContent(message.rawContent || "");
+  const candidates = uniqueTextParts([
+    message.text,
+    root ? stringField(root, ["msgHint", "description", "push_detail", "text", "content"]) : "",
+  ]);
+  const matched = candidates.find((item) => LIKE_NOTICE_PATTERN.test(item));
+  return matched ? normalizeLikeNoticeText(matched) : "";
+}
+
 function messagePreviewText(message: LocalChatMessage | undefined) {
   if (!message) return "";
+  const notice = centerNoticeText(message);
+  if (notice) return `[点赞] ${notice}`;
   if (message.imagePreviewUrl) return "[图片]";
   const shared = parseSharedMessage(message);
   if (shared?.kind === "image") return "[图片]";
@@ -641,6 +779,35 @@ function formatMessageTime(value: number) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function isSameMessageDate(left: number, right: number) {
+  const leftDate = new Date(left);
+  const rightDate = new Date(right);
+  return leftDate.getFullYear() === rightDate.getFullYear() &&
+    leftDate.getMonth() === rightDate.getMonth() &&
+    leftDate.getDate() === rightDate.getDate();
+}
+
+function formatMessageDate(value: number) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (isSameMessageDate(value, today.getTime())) return "";
+  if (isSameMessageDate(value, yesterday.getTime())) return "昨天";
+  const monthDay = `${date.getMonth() + 1}月${date.getDate()}日`;
+  if (date.getFullYear() === today.getFullYear()) return monthDay;
+  return `${date.getFullYear()}年${monthDay}`;
+}
+
+function formatMessageDividerTime(value: number, includeDate: boolean) {
+  const time = formatMessageTime(value);
+  const date = formatMessageDate(value);
+  if (!includeDate && !date) return time;
+  return date ? `${date} ${time}` : time;
 }
 
 function collectRecordsBySecUid(value: unknown) {
@@ -2091,15 +2258,22 @@ function ChatWorkspace({
               )}
               {messages.map((message, index) => {
                 const prevMessage = index > 0 ? messages[index - 1] : null;
-                const showTime = !prevMessage || (message.createdAt - prevMessage.createdAt) > 10 * 60 * 1000;
+                const showDate = !prevMessage || !isSameMessageDate(message.createdAt, prevMessage.createdAt);
+                const showTime = showDate || !prevMessage || (message.createdAt - prevMessage.createdAt) > 10 * 60 * 1000;
+                const centerNotice = centerNoticeText(message);
                 const framedBody = hasFramedMessageBody(message);
                 return (
                   <Fragment key={message.id}>
                     {showTime && (
                       <div className="mx-auto my-1 text-[0.68rem] text-text-muted select-none">
-                        {formatMessageTime(message.createdAt)}
+                        {formatMessageDividerTime(message.createdAt, showDate)}
                       </div>
                     )}
+                    {centerNotice ? (
+                      <div className="mx-auto max-w-[78%] rounded-full bg-surface-raised px-3 py-1 text-center text-[0.68rem] leading-relaxed text-text-muted">
+                        {centerNotice}
+                      </div>
+                    ) : (
                     <div
                       className={cn(
                         "flex max-w-[88%] items-start gap-2",
@@ -2154,6 +2328,7 @@ function ChatWorkspace({
                         </div>
                       </div>
                     </div>
+                    )}
                   </Fragment>
                 );
               })}
@@ -2306,16 +2481,60 @@ function SharedMessageCardView({
 }) {
   const compact = !card.coverUrl;
   const clickable = card.kind === "video" ? Boolean(card.itemId) : false;
+  const unsignedCoverUrl = unsignedMediaUrl(card.coverUrl);
+  const [useUnsignedCover, setUseUnsignedCover] = useState(false);
+  const coverSrc = card.coverUrl ? mediaProxyUrl(useUnsignedCover && unsignedCoverUrl ? unsignedCoverUrl : card.coverUrl, "image") : "";
+  const avatarSrc = card.avatarUrl ? mediaProxyUrl(card.avatarUrl, "image") : "";
+  const [coverFailed, setCoverFailed] = useState(false);
+  useEffect(() => {
+    setUseUnsignedCover(false);
+    setCoverFailed(false);
+  }, [card.coverUrl]);
+  const handleCoverError = () => {
+    if (!useUnsignedCover && unsignedCoverUrl) {
+      setUseUnsignedCover(true);
+      return;
+    }
+    setCoverFailed(true);
+  };
+  const showCover = Boolean(coverSrc && !coverFailed);
+  const fallbackIcon = card.kind === "location"
+    ? <MapPin className="h-4 w-4 text-text-muted" />
+    : card.kind === "product"
+      ? <ShoppingBag className="h-4 w-4 text-text-muted" />
+      : <MessageCircle className="h-4 w-4 text-text-muted" />;
+  const fallbackCover = (
+    <div className={cn(
+      "flex h-full w-full flex-col items-center justify-center gap-1.5 px-2 text-center",
+      card.kind === "product"
+        ? "bg-[linear-gradient(135deg,rgba(254,44,85,0.12),rgba(255,255,255,0.96)_46%,rgba(245,158,11,0.14))]"
+        : card.kind === "location"
+          ? "bg-[linear-gradient(135deg,rgba(20,184,166,0.14),rgba(255,255,255,0.96)_46%,rgba(59,130,246,0.12))]"
+          : "bg-surface-raised",
+    )}>
+      <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-white/85 shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+        {fallbackIcon}
+      </div>
+      <div className="line-clamp-2 max-w-full text-[0.62rem] font-semibold leading-snug text-text-muted">
+        {card.kind === "product" ? "商品" : card.kind === "location" ? "地点" : "分享"}
+      </div>
+    </div>
+  );
   if (card.kind === "video" && card.coverUrl) {
     const videoContent = (
       <div className="group relative w-[min(10.6rem,42vw)] overflow-hidden rounded-[12px] bg-black text-left shadow-[0_10px_24px_rgba(0,0,0,0.22)] sm:w-[11.6rem]">
         <div className="relative w-full aspect-[9/16] max-h-[16.6rem] min-h-[12rem]">
-          <img
-            src={card.coverUrl}
-            alt=""
-            className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-            loading="lazy"
-          />
+          {showCover ? (
+            <img
+              src={coverSrc}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+              loading="lazy"
+              onError={handleCoverError}
+            />
+          ) : (
+            <div className="absolute inset-0">{fallbackCover}</div>
+          )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/82 via-black/24 to-black/5" />
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-black/42 text-white shadow-[0_6px_12px_rgba(0,0,0,0.22)] backdrop-blur transition-transform duration-300 group-hover:scale-110">
@@ -2324,9 +2543,9 @@ function SharedMessageCardView({
           </div>
           <div className="absolute inset-x-0 bottom-0 p-2.5 text-white">
             <div className="mb-1.5 flex min-w-0 items-center gap-1.5">
-              {card.avatarUrl ? (
+              {avatarSrc ? (
                 <img
-                  src={card.avatarUrl}
+                  src={avatarSrc}
                   alt=""
                   className="h-5 w-5 shrink-0 rounded-full border border-white/70 object-cover shadow-[0_3px_8px_rgba(0,0,0,0.25)]"
                 />
@@ -2370,19 +2589,23 @@ function SharedMessageCardView({
       compact
         ? "grid w-[min(16rem,62vw)] grid-cols-[44px_minmax(0,1fr)] overflow-hidden rounded-[14px] text-left"
         : "grid w-[min(18rem,68vw)] grid-cols-[112px_minmax(0,1fr)] overflow-hidden rounded-[14px] text-left sm:w-[20rem] sm:grid-cols-[132px_minmax(0,1fr)]",
-      outgoing ? "bg-white/12 text-white" : "bg-surface-raised text-text",
+      "border border-border bg-surface-raised text-text shadow-[0_10px_20px_rgba(15,23,42,0.08)]",
     )}>
       <div className={cn("relative overflow-hidden bg-black/10", compact ? "h-full min-h-[72px]" : "h-[112px] sm:h-[132px]")}>
-        {card.coverUrl ? (
-          <img src={card.coverUrl} alt="" className="h-full w-full object-cover outline outline-1 outline-black/10" />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <MessageCircle className={cn("h-4 w-4", outgoing ? "text-white/70" : "text-text-muted")} />
-          </div>
-        )}
-        {card.avatarUrl && (
+        {showCover ? (
           <img
-            src={card.avatarUrl}
+            src={coverSrc}
+            alt=""
+            loading="lazy"
+            onError={handleCoverError}
+            className="h-full w-full object-cover outline outline-1 outline-black/10"
+          />
+        ) : (
+          fallbackCover
+        )}
+        {avatarSrc && (
+          <img
+            src={avatarSrc}
             alt=""
             className="absolute bottom-1.5 right-1.5 h-5 w-5 rounded-full border border-white/80 object-cover"
           />
@@ -2395,7 +2618,7 @@ function SharedMessageCardView({
       </div>
       <div className={cn("flex min-w-0 flex-col justify-between gap-2", compact ? "p-2.5" : "p-3")}>
         <div className="min-w-0">
-          <div className={cn("text-[0.66rem] font-medium", outgoing ? "text-white/75" : "text-text-muted")}>
+          <div className="line-clamp-2 text-[0.66rem] font-medium leading-snug text-text-muted">
             {card.subtitle}
           </div>
           <div className={cn(
@@ -2406,7 +2629,7 @@ function SharedMessageCardView({
           </div>
         </div>
         {card.itemId && (
-          <div className={cn("truncate text-[0.6rem] tabular-nums", outgoing ? "text-white/55" : "text-text-muted")}>
+          <div className="truncate text-[0.6rem] tabular-nums text-text-muted">
             {card.itemId}
           </div>
         )}
