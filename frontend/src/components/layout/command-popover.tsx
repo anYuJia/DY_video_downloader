@@ -508,7 +508,7 @@ export function CommandPopover() {
             </span>
           </div>
           <span className="text-[0.62rem] text-text-muted/60">
-            Douyin Downloader
+            better-douyin
           </span>
         </div>
       </motion.div>

@@ -8,6 +8,7 @@ import os
 import re
 import json
 import base64
+import binascii
 import sys
 import random
 import string
@@ -1088,17 +1089,17 @@ class DouyinAPI:
             'session_did': '0',
             'app_name': 'douyin_pc',
             'priority_region': 'cn',
-            'user_agent': self.common_headers.get('User-Agent', ''),
+            'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
             'cookie_enabled': 'true',
             'browser_language': 'zh-CN',
-            'browser_platform': 'Win32',
+            'browser_platform': 'MacIntel',
             'browser_name': 'Mozilla',
-            'browser_version': self.common_headers.get('User-Agent', '').split('Mozilla/')[-1],
+            'browser_version': '5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
             'browser_online': 'true',
             'screen_width': '1680',
             'screen_height': '1050',
-            'referer': '',
-            'timezone_name': 'Etc/GMT-8',
+            'referer': 'https://www.douyin.com/jingxuan',
+            'timezone_name': 'Asia/Shanghai',
             'deviceId': '0',
             'webid': cookie_dict.get('webid') or cookie_dict.get('ttwid') or '',
             'fp': cookie_dict.get('s_v_web_id') or self._generate_s_v_web_id(),
@@ -1247,7 +1248,236 @@ class DouyinAPI:
             'richTextInfos': [],
             'text': message,
         }, ensure_ascii=False, separators=(',', ':'))
-        return await self._send_im_content_message(to_user_id, msg_content)
+        return await self._send_im_content_message(to_user_id, msg_content, message_type=7)
+
+    @staticmethod
+    def _aws_quote(value) -> str:
+        return urllib.parse.quote(str(value), safe='-_.~')
+
+    @classmethod
+    def _aws_canonical_query(cls, params: dict) -> str:
+        pairs = []
+        for key, value in sorted((str(k), str(v)) for k, v in (params or {}).items()):
+            pairs.append(f'{cls._aws_quote(key)}={cls._aws_quote(value)}')
+        return '&'.join(pairs)
+
+    @staticmethod
+    def _aws_signing_key(secret_access_key: str, date_stamp: str, region: str = 'cn-north-1', service: str = 'vod') -> bytes:
+        k_date = hmac.new(('AWS4' + secret_access_key).encode('utf-8'), date_stamp.encode('utf-8'), hashlib.sha256).digest()
+        k_region = hmac.new(k_date, region.encode('utf-8'), hashlib.sha256).digest()
+        k_service = hmac.new(k_region, service.encode('utf-8'), hashlib.sha256).digest()
+        return hmac.new(k_service, b'aws4_request', hashlib.sha256).digest()
+
+    def _aws_vod_auth_headers(
+        self,
+        method: str,
+        query_params: dict,
+        access_key_id: str,
+        secret_access_key: str,
+        session_token: str,
+        payload_hash: str,
+        extra_signed_headers: dict | None = None,
+    ) -> tuple[str, dict]:
+        now = time.gmtime()
+        amz_date = time.strftime('%Y%m%dT%H%M%SZ', now)
+        date_stamp = time.strftime('%Y%m%d', now)
+        token = str(session_token or '').split('|', 1)[0]
+        signed_header_values = {
+            'x-amz-date': amz_date,
+            'x-amz-security-token': token,
+        }
+        for key, value in (extra_signed_headers or {}).items():
+            signed_header_values[str(key).lower()] = str(value)
+
+        canonical_headers = ''.join(
+            f'{key}:{signed_header_values[key].strip()}\n'
+            for key in sorted(signed_header_values.keys())
+        )
+        signed_headers = ';'.join(sorted(signed_header_values.keys()))
+        canonical_request = '\n'.join([
+            method.upper(),
+            '/',
+            self._aws_canonical_query(query_params),
+            canonical_headers,
+            signed_headers,
+            payload_hash,
+        ])
+        credential_scope = f'{date_stamp}/cn-north-1/vod/aws4_request'
+        string_to_sign = '\n'.join([
+            'AWS4-HMAC-SHA256',
+            amz_date,
+            credential_scope,
+            hashlib.sha256(canonical_request.encode('utf-8')).hexdigest(),
+        ])
+        signature = hmac.new(
+            self._aws_signing_key(secret_access_key, date_stamp),
+            string_to_sign.encode('utf-8'),
+            hashlib.sha256,
+        ).hexdigest()
+        headers = {
+            'authorization': (
+                'AWS4-HMAC-SHA256 '
+                f'Credential={access_key_id}/{credential_scope}, '
+                f'SignedHeaders={signed_headers}, '
+                f'Signature={signature}'
+            ),
+            'x-amz-date': amz_date,
+            'x-amz-security-token': token,
+        }
+        for key, value in (extra_signed_headers or {}).items():
+            headers[str(key).lower()] = str(value)
+        return self._aws_canonical_query(query_params), headers
+
+    async def _get_im_image_upload_config(self) -> tuple[dict, bool]:
+        params = {
+            'update_version_code': '170400',
+            'version_code': '170400',
+            'version_name': '17.4.0',
+            'browser_name': 'Chrome',
+            'browser_version': '148.0.0.0',
+            'engine_version': '148.0.0.0',
+            'round_trip_time': '150',
+        }
+        headers = {
+            'Referer': 'https://www.douyin.com/jingxuan',
+            'sec-fetch-site': 'same-origin',
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+            'sec-ch-ua': '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
+        }
+        response, success = await self.common_request('/aweme/v1/web/im/upload/config/v2', params, headers)
+        if not success:
+            return response, False
+        config = response.get('public_image_config_v2') or response.get('public_image_config') or {}
+        required = ('access_key_id', 'secret_access_key', 'session_token', 'space_name')
+        if not all(config.get(key) for key in required):
+            return {
+                'message': '抖音未返回完整图片上传配置，请刷新 Cookie 后重试',
+                'raw_keys': sorted(response.keys()) if isinstance(response, dict) else [],
+            }, False
+        return config, True
+
+    async def _apply_im_image_upload(self, config: dict, file_size: int) -> tuple[dict, bool]:
+        query_params = {
+            'Action': 'ApplyUploadInner',
+            'Version': '2020-11-19',
+            'SpaceName': config['space_name'],
+            'FileType': 'image',
+            'IsInner': '1',
+            'NeedFallback': 'true',
+            'FileSize': str(file_size),
+            's': 'r' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=10)),
+        }
+        empty_hash = hashlib.sha256(b'').hexdigest()
+        query, auth_headers = self._aws_vod_auth_headers(
+            'GET',
+            query_params,
+            config['access_key_id'],
+            config['secret_access_key'],
+            config['session_token'],
+            empty_hash,
+        )
+        headers = {
+            'accept': '*/*',
+            'origin': 'https://www.douyin.com',
+            'referer': 'https://www.douyin.com/',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+            **auth_headers,
+        }
+        url = f'https://vod.bytedanceapi.com/?{query}'
+        try:
+            response = await asyncio.to_thread(_api_get, url, headers=headers, timeout=(10, 60))
+            data = response.json()
+        except Exception as e:
+            return {'message': f'申请图片上传失败: {e}'}, False
+        if response.status_code != 200 or not isinstance(data, dict) or data.get('ResponseMetadata', {}).get('Error'):
+            return {'message': '申请图片上传失败', 'status_code': response.status_code, 'raw': data}, False
+        upload_address = (data.get('Result') or {}).get('UploadAddress') or {}
+        if not upload_address.get('StoreInfos') or not upload_address.get('UploadHosts') or not upload_address.get('SessionKey'):
+            return {'message': '申请图片上传成功但返回缺少上传地址', 'raw': data}, False
+        return upload_address, True
+
+    async def _upload_im_image_bytes(
+        self,
+        upload_address: dict,
+        image_bytes: bytes,
+        crc32_hex: str,
+    ) -> tuple[dict, bool]:
+        store_info = (upload_address.get('StoreInfos') or [{}])[0]
+        host = (upload_address.get('UploadHosts') or [''])[0]
+        store_uri = str(store_info.get('StoreUri') or '').strip()
+        auth = str(store_info.get('Auth') or '').strip()
+        if not host or not store_uri or not auth:
+            return {'message': '图片上传地址不完整'}, False
+        storage_header = store_info.get('StorageHeader') if isinstance(store_info.get('StorageHeader'), dict) else {}
+        headers = {
+            'accept': '*/*',
+            'authorization': auth,
+            'content-crc32': crc32_hex,
+            'content-disposition': 'attachment; filename="undefined"',
+            'content-type': 'application/octet-stream',
+            'origin': 'https://www.douyin.com',
+            'referer': 'https://www.douyin.com/',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+        }
+        user_id = storage_header.get('USER_ID') or storage_header.get('user_id')
+        if user_id:
+            headers['x-storage-u'] = str(user_id)
+        url = f'https://{host}/upload/v1/{store_uri}'
+        try:
+            response = await asyncio.to_thread(_api_post, url, data=image_bytes, headers=headers, timeout=(10, 120))
+            data = response.json()
+        except Exception as e:
+            return {'message': f'上传图片文件失败: {e}'}, False
+        if response.status_code != 200 or data.get('code') not in (2000, '2000'):
+            return {'message': '上传图片文件失败', 'status_code': response.status_code, 'raw': data}, False
+        return data, True
+
+    async def _commit_im_image_upload(self, config: dict, session_key: str) -> tuple[dict, bool]:
+        query_params = {
+            'Action': 'CommitUploadInner',
+            'Version': '2020-11-19',
+            'SpaceName': config['space_name'],
+        }
+        body = json.dumps({
+            'SessionKey': session_key,
+            'Functions': [{
+                'name': 'Encryption',
+                'input': {
+                    'Config': {'copies': 'cipher_v2'},
+                    'PolicyParams': {'policy-set': 'check,thumb,medium,large'},
+                },
+            }],
+        }, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+        body_hash = hashlib.sha256(body).hexdigest()
+        query, auth_headers = self._aws_vod_auth_headers(
+            'POST',
+            query_params,
+            config['access_key_id'],
+            config['secret_access_key'],
+            config['session_token'],
+            body_hash,
+            {'x-amz-content-sha256': body_hash},
+        )
+        headers = {
+            'accept': '*/*',
+            'content-type': 'text/plain;charset=UTF-8',
+            'origin': 'https://www.douyin.com',
+            'referer': 'https://www.douyin.com/',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+            **auth_headers,
+        }
+        url = f'https://vod.bytedanceapi.com/?{query}'
+        try:
+            response = await asyncio.to_thread(_api_post, url, data=body, headers=headers, timeout=(10, 60))
+            data = response.json()
+        except Exception as e:
+            return {'message': f'提交图片上传失败: {e}'}, False
+        if response.status_code != 200 or not isinstance(data, dict) or data.get('ResponseMetadata', {}).get('Error'):
+            return {'message': '提交图片上传失败', 'status_code': response.status_code, 'raw': data}, False
+        results = (data.get('Result') or {}).get('Results') or []
+        if not results or not results[0].get('Encryption'):
+            return {'message': '提交图片上传成功但未返回加密资源信息', 'raw': data}, False
+        return results[0], True
 
     async def send_im_image_message(
         self,
@@ -1266,44 +1496,66 @@ class DouyinAPI:
         if not inline_pic:
             return {'message': '图片内容不能为空'}, False
         try:
-            normalized_width = max(0, int(width or 0))
+            image_bytes = base64.b64decode(inline_pic, validate=True)
         except Exception:
-            normalized_width = 0
-        try:
-            normalized_height = max(0, int(height or 0))
-        except Exception:
-            normalized_height = 0
-        msg_content = json.dumps({
-            'aweType': 2702,
-            'cover_width': normalized_width,
-            'cover_height': normalized_height,
-            'width': normalized_width,
-            'height': normalized_height,
-            'inline_pic': inline_pic,
-            'file_name': str(file_name or ''),
-            'mime_type': str(mime_type or ''),
-            'is_aigc': False,
-            'is_card': False,
-            'is_long_pic': False,
-            'msgHint': '',
-            'quote_message_id': 0,
-            'ref_msg_info': {
-                'comment': '',
-            },
-            'resource_url': {
-                'url_list': [],
-                'origin_url_list': [],
-                'large_url_list': [],
-                'medium_url_list': [],
-                'thumb_url_list': [],
-                'width': normalized_width,
-                'height': normalized_height,
-                'data_size': len(inline_pic),
-            },
-        }, ensure_ascii=False, separators=(',', ':'))
-        return await self._send_im_content_message(to_user_id, msg_content)
+            return {'message': '图片数据解析失败'}, False
+        if not image_bytes:
+            return {'message': '图片内容不能为空'}, False
 
-    async def _send_im_content_message(self, to_user_id: str | int, msg_content: str) -> tuple[dict, bool]:
+        image_md5 = hashlib.md5(image_bytes).hexdigest()
+        crc32_hex = f'{binascii.crc32(image_bytes) & 0xffffffff:08x}'
+        file_size = len(image_bytes)
+
+        config, config_success = await self._get_im_image_upload_config()
+        if not config_success:
+            return config, False
+        upload_address, apply_success = await self._apply_im_image_upload(config, file_size)
+        if not apply_success:
+            return upload_address, False
+        upload_result, upload_success = await self._upload_im_image_bytes(upload_address, image_bytes, crc32_hex)
+        if not upload_success:
+            return upload_result, False
+        commit_result, commit_success = await self._commit_im_image_upload(config, upload_address.get('SessionKey'))
+        if not commit_success:
+            return commit_result, False
+
+        encryption = commit_result.get('Encryption') or {}
+        extra = encryption.get('Extra') if isinstance(encryption.get('Extra'), dict) else {}
+        oid = encryption.get('Uri')
+        skey = encryption.get('SecretKey')
+        source_md5 = encryption.get('SourceMd5') or image_md5
+        try:
+            cover_width = int(extra.get('img_width') or width or 0)
+        except Exception:
+            cover_width = int(width or 0)
+        try:
+            cover_height = int(extra.get('img_height') or height or 0)
+        except Exception:
+            cover_height = int(height or 0)
+        try:
+            data_size = int(extra.get('img_size') or file_size)
+        except Exception:
+            data_size = file_size
+        if not oid or not skey:
+            return {'message': '图片上传完成但缺少资源 oid/skey', 'raw': {'has_encryption': bool(encryption)}}, False
+
+        msg_content = json.dumps({
+            'resource_url': {
+                'oid': oid,
+                'skey': skey,
+                'data_size': data_size,
+                'md5': source_md5,
+            },
+            'cover_height': cover_height,
+            'cover_width': cover_width,
+            'check_pics': [],
+            'md5': source_md5,
+            'from_gallery': 1,
+            'aweType': 2702,
+        }, ensure_ascii=False, separators=(',', ':'))
+        return await self._send_im_content_message(to_user_id, msg_content, message_type=27)
+
+    async def _send_im_content_message(self, to_user_id: str | int, msg_content: str, message_type: int = 7) -> tuple[dict, bool]:
         conversation, success = await self.create_im_conversation(to_user_id)
         if not success:
             return conversation, False
@@ -1328,8 +1580,9 @@ class DouyinAPI:
             content=msg_content,
             client_message_id=client_message_id,
             now_ms=int(time.time() * 1000),
+            message_type=message_type,
         )
-        payload = self._build_im_proto_request(
+        payload = self._build_im_pc_proto_request(
             cmd=100,
             body=body,
             request_sign=request_sign,

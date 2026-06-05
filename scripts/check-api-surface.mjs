@@ -9,9 +9,11 @@ function resolveRepoRoot() {
 function resolveCounterpart(repoRoot) {
   const parent = path.dirname(repoRoot);
   const repoName = path.basename(repoRoot);
-  const counterpartName =
-    repoName === "DY_video_downloader" ? "douyin-downloader-rust" : "DY_video_downloader";
-  return path.join(parent, counterpartName);
+  const candidates =
+    repoName === "DY_video_downloader" || repoName === "better-douyin"
+      ? ["better-douyin-R", "douyin-downloader-rust"]
+      : ["better-douyin", "DY_video_downloader"];
+  return candidates.map((name) => path.join(parent, name)).find((candidate) => existsSync(candidate)) || path.join(parent, candidates[0]);
 }
 
 function exportedFunctions(source) {

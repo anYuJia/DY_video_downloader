@@ -68,7 +68,7 @@ if sys.platform == 'win32':
         'clr_loader',
         'webview.platforms.winforms',
     ])
-    datas.append((os.path.join(project_root, 'windows', 'DY Video Downloader.exe.config'), '.'))
+    datas.append((os.path.join(project_root, 'windows', 'better-douyin.exe.config'), '.'))
 
 # 收集pythonnet运行时DLL（Windows）
 # 放在根目录而不是_internal，解决pythonnet加载问题
@@ -121,7 +121,7 @@ if sys.platform == 'darwin':
         pyz,
         a.scripts,
         exclude_binaries=True,  # 为 BUNDLE 准备
-        name='DY Video Downloader',
+        name='better-douyin',
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
@@ -143,16 +143,16 @@ if sys.platform == 'darwin':
         strip=False,
         upx=True,
         upx_exclude=[],
-        name='DY Video Downloader.app',
+        name='better-douyin.app',
         icon=icon_path,
-        bundle_identifier='com.anyujia.dy-video-downloader.python',
+        bundle_identifier='com.anyujia.better-douyin.python',
         info_plist={
             'NSPrincipalClass': 'NSApplication',
             'NSHighResolutionCapable': 'True',
             'CFBundleShortVersionString': app_version,
             'CFBundleVersion': app_version,
-            'CFBundleName': 'DY Video Downloader',
-            'CFBundleDisplayName': 'DY Video Downloader',
+            'CFBundleName': 'better-douyin',
+            'CFBundleDisplayName': 'better-douyin',
         }
     )
 # Windows: 打包为文件夹模式（启动更快）
@@ -162,7 +162,7 @@ elif sys.platform == 'win32':
         a.scripts,
         [],
         exclude_binaries=True,  # 使用文件夹模式
-        name='DY Video Downloader',
+        name='better-douyin',
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
@@ -184,7 +184,7 @@ elif sys.platform == 'win32':
         strip=False,
         upx=True,
         upx_exclude=[],
-        name='DY Video Downloader',
+        name='better-douyin',
     )
 # Linux: 打包为文件夹
 else:
@@ -193,7 +193,7 @@ else:
         a.scripts,
         [],
         exclude_binaries=True,
-        name='douyin_downloader',
+        name='better_douyin',
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
@@ -214,5 +214,5 @@ else:
         strip=False,
         upx=True,
         upx_exclude=[],
-        name='douyin_downloader',
+        name='better_douyin',
     )

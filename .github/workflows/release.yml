@@ -14,6 +14,10 @@ on:
         description: "Optional release title"
         required: false
         type: string
+      release_notes:
+        description: "新版本内容，会显示在应用内更新提示和 Release 正文顶部"
+        required: false
+        type: string
       prerelease:
         description: "Mark release as prerelease"
         required: false
@@ -29,18 +33,18 @@ permissions:
   contents: write
 
 env:
-  APP_NAME: douyin_downloader
+  APP_NAME: better_douyin
   PYTHON_VERSION: "3.10"
-  RELEASE_BODY: |
+  DOWNLOAD_GUIDE: |
     ## 下载建议
 
-    - Windows 安装版（推荐大多数用户）：下载 `DY-Video-Downloader-v*-windows-x64-installer.exe`
-    - Windows 便携版（免安装）：下载 `DY-Video-Downloader-v*-windows-x64-portable.zip`，解压后运行里面的 exe
-    - macOS Apple Silicon / M 系列：下载 `DY-Video-Downloader-v*-macos-arm64.dmg`
-    - macOS Intel：下载 `DY-Video-Downloader-v*-macos-x64.dmg`
-    - Linux Debian/Ubuntu：下载 `DY-Video-Downloader-v*-linux-x64.deb`
-    - Linux Fedora/openSUSE/RHEL：下载 `DY-Video-Downloader-v*-linux-x64.rpm`
-    - Linux 通用便携：下载 `DY-Video-Downloader-v*-linux-x64.tar.gz`
+    - Windows 安装版（推荐大多数用户）：下载 `better-douyin-v*-windows-x64-installer.exe`
+    - Windows 便携版（免安装）：下载 `better-douyin-v*-windows-x64-portable.zip`，解压后运行里面的 exe
+    - macOS Apple Silicon / M 系列：下载 `better-douyin-v*-macos-arm64.dmg`
+    - macOS Intel：下载 `better-douyin-v*-macos-x64.dmg`
+    - Linux Debian/Ubuntu：下载 `better-douyin-v*-linux-x64.deb`
+    - Linux Fedora/openSUSE/RHEL：下载 `better-douyin-v*-linux-x64.rpm`
+    - Linux 通用便携：下载 `better-douyin-v*-linux-x64.tar.gz`
 
     `.sig` 和 `latest.json` / `windows.json` / `darwin.json` / `linux.json` 主要用于自动更新和签名校验，普通安装通常不需要手动下载。
 
@@ -153,7 +157,7 @@ jobs:
         run: |
           set -euo pipefail
           arch="${{ matrix.asset_suffix == 'macos-arm64' && 'arm64' || 'x64' }}"
-          APP_NAME="DY Video Downloader.app"
+          APP_NAME="better-douyin.app"
 
           # 检查 .app 是否创建成功
           if [ ! -d "dist/$APP_NAME" ]; then
@@ -165,21 +169,21 @@ jobs:
           ls -la dist/
 
           # 1. 便携版：使用 ditto 压缩 .app（比 zip -r 更适合 macOS app bundle）
-          portable_name="DY-Video-Downloader-${TAG_NAME}-macos-${arch}-portable"
+          portable_name="better-douyin-${TAG_NAME}-macos-${arch}-portable"
           rm -f "${portable_name}.zip"
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent "dist/$APP_NAME" "${portable_name}.zip"
           echo "Created portable: ${portable_name}.zip"
           ls -lh "${portable_name}.zip"
 
           # 2. DMG 安装包
-          dmg_name="DY-Video-Downloader-${TAG_NAME}-macos-${arch}"
+          dmg_name="better-douyin-${TAG_NAME}-macos-${arch}"
           dmg_temp="dmg_temp"
           rm -rf "$dmg_temp" "${dmg_name}.dmg"
           mkdir -p "$dmg_temp"
           cp -R "dist/$APP_NAME" "$dmg_temp/"
           ln -s /Applications "$dmg_temp/Applications"
           for attempt in 1 2 3 4 5; do
-            if /usr/bin/hdiutil create -volname "DY Video Downloader" -srcfolder "$dmg_temp" -ov -format UDZO "${dmg_name}.dmg"; then
+            if /usr/bin/hdiutil create -volname "better-douyin" -srcfolder "$dmg_temp" -ov -format UDZO "${dmg_name}.dmg"; then
               break
             fi
             if [ "$attempt" -eq 5 ]; then
@@ -200,28 +204,28 @@ jobs:
           TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
         run: |
           set -euo pipefail
-          asset_name="DY-Video-Downloader-${TAG_NAME}-linux-x64"
-          tar -C dist -czf "${asset_name}.tar.gz" "douyin_downloader"
+          asset_name="better-douyin-${TAG_NAME}-linux-x64"
+          tar -C dist -czf "${asset_name}.tar.gz" "better_douyin"
           version="${TAG_NAME#v}"
-          package_name="dy-video-downloader"
+          package_name="better-douyin"
 
           package_root="$(mktemp -d)"
           mkdir -p "$package_root/DEBIAN" \
-            "$package_root/opt/dy-video-downloader" \
+            "$package_root/opt/better-douyin" \
             "$package_root/usr/bin" \
             "$package_root/usr/share/applications"
-          cp -a dist/douyin_downloader/. "$package_root/opt/dy-video-downloader/"
-          cat > "$package_root/usr/bin/douyin-downloader" <<'SH'
+          cp -a dist/better_douyin/. "$package_root/opt/better-douyin/"
+          cat > "$package_root/usr/bin/better-douyin" <<'SH'
           #!/usr/bin/env sh
-          exec /opt/dy-video-downloader/douyin_downloader "$@"
+          exec /opt/better-douyin/better_douyin "$@"
           SH
-          chmod 755 "$package_root/usr/bin/douyin-downloader"
-          cat > "$package_root/usr/share/applications/dy-video-downloader.desktop" <<'DESKTOP'
+          chmod 755 "$package_root/usr/bin/better-douyin"
+          cat > "$package_root/usr/share/applications/better-douyin.desktop" <<'DESKTOP'
           [Desktop Entry]
           Type=Application
-          Name=DY Video Downloader
-          Comment=Douyin video downloader
-          Exec=/opt/dy-video-downloader/douyin_downloader
+          Name=better-douyin
+          Comment=Better Douyin desktop toolkit
+          Exec=/opt/better-douyin/better_douyin
           Terminal=false
           Categories=Network;AudioVideo;
           DESKTOP
@@ -235,7 +239,7 @@ jobs:
           Maintainer: anYuJia
           Installed-Size: $installed_size
           Depends: libgtk-3-0, libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37
-          Description: Douyin video downloader desktop application
+          Description: better-douyin desktop application
           DEB
           dpkg-deb --root-owner-group --build "$package_root" "${asset_name}.deb"
 
@@ -249,7 +253,7 @@ jobs:
           Name: $package_name
           Version: $version
           Release: 1%{?dist}
-          Summary: Douyin video downloader desktop application
+          Summary: better-douyin desktop application
           License: Proprietary
           BuildArch: x86_64
           Source0: %{name}-%{version}.tar.gz
@@ -257,7 +261,7 @@ jobs:
           Requires: webkit2gtk4.1
 
           %description
-          Douyin video downloader desktop application.
+          better-douyin desktop application.
 
           %prep
           %setup -q
@@ -269,9 +273,9 @@ jobs:
           cp -a * %{buildroot}/
 
           %files
-          /opt/dy-video-downloader
-          /usr/bin/douyin-downloader
-          /usr/share/applications/dy-video-downloader.desktop
+          /opt/better-douyin
+          /usr/bin/better-douyin
+          /usr/share/applications/better-douyin.desktop
           RPM
           rpmbuild --define "_topdir $rpm_topdir" -bb "$rpm_topdir/SPECS/${package_name}.spec"
           cp "$rpm_topdir/RPMS/x86_64/"*.rpm "${asset_name}.rpm"
@@ -285,15 +289,15 @@ jobs:
           TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
         run: |
           # 检查文件夹是否创建成功（文件夹模式）
-          if (!(Test-Path "dist\DY Video Downloader")) {
-            Write-Error "Error: DY Video Downloader folder not found in dist\"
+          if (!(Test-Path "dist\better-douyin")) {
+            Write-Error "Error: better-douyin folder not found in dist\"
             Get-ChildItem dist\
             exit 1
           }
 
           # 便携版/安装包都要求 .config 与 exe 同级，否则 pythonnet + WinForms 可能无法正确初始化 CLR
-          $runtimeConfigSource = "windows\DY Video Downloader.exe.config"
-          $runtimeConfigTarget = "dist\DY Video Downloader\DY Video Downloader.exe.config"
+          $runtimeConfigSource = "windows\better-douyin.exe.config"
+          $runtimeConfigTarget = "dist\better-douyin\better-douyin.exe.config"
           if (!(Test-Path $runtimeConfigSource)) {
             Write-Error "Runtime config not found: $runtimeConfigSource"
             exit 1
@@ -306,7 +310,7 @@ jobs:
           Write-Host "Copied runtime config to: $runtimeConfigTarget"
 
           # 创建安装包（先创建安装包，再创建便携包）
-          $installerName = "DY-Video-Downloader-${env:TAG_NAME}-windows-x64-installer"
+          $installerName = "better-douyin-${env:TAG_NAME}-windows-x64-installer"
           $nsisScript = "scripts/windows_installer.nsi"
 
           if (Test-Path $nsisScript) {
@@ -322,7 +326,7 @@ jobs:
               & $makensis $nsisScript
 
               # 重命名安装包
-              $installerPath = "dist/DY_Video_Downloader_Setup_v${env:TAG_NAME}.exe"
+              $installerPath = "dist/better-douyin-Setup-v${env:TAG_NAME}.exe"
               if (Test-Path $installerPath) {
                 Move-Item $installerPath "${installerName}.exe" -Force
                 Write-Host "Created installer: ${installerName}.exe"
@@ -337,8 +341,8 @@ jobs:
           }
 
           # 创建便携包（压缩整个文件夹）
-          $portableName = "DY-Video-Downloader-${env:TAG_NAME}-windows-x64-portable"
-          Compress-Archive -Path "dist\DY Video Downloader" -DestinationPath "$portableName.zip" -Force
+          $portableName = "better-douyin-${env:TAG_NAME}-windows-x64-portable"
+          Compress-Archive -Path "dist\better-douyin" -DestinationPath "$portableName.zip" -Force
           Write-Host "Created portable: $portableName.zip"
 
           Get-ChildItem "$portableName.zip"
@@ -404,26 +408,40 @@ jobs:
 
       - name: Resolve release metadata
         id: meta
+        env:
+          RELEASE_NOTES_INPUT: ${{ inputs.release_notes }}
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             tag_name="${{ inputs.tag_name }}"
             release_name="${{ inputs.release_name }}"
+            release_notes="${RELEASE_NOTES_INPUT:-}"
             prerelease="${{ inputs.prerelease }}"
             draft="${{ inputs.draft }}"
           else
             tag_name="${GITHUB_REF_NAME}"
             release_name=""
+            release_notes=""
             prerelease="false"
             draft="false"
           fi
 
           if [ -z "$release_name" ]; then
-            release_name="DY Video Downloader ${tag_name}"
+            release_name="better-douyin ${tag_name}"
+          fi
+          if [ -z "$release_notes" ]; then
+            release_notes="## 新版本内容
+
+- 本次更新内容稍后补充。"
           fi
 
           echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
           echo "release_name=$release_name" >> "$GITHUB_OUTPUT"
+          {
+            echo "release_notes<<EOF"
+            echo "$release_notes"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
 
@@ -431,6 +449,7 @@ jobs:
         env:
           VERSION: ${{ steps.meta.outputs.tag_name }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_NOTES: ${{ steps.meta.outputs.release_notes }}
         shell: bash
         run: |
           set -euo pipefail
@@ -447,7 +466,10 @@ jobs:
           target_commitish: ${{ github.sha }}
           draft: ${{ steps.meta.outputs.draft == 'true' }}
           prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
-          body: ${{ env.RELEASE_BODY }}
+          body: |
+            ${{ steps.meta.outputs.release_notes }}
+
+            ${{ env.DOWNLOAD_GUIDE }}
           generate_release_notes: true
           files: release-assets/*
           fail_on_unmatched_files: true

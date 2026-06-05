@@ -10,11 +10,12 @@ if (!version.startsWith('v')) {
   throw new Error('VERSION must be a tag like v1.0.18');
 }
 if (!repository || !repository.includes('/')) {
-  throw new Error('GITHUB_REPOSITORY must be set, for example anYuJia/DY_video_downloader');
+  throw new Error('GITHUB_REPOSITORY must be set, for example anYuJia/better-douyin');
 }
 
 const appVersion = version.slice(1);
 const baseUrl = `https://github.com/${repository}/releases/download/${version}`;
+const releaseNotes = (process.env.RELEASE_NOTES || process.env.RELEASE_BODY || '').trim();
 
 function requireFile(name) {
   if (!fs.existsSync(name)) {
@@ -40,21 +41,21 @@ function platform(assetName) {
 }
 
 const assets = {
-  darwinArmDmg: `DY-Video-Downloader-v${appVersion}-macos-arm64.dmg`,
-  darwinArmPortable: `DY-Video-Downloader-v${appVersion}-macos-arm64-portable.zip`,
-  darwinX64Dmg: `DY-Video-Downloader-v${appVersion}-macos-x64.dmg`,
-  darwinX64Portable: `DY-Video-Downloader-v${appVersion}-macos-x64-portable.zip`,
-  windowsInstaller: `DY-Video-Downloader-v${appVersion}-windows-x64-installer.exe`,
-  windowsPortable: `DY-Video-Downloader-v${appVersion}-windows-x64-portable.zip`,
-  linuxTar: `DY-Video-Downloader-v${appVersion}-linux-x64.tar.gz`,
-  linuxDeb: `DY-Video-Downloader-v${appVersion}-linux-x64.deb`,
-  linuxRpm: `DY-Video-Downloader-v${appVersion}-linux-x64.rpm`
+  darwinArmDmg: `better-douyin-v${appVersion}-macos-arm64.dmg`,
+  darwinArmPortable: `better-douyin-v${appVersion}-macos-arm64-portable.zip`,
+  darwinX64Dmg: `better-douyin-v${appVersion}-macos-x64.dmg`,
+  darwinX64Portable: `better-douyin-v${appVersion}-macos-x64-portable.zip`,
+  windowsInstaller: `better-douyin-v${appVersion}-windows-x64-installer.exe`,
+  windowsPortable: `better-douyin-v${appVersion}-windows-x64-portable.zip`,
+  linuxTar: `better-douyin-v${appVersion}-linux-x64.tar.gz`,
+  linuxDeb: `better-douyin-v${appVersion}-linux-x64.deb`,
+  linuxRpm: `better-douyin-v${appVersion}-linux-x64.rpm`
 };
 
 const metadata = {
   version: appVersion,
-  notes: '',
-  pub_date: '',
+  notes: releaseNotes || `better-douyin v${appVersion}`,
+  pub_date: new Date().toISOString(),
   platforms: {
     'darwin-aarch64': platform(assets.darwinArmDmg),
     'darwin-aarch64-portable': platform(assets.darwinArmPortable),

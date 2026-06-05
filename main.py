@@ -78,7 +78,7 @@ if __name__ == '__main__':
 
     # 创建pywebview窗口
     window = webview.create_window(
-        title='抖音下载器',
+        title='better-douyin',
         url='http://127.0.0.1:{}'.format(port),
         width=1280,
         height=800,

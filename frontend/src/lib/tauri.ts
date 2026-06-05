@@ -178,7 +178,7 @@ async function requestJson<T>(path: string, init: RequestJsonOptions = {}): Prom
   return data as T;
 }
 
-export function mediaProxyUrl(url: string | null | undefined, mediaType = "image"): string {
+export function mediaProxyUrl(url: string | null | undefined, mediaType = "image", extraParams: Record<string, string | undefined> = {}): string {
   const trimmed = (url || "").trim();
   if (!trimmed) return "";
   if (trimmed.startsWith("data:") || trimmed.startsWith("blob:")) return trimmed;
@@ -196,7 +196,11 @@ export function mediaProxyUrl(url: string | null | undefined, mediaType = "image
     const base = isTauriRuntime()
       ? "http://127.0.0.1:39143/api/media/proxy"
       : "/api/media/proxy";
-    return `${base}?url=${encodeURIComponent(trimmed)}&media_type=${encodeURIComponent(mediaType)}`;
+    const extra = Object.entries(extraParams)
+      .filter(([, value]) => value)
+      .map(([key, value]) => `&${encodeURIComponent(key)}=${encodeURIComponent(value || "")}`)
+      .join("");
+    return `${base}?url=${encodeURIComponent(trimmed)}&media_type=${encodeURIComponent(mediaType)}${extra}`;
   } catch {
     return trimmed;
   }

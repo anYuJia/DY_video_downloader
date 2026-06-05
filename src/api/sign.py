@@ -1,6 +1,6 @@
 """Pure Python implementation of Douyin a_bogus signing.
 
-Ported from the Rust implementation in douyin-downloader-rust/src-tauri/src/sign/mod.rs.
+Ported from the Rust implementation in better-douyin-R/src-tauri/src/sign/mod.rs.
 """
 
 from __future__ import annotations

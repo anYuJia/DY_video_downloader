@@ -7,6 +7,7 @@ import { useAlertStore, useAppStore, useLoaderStore, useLogStore } from "@/store
 import { useSocket } from "@/lib/socket";
 import { useKeyboard } from "@/hooks/use-keyboard";
 import { checkUpdate, downloadUpdate, getConfig, getFriendChatState, initClient, listenEvent, restartApp, verifyCookie } from "@/lib/tauri";
+import { normalizeUpdateNotes } from "@/lib/update-notes";
 import { useRecommendedStore } from "@/stores/recommended-store";
 
 const BOOTSTRAP_STEP_TIMEOUT_MS = 8_000;
@@ -183,15 +184,19 @@ export default function App() {
           BOOTSTRAP_NETWORK_TIMEOUT_MS
         );
         if (!disposed && update.has_update) {
+          const updateNotes = normalizeUpdateNotes(update.notes);
           showAlert({
             title: "发现新版本",
             variant: "info",
             description: (
               <div>
                 <p>程序有新版本可用: <span className="font-bold text-text">v{update.version}</span></p>
-                {update.notes && (
-                  <div className="mt-2 rounded-lg bg-surface-raised p-3 text-[0.72rem] font-mono text-text-secondary whitespace-pre-wrap max-h-[200px] overflow-y-auto border border-border/50">
-                    {update.notes}
+                {updateNotes && (
+                  <div className="mt-3 rounded-lg border border-border/50 bg-surface-raised p-3 text-text-secondary">
+                    <div className="mb-2 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-text-muted">新版本内容</div>
+                    <div className="max-h-[220px] overflow-y-auto whitespace-pre-wrap text-[0.76rem] leading-relaxed">
+                      {updateNotes}
+                    </div>
                   </div>
                 )}
                 <p className="mt-2 opacity-80">点击立即更新后会在后台自动下载并安装，完成后会提示重启。</p>
