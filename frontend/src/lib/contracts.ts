@@ -215,6 +215,8 @@ export interface SendFriendMessageResponse extends ApiResponse {
   client_message_id?: string;
   message_id?: string | number;
   conversation_id?: string;
+  pending_ack?: boolean;
+  need_image_upload?: boolean;
   conversation?: Record<string, unknown>;
   raw?: unknown;
 }
