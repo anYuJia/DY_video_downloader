@@ -430,9 +430,7 @@ jobs:
             release_name="better-douyin ${tag_name}"
           fi
           if [ -z "$release_notes" ]; then
-            release_notes="## 新版本内容
-
-- 本次更新内容稍后补充。"
+            release_notes=$'## 新版本内容\n\n- 本次更新内容稍后补充。'
           fi
 
           echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
