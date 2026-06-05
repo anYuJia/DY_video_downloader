@@ -286,15 +286,7 @@ export function UserDetailCard({ user, busy, onDownloadAll, onViewVideos }: User
         </div>
       </div>
 
-      <div className="flex gap-2.5 mt-4 flex-wrap">
-        <Button variant="default" size="sm" onClick={onDownloadAll} disabled={busy}>
-          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-          下载所有作品
-        </Button>
-        <Button variant="info-outline" size="sm" onClick={onViewVideos} disabled={busy}>
-          查看作品列表
-        </Button>
-      </div>
+
     </motion.div>
   );
 }

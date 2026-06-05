@@ -228,6 +228,8 @@ export interface FriendMessageHistoryItem {
   senderUid?: string;
   content?: string;
   text?: string;
+  raw_content?: string;
+  rawContent?: string;
   create_time?: number;
   created_at?: number;
   message_type?: number;
@@ -325,6 +327,7 @@ export interface CookieStatus {
   valid: boolean;
   user_name: string | null;
   user_id: string | null;
+  sec_uid?: string | null;
   avatar_thumb?: string | null;
   avatar_medium?: string | null;
   avatar_larger?: string | null;

@@ -136,25 +136,14 @@ export function VideoGrid() {
               {selectMode ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
               {selectMode ? "退出选择" : "选择作品"}
             </Button>
-            {selectMode && (
-              <Button
-                variant="success-outline"
-                size="sm"
-                onClick={() => void downloadBatch(selectedVideos)}
-                disabled={selectedVideos.length === 0}
-              >
-                <Download className="w-3.5 h-3.5" />
-                下载已选 {selectedVideos.length > 0 ? `(${selectedVideos.length})` : ""}
-              </Button>
-            )}
             <Button
-              variant="default"
+              variant={selectedVideos.length > 0 ? "success-outline" : "default"}
               size="sm"
-              onClick={() => void downloadBatch(videos)}
+              onClick={() => void downloadBatch(selectedVideos.length > 0 ? selectedVideos : videos)}
               disabled={videos.length === 0}
             >
               <Download className="w-3.5 h-3.5" />
-              下载当前列表
+              {selectedVideos.length > 0 ? `下载选中 (${selectedVideos.length})` : "下载全部"}
             </Button>
           </div>
         </div>

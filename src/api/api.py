@@ -1241,6 +1241,69 @@ class DouyinAPI:
         message = str(content or '').strip()
         if not message:
             return {'message': '消息内容不能为空'}, False
+        msg_content = json.dumps({
+            'mention_users': [],
+            'aweType': 700,
+            'richTextInfos': [],
+            'text': message,
+        }, ensure_ascii=False, separators=(',', ':'))
+        return await self._send_im_content_message(to_user_id, msg_content)
+
+    async def send_im_image_message(
+        self,
+        to_user_id: str | int,
+        image_data_url: str,
+        width: int = 0,
+        height: int = 0,
+        file_name: str = '',
+        mime_type: str = '',
+    ) -> tuple[dict, bool]:
+        trimmed = str(image_data_url or '').strip()
+        if not trimmed:
+            return {'message': '图片内容不能为空'}, False
+        inline_pic = trimmed.split(',', 1)[1] if ',' in trimmed else trimmed
+        inline_pic = re.sub(r'[\r\n\s]+', '', inline_pic)
+        if not inline_pic:
+            return {'message': '图片内容不能为空'}, False
+        try:
+            normalized_width = max(0, int(width or 0))
+        except Exception:
+            normalized_width = 0
+        try:
+            normalized_height = max(0, int(height or 0))
+        except Exception:
+            normalized_height = 0
+        msg_content = json.dumps({
+            'aweType': 2702,
+            'cover_width': normalized_width,
+            'cover_height': normalized_height,
+            'width': normalized_width,
+            'height': normalized_height,
+            'inline_pic': inline_pic,
+            'file_name': str(file_name or ''),
+            'mime_type': str(mime_type or ''),
+            'is_aigc': False,
+            'is_card': False,
+            'is_long_pic': False,
+            'msgHint': '',
+            'quote_message_id': 0,
+            'ref_msg_info': {
+                'comment': '',
+            },
+            'resource_url': {
+                'url_list': [],
+                'origin_url_list': [],
+                'large_url_list': [],
+                'medium_url_list': [],
+                'thumb_url_list': [],
+                'width': normalized_width,
+                'height': normalized_height,
+                'data_size': len(inline_pic),
+            },
+        }, ensure_ascii=False, separators=(',', ':'))
+        return await self._send_im_content_message(to_user_id, msg_content)
+
+    async def _send_im_content_message(self, to_user_id: str | int, msg_content: str) -> tuple[dict, bool]:
         conversation, success = await self.create_im_conversation(to_user_id)
         if not success:
             return conversation, False
@@ -1250,12 +1313,6 @@ class DouyinAPI:
             return {'message': '私信安全参数未采集完整，请在设置中重新登录 Cookie 后重试'}, False
 
         client_message_id = str(uuid.uuid4())
-        msg_content = json.dumps({
-            'mention_users': [],
-            'aweType': 700,
-            'richTextInfos': [],
-            'text': message,
-        }, ensure_ascii=False, separators=(',', ':'))
         sign_data = (
             f'content={msg_content}'
             f'&conversation_id={conversation["conversation_id"]}'

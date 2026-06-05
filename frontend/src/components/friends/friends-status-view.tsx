@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ElementType, type KeyboardEvent } from "react";
-import { Activity, Loader2, MessageCircle, RefreshCw, Send, UserRound, Users, Wifi, WifiOff } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ElementType, type KeyboardEvent } from "react";
+import { Activity, ImagePlus, Loader2, MessageCircle, Play, RefreshCw, Send, UserRound, Users, Wifi, WifiOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { getConfig, getFriendChatState, getFriendMessageHistory, getFriendOnlineStatus, listenEvent, saveConfig, saveFriendChatState, sendFriendMessage, verifyCookie, type FriendOnlineStatusResponse } from "@/lib/tauri";
+import { FullscreenPlayer } from "@/components/player/fullscreen-player";
+import { getConfig, getFriendChatState, getFriendMessageHistory, getFriendOnlineStatus, getUserDetail, getVideoDetail, listenEvent, mediaProxyUrl, saveConfig, saveFriendChatState, sendFriendImageMessage, sendFriendMessage, verifyCookie, type FriendOnlineStatusResponse } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
 import { useSearchStore } from "@/stores/search-store";
-import type { FriendMessageHistoryItem, UserInfo } from "@/lib/contracts";
+import type { FriendMessageHistoryItem, UserInfo, VideoInfo } from "@/lib/contracts";
 
 interface FriendStatusItem {
   secUid: string;
@@ -29,8 +30,11 @@ const CHAT_DRAFTS_KEY = "douyin.friendStatus.chatDrafts";
 const CHAT_MESSAGES_KEY = "douyin.friendStatus.chatMessages";
 const CHAT_UNREAD_KEY = "douyin.friendStatus.unreadCounts";
 const CHAT_SUMMARIES_KEY = "douyin.friendStatus.chatSummaries";
+const CURRENT_USER_AVATAR_KEY = "douyin.friendStatus.currentUserAvatar";
 const ONLINE_WINDOW_SECONDS = 60;
 const DEFAULT_REFRESH_INTERVAL_SECONDS = 5;
+const COOKIE_REQUIRED_PATTERN = /请先设置\s*Cookie/i;
+const MAX_SEND_IMAGE_BYTES = 8 * 1024 * 1024;
 
 type ChatDrafts = Record<string, string>;
 type HistoryPageState = Record<string, {
@@ -43,6 +47,8 @@ type HistoryPageState = Record<string, {
 interface LocalChatMessage {
   id: string;
   text: string;
+  rawContent?: string;
+  imagePreviewUrl?: string;
   createdAt: number;
   status: "pending" | "sent" | "error";
   direction?: "in" | "out";
@@ -56,6 +62,11 @@ type ChatSummaries = Record<string, {
   latestMessageAt: number;
   unreadCount: number;
 }>;
+type ImConnectionStatus = {
+  connected: boolean;
+  message: string;
+  updatedAt: number;
+};
 
 interface FriendListItem extends FriendStatusItem {
   latestMessage?: LocalChatMessage;
@@ -87,6 +98,8 @@ function readChatMessages(): ChatMessages {
         .map((message) => ({
           id: stringField(message, ["id"]) || `${secUid}-${numberField(message, ["createdAt"])}-${Math.random()}`,
           text: stringField(message, ["text"]),
+          rawContent: stringField(message, ["rawContent", "raw_content"]) || undefined,
+          imagePreviewUrl: stringField(message, ["imagePreviewUrl"]).startsWith("blob:") ? undefined : stringField(message, ["imagePreviewUrl"]) || undefined,
           createdAt: numberField(message, ["createdAt"]),
           status: normalizeMessageStatus(stringField(message, ["status"])),
           direction: normalizeMessageDirection(stringField(message, ["direction"])),
@@ -130,6 +143,8 @@ function readChatSummaries(): ChatSummaries {
       const latestMessage = latestRaw ? {
         id: stringField(latestRaw, ["id"]) || `${secUid}-${numberField(latestRaw, ["createdAt"])}`,
         text: stringField(latestRaw, ["text"]),
+        rawContent: stringField(latestRaw, ["rawContent", "raw_content"]) || undefined,
+        imagePreviewUrl: stringField(latestRaw, ["imagePreviewUrl"]).startsWith("blob:") ? undefined : stringField(latestRaw, ["imagePreviewUrl"]) || undefined,
         createdAt: numberField(latestRaw, ["createdAt"]),
         status: normalizeMessageStatus(stringField(latestRaw, ["status"])),
         direction: normalizeMessageDirection(stringField(latestRaw, ["direction"])),
@@ -173,6 +188,222 @@ function normalizeMessageStatus(value: string): LocalChatMessage["status"] {
 
 function normalizeMessageDirection(value: string): LocalChatMessage["direction"] {
   return value === "in" ? "in" : "out";
+}
+
+interface SharedMessageCard {
+  kind: "video" | "comment" | "image" | "share";
+  title: string;
+  subtitle: string;
+  coverUrl: string;
+  avatarUrl: string;
+  authorName: string;
+  itemId: string;
+}
+
+function firstUrl(value: unknown): string {
+  if (typeof value === "string" && /^https?:\/\//.test(value)) return value;
+  if (!isRecord(value)) return "";
+  for (const key of ["large_url_list", "origin_url_list", "medium_url_list", "url_list", "thumb_url_list"]) {
+    const list = value[key];
+    if (!Array.isArray(list)) continue;
+    const url = list.find((item) => typeof item === "string");
+    if (url) return url;
+  }
+  const uri = value.uri;
+  if (typeof uri === "string" && /^https?:\/\//.test(uri)) return uri;
+  const list = value.url_list;
+  if (!Array.isArray(list)) return "";
+  return list.find((item) => typeof item === "string") || "";
+}
+
+function inlineImageDataUrl(value: string) {
+  const normalized = value.replace(/\s+/g, "");
+  if (!normalized) return "";
+  if (normalized.startsWith("data:image/")) return normalized;
+  if (normalized.startsWith("UklGR")) return `data:image/webp;base64,${normalized}`;
+  if (normalized.startsWith("/9j/")) return `data:image/jpeg;base64,${normalized}`;
+  if (normalized.startsWith("iVBOR")) return `data:image/png;base64,${normalized}`;
+  return "";
+}
+
+function imageMessageRawContent(imageDataUrl: string, width = 0, height = 0, fileName = "") {
+  return JSON.stringify({
+    aweType: 2702,
+    inline_pic: imageDataUrl,
+    cover_width: width,
+    cover_height: height,
+    width,
+    height,
+    file_name: fileName,
+    msgHint: "",
+    ref_msg_info: { comment: "" },
+  });
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(reader.error || new Error("读取图片失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function readImageSize(src: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve({ width: image.naturalWidth || 0, height: image.naturalHeight || 0 });
+    image.onerror = () => resolve({ width: 0, height: 0 });
+    image.src = src;
+  });
+}
+
+function deepStringField(record: JsonRecord, keys: string[]) {
+  let found = stringField(record, keys);
+  if (found) return found;
+  walkRecords(record, (candidate) => {
+    if (found) return;
+    found = stringField(candidate, keys);
+  });
+  return found;
+}
+
+function deepFirstUrl(record: JsonRecord, keys: string[]) {
+  let found = "";
+  for (const key of keys) {
+    found = firstUrl(record[key]);
+    if (found) return found;
+  }
+  walkRecords(record, (candidate) => {
+    if (found) return;
+    for (const key of keys) {
+      found = firstUrl(candidate[key]);
+      if (found) return;
+    }
+  });
+  return found;
+}
+
+function hasDeepField(record: JsonRecord, keys: string[]) {
+  if (keys.some((key) => record[key] !== undefined && record[key] !== null)) return true;
+  let found = false;
+  walkRecords(record, (candidate) => {
+    if (!found) {
+      found = keys.some((key) => candidate[key] !== undefined && candidate[key] !== null);
+    }
+  });
+  return found;
+}
+
+function parseJsonContent(value: string): JsonRecord | null {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseNestedJsonField(record: JsonRecord, keys: string[]): JsonRecord | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value !== "string") continue;
+    const parsed = parseJsonContent(value);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function normalizeSharedItemId(value: string): string {
+  if (!value) return "";
+  const direct = value.trim();
+  if (/^\d+$/.test(direct)) return direct;
+  const numericParts = direct.split(/[_:/?&=#-]+/).filter((part) => /^\d{10,}$/.test(part));
+  return numericParts[numericParts.length - 1] || "";
+}
+
+function parseSharedMessage(message: LocalChatMessage): SharedMessageCard | null {
+  const root = parseJsonContent(message.rawContent || message.text);
+  if (!root) return null;
+  const nested = parseNestedJsonField(root, ["share_content", "shareContent", "content", "text"]);
+  const parsed = nested || root;
+  const itemId = normalizeSharedItemId(
+    deepStringField(parsed, ["itemId", "item_id", "awemeId", "aweme_id"]) ||
+    deepStringField(parsed, ["share_id"]),
+  );
+  const commentText = deepStringField(parsed, [
+    "comment_content",
+    "comment_text",
+    "reply_content",
+    "reply_text",
+    "origin_comment_content",
+    "origin_comment_text",
+  ]);
+  const title = commentText || deepStringField(parsed, [
+    "content_title",
+    "content_name",
+    "aweme_title",
+    "item_title",
+    "title",
+    "desc",
+    "text",
+  ]);
+  const hasCommentSignal = hasDeepField(parsed, [
+    "comment_id",
+    "cid",
+    "comment_content",
+    "comment_text",
+    "comment_info",
+    "reply_id",
+    "reply_content",
+    "reply_text",
+    "origin_comment_content",
+    "origin_comment_text",
+  ]);
+  const hasShareSignal = Boolean(
+    itemId ||
+      hasCommentSignal ||
+      deepStringField(parsed, ["content_title", "content_name", "aweme_title", "item_title"]) ||
+      deepFirstUrl(parsed, ["cover_url", "content_cover", "aweme_cover", "item_cover", "video_cover", "origin_cover", "url"]),
+  );
+  if (!hasShareSignal) return null;
+  const coverUrl =
+    deepFirstUrl(parsed, ["cover_url", "content_cover", "aweme_cover", "item_cover", "video_cover", "origin_cover"]) ||
+    deepFirstUrl(parsed, ["resource_url"]) ||
+    deepFirstUrl(parsed, ["url"]) ||
+    deepFirstUrl(parsed, ["content_thumb", "thumb_url"]) ||
+    inlineImageDataUrl(deepStringField(parsed, ["inline_pic", "inlinePic"]));
+  const kind: SharedMessageCard["kind"] = hasCommentSignal ? "comment" : itemId ? "video" : coverUrl ? "image" : "share";
+  const avatarUrl = deepFirstUrl(parsed, ["content_thumb", "author_avatar", "avatar_thumb", "user_avatar"]);
+  const authorName = deepStringField(parsed, [
+    "author_name",
+    "authorName",
+    "nickname",
+    "nick_name",
+    "user_name",
+    "share_user_name",
+    "content_author_name",
+  ]);
+  if (!title && !coverUrl) return null;
+  return {
+    kind,
+    title: title || (kind === "comment" ? "分享了一条评论" : kind === "image" ? "图片" : "分享了一条内容"),
+    subtitle: kind === "comment" ? "分享评论" : kind === "video" ? "分享视频" : kind === "image" ? "图片" : "分享内容",
+    coverUrl,
+    avatarUrl,
+    authorName,
+    itemId,
+  };
+}
+
+function messagePreviewText(message: LocalChatMessage | undefined) {
+  if (!message) return "";
+  if (message.imagePreviewUrl) return "[图片]";
+  const shared = parseSharedMessage(message);
+  if (shared) return `[${shared.subtitle}] ${shared.title}`;
+  return message.text;
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -358,16 +589,26 @@ export function FriendsStatusView() {
   const [savedCount, setSavedCount] = useState(0);
   const [includeAllUsers, setIncludeAllUsers] = useState(false);
   const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(DEFAULT_REFRESH_INTERVAL_SECONDS);
-  const [currentUserAvatar, setCurrentUserAvatar] = useState("");
+  const [currentUserAvatar, setCurrentUserAvatar] = useState(() => localStorage.getItem(CURRENT_USER_AVATAR_KEY) || "");
+  const [imStatus, setImStatus] = useState<ImConnectionStatus>({
+    connected: false,
+    message: "接收通道未连接",
+    updatedAt: 0,
+  });
   const [showManualInput, setShowManualInput] = useState(false);
   const [loading, setLoading] = useState(false);
   const [backgroundRefreshing, setBackgroundRefreshing] = useState(false);
+  const [sharedPlayerVideos, setSharedPlayerVideos] = useState<VideoInfo[]>([]);
+  const [sharedPlayerOpen, setSharedPlayerOpen] = useState(false);
+  const [sharedPlayerLoadingId, setSharedPlayerLoadingId] = useState("");
   const [lastUpdatedAt, setLastUpdatedAt] = useState(0);
   const [error, setError] = useState("");
   const [response, setResponse] = useState<FriendOnlineStatusResponse | null>(null);
   const savedIdsRef = useRef<string[]>([]);
   const idsRef = useRef<string[]>([]);
   const queryInFlightRef = useRef(false);
+  const cookieRetryTimerRef = useRef<number | null>(null);
+  const avatarRetryTimerRef = useRef<number | null>(null);
   const initialInputRef = useRef(input);
   const chatStateLoadedRef = useRef(false);
 
@@ -380,11 +621,12 @@ export function FriendsStatusView() {
       const displayMessage = latestMessage && latestMessage.createdAt >= (persistedSummary?.latestMessageAt || 0)
         ? latestMessage
         : persistedSummary?.latestMessage;
+      const displayText = messagePreviewText(displayMessage || latestMessage);
       const previewText = latestMessage
-        ? `${displayMessage?.direction === "out" ? "我：" : ""}${displayMessage?.text || latestMessage.text}`
+        ? `${displayMessage?.direction === "out" ? "我：" : ""}${displayText || latestMessage.text}`
         : displayMessage
-          ? `${displayMessage.direction === "out" ? "我：" : ""}${displayMessage.text}`
-        : friend.signature || friend.secUid;
+          ? `${displayMessage.direction === "out" ? "我：" : ""}${displayText}`
+          : friend.signature || friend.secUid;
       return {
         ...friend,
         latestMessage: displayMessage,
@@ -437,6 +679,24 @@ export function FriendsStatusView() {
     [openUser, setView],
   );
 
+  const openSharedVideo = useCallback(async (card: SharedMessageCard) => {
+    if (!card.itemId || sharedPlayerLoadingId) return;
+    setSharedPlayerLoadingId(card.itemId);
+    setError("");
+    try {
+      const result = await getVideoDetail(card.itemId);
+      if (!result.success || !result.video) {
+        throw new Error(result.message || "无法加载分享视频");
+      }
+      setSharedPlayerVideos([result.video]);
+      setSharedPlayerOpen(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "无法加载分享视频");
+    } finally {
+      setSharedPlayerLoadingId("");
+    }
+  }, [sharedPlayerLoadingId]);
+
   useEffect(() => {
     let cancelled = false;
     void getFriendChatState()
@@ -452,6 +712,8 @@ export function FriendsStatusView() {
           const latestMessage = latestRaw ? {
             id: stringField(latestRaw, ["id"]) || `${secUid}-${numberField(latestRaw, ["createdAt"])}`,
             text: stringField(latestRaw, ["text"]),
+            rawContent: stringField(latestRaw, ["rawContent", "raw_content"]) || undefined,
+            imagePreviewUrl: stringField(latestRaw, ["imagePreviewUrl"]).startsWith("blob:") ? undefined : stringField(latestRaw, ["imagePreviewUrl"]) || undefined,
             createdAt: numberField(latestRaw, ["createdAt"]),
             status: normalizeMessageStatus(stringField(latestRaw, ["status"])),
             direction: normalizeMessageDirection(stringField(latestRaw, ["direction"])),
@@ -604,6 +866,7 @@ export function FriendsStatusView() {
     const message: LocalChatMessage = {
       id: `${friend.secUid}-${Date.now()}`,
       text,
+      rawContent: undefined,
       createdAt: Date.now(),
       status: "pending",
       direction: "out",
@@ -640,6 +903,65 @@ export function FriendsStatusView() {
     }
   }, [patchMessage, updateDraft]);
 
+  const sendLocalImageMessage = useCallback(async (friend: FriendStatusItem, file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setError("请选择图片文件");
+      return;
+    }
+    if (file.size > MAX_SEND_IMAGE_BYTES) {
+      setError("图片不能超过 8MB");
+      return;
+    }
+    if (!friend.uid) {
+      setError("缺少好友数字 uid，无法发送图片");
+      return;
+    }
+    setError("");
+    const imageDataUrl = await readFileAsDataUrl(file);
+    if (!imageDataUrl) {
+      setError("读取图片失败");
+      return;
+    }
+    const size = await readImageSize(imageDataUrl);
+    const message: LocalChatMessage = {
+      id: `${friend.secUid}-${Date.now()}`,
+      text: "[图片]",
+      rawContent: imageMessageRawContent("", size.width, size.height, file.name),
+      imagePreviewUrl: URL.createObjectURL(file),
+      createdAt: Date.now(),
+      status: "pending",
+      direction: "out",
+    };
+    setChatMessages((current) => {
+      const next = {
+        ...current,
+        [friend.secUid]: [...(current[friend.secUid] || []), message],
+      };
+      localStorage.setItem(CHAT_MESSAGES_KEY, JSON.stringify(next));
+      return next;
+    });
+
+    try {
+      const result = await sendFriendImageMessage({
+        toUserId: friend.uid,
+        imageDataUrl,
+        width: size.width,
+        height: size.height,
+        fileName: file.name,
+        mimeType: file.type,
+      });
+      if (!result.success) {
+        throw new Error(result.message || "发送图片失败");
+      }
+      patchMessage(friend.secUid, message.id, { status: "sent", error: "" });
+    } catch (caught) {
+      patchMessage(friend.secUid, message.id, {
+        status: "error",
+        error: caught instanceof Error ? caught.message : "发送图片失败",
+      });
+    }
+  }, [patchMessage]);
+
   const selectFriend = useCallback((friend: FriendStatusItem) => {
     setSelectedFriendId(friend.secUid);
     clearUnread(friend.secUid);
@@ -653,7 +975,8 @@ export function FriendsStatusView() {
       for (const item of items) {
         const conversationId = stringField(item as JsonRecord, ["conversation_id", "conversationId"]);
         const senderUid = stringField(item as JsonRecord, ["sender_uid", "senderUid"]);
-        const text = stringField(item as JsonRecord, ["content", "text"]);
+        const rawContent = stringField(item as JsonRecord, ["raw_content", "rawContent"]) || undefined;
+        const text = stringField(item as JsonRecord, ["content", "text"]) || (rawContent ? "[分享内容]" : "");
         const messageId = stringField(item as JsonRecord, ["server_message_id", "message_id", "id"]);
         if (!text) continue;
         const friend = fallbackFriend || friends.find((candidate) =>
@@ -668,6 +991,7 @@ export function FriendsStatusView() {
         const message: LocalChatMessage = {
           id: messageId || `${friend.secUid}-${createdAt}`,
           text,
+          rawContent,
           createdAt,
           status: "sent",
           direction: senderUid && senderUid === friend.uid ? "in" : "out",
@@ -743,10 +1067,30 @@ export function FriendsStatusView() {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
+    void listenEvent<Record<string, unknown>>("im-status", (payload) => {
+      if (disposed || !payload || typeof payload !== "object") return;
+      setImStatus({
+        connected: Boolean(payload.connected),
+        message: stringField(payload, ["message"]) || (payload.connected ? "私信接收已连接" : "私信接收未连接"),
+        updatedAt: numberField(payload, ["updated_at", "updatedAt"]) || Date.now(),
+      });
+    }).then((cleanup) => {
+      unlisten = cleanup;
+    });
+    return () => {
+      disposed = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
     void listenEvent<Record<string, unknown>>("im-message", (payload) => {
       if (disposed || !payload || typeof payload !== "object") return;
       const senderUid = stringField(payload, ["sender_uid", "senderUid"]);
-      const text = stringField(payload, ["content", "text"]);
+      const rawContent = stringField(payload, ["raw_content", "rawContent"]) || undefined;
+      const text = stringField(payload, ["content", "text"]) || (rawContent ? "[分享内容]" : "");
       const serverMessageId = stringField(payload, ["server_message_id", "message_id", "id"]);
       if (!senderUid || !text) return;
       const friend = friends.find((item) => item.uid === senderUid);
@@ -754,6 +1098,7 @@ export function FriendsStatusView() {
       const message: LocalChatMessage = {
         id: serverMessageId || `${friend.secUid}-${Date.now()}`,
         text,
+        rawContent,
         createdAt: numberField(payload, ["created_at", "createdAt"]) || Date.now(),
         status: "sent",
         direction: "in",
@@ -812,9 +1157,10 @@ export function FriendsStatusView() {
     }
   }, [clearUnread, selectedFriend]);
 
-  const query = useCallback(async (overrideIds?: string[], options?: { background?: boolean }) => {
+  const query = useCallback(async (overrideIds?: string[], options?: { background?: boolean; retryCookie?: boolean }) => {
     if (queryInFlightRef.current) return;
     const background = Boolean(options?.background);
+    const retryCookie = options?.retryCookie !== false;
     const baseIds = overrideIds ?? savedIdsRef.current;
     const queryIds = Array.from(new Set([...baseIds, ...idsRef.current]));
     queryInFlightRef.current = true;
@@ -844,11 +1190,45 @@ export function FriendsStatusView() {
         localStorage.setItem(STORAGE_KEY, result.sec_user_ids.join("\n"));
       }
       if (!hasUsableData && !background) {
-        setError(result.message || "获取好友在线状态失败");
+        const message = result.message || "获取好友在线状态失败";
+        if (retryCookie && COOKIE_REQUIRED_PATTERN.test(message)) {
+          const config = await getConfig().catch(() => null);
+          if (config?.cookie_set) {
+            setError("");
+            if (cookieRetryTimerRef.current !== null) {
+              window.clearTimeout(cookieRetryTimerRef.current);
+            }
+            cookieRetryTimerRef.current = window.setTimeout(() => {
+              cookieRetryTimerRef.current = null;
+              void query(queryIds, { background, retryCookie: false });
+            }, 700);
+          } else {
+            setError(message);
+          }
+        } else {
+          setError(message);
+        }
       }
     } catch (caught) {
       if (!background) {
-        setError(caught instanceof Error ? caught.message : "获取好友在线状态失败");
+        const message = caught instanceof Error ? caught.message : "获取好友在线状态失败";
+        if (retryCookie && COOKIE_REQUIRED_PATTERN.test(message)) {
+          const config = await getConfig().catch(() => null);
+          if (config?.cookie_set) {
+            setError("");
+            if (cookieRetryTimerRef.current !== null) {
+              window.clearTimeout(cookieRetryTimerRef.current);
+            }
+            cookieRetryTimerRef.current = window.setTimeout(() => {
+              cookieRetryTimerRef.current = null;
+              void query(queryIds, { background, retryCookie: false });
+            }, 700);
+          } else {
+            setError(message);
+          }
+        } else {
+          setError(message);
+        }
       }
     } finally {
       queryInFlightRef.current = false;
@@ -857,6 +1237,15 @@ export function FriendsStatusView() {
       } else {
         setLoading(false);
       }
+    }
+  }, []);
+
+  useEffect(() => () => {
+    if (cookieRetryTimerRef.current !== null) {
+      window.clearTimeout(cookieRetryTimerRef.current);
+    }
+    if (avatarRetryTimerRef.current !== null) {
+      window.clearTimeout(avatarRetryTimerRef.current);
     }
   }, []);
 
@@ -888,14 +1277,58 @@ export function FriendsStatusView() {
 
   useEffect(() => {
     let disposed = false;
-    void verifyCookie()
-      .then((status) => {
-        if (disposed || !status.valid) return;
-        setCurrentUserAvatar(status.avatar_thumb || status.avatar_medium || status.avatar_larger || "");
-      })
-      .catch(() => undefined);
+    const saveAvatar = (avatar: string) => {
+      if (!avatar) return;
+      setCurrentUserAvatar(avatar);
+      localStorage.setItem(CURRENT_USER_AVATAR_KEY, avatar);
+    };
+    const retry = (attempt: number) => {
+      if (disposed || attempt >= 3) return;
+      if (avatarRetryTimerRef.current !== null) {
+        window.clearTimeout(avatarRetryTimerRef.current);
+      }
+      avatarRetryTimerRef.current = window.setTimeout(() => {
+        avatarRetryTimerRef.current = null;
+        void loadAvatar(attempt + 1);
+      }, 600 + attempt * 500);
+    };
+    const loadAvatar = async (attempt = 0) => {
+      try {
+        const status = await verifyCookie();
+        if (disposed) return;
+        if (!status.valid) {
+          if (COOKIE_REQUIRED_PATTERN.test(status.message || "")) retry(attempt);
+          return;
+        }
+        const directAvatar = status.avatar_thumb || status.avatar_medium || status.avatar_larger || "";
+        if (directAvatar) {
+          saveAvatar(directAvatar);
+          return;
+        }
+        const secUid = status.sec_uid || (status.user_id?.startsWith("MS4") ? status.user_id : "");
+        if (!secUid) {
+          retry(attempt);
+          return;
+        }
+        const detail = await getUserDetail(secUid).catch(() => null);
+        if (disposed || !detail?.success || !detail.user) return;
+        const detailAvatar = detail.user.avatar_thumb || detail.user.avatar_medium || detail.user.avatar_larger || "";
+        if (detailAvatar) {
+          saveAvatar(detailAvatar);
+        } else {
+          retry(attempt);
+        }
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : "";
+        if (COOKIE_REQUIRED_PATTERN.test(message)) retry(attempt);
+      }
+    };
+    void loadAvatar();
     return () => {
       disposed = true;
+      if (avatarRetryTimerRef.current !== null) {
+        window.clearTimeout(avatarRetryTimerRef.current);
+      }
     };
   }, []);
 
@@ -937,6 +1370,23 @@ export function FriendsStatusView() {
               : lastUpdatedAt
                 ? ` · 上次更新于 ${formatUpdateTime(lastUpdatedAt)}`
                 : ""}
+          </span>
+          <span
+            className={cn(
+              "flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[0.68rem]",
+              imStatus.connected
+                ? "border-success/25 bg-success-soft text-success"
+                : "border-border bg-surface-solid text-text-muted",
+            )}
+            title={imStatus.updatedAt ? `${imStatus.message} · ${formatUpdateTime(imStatus.updatedAt)}` : imStatus.message}
+          >
+            <span
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                imStatus.connected ? "bg-success" : "bg-text-muted",
+              )}
+            />
+            {imStatus.connected ? "接收已连接" : "接收未连接"}
           </span>
         </div>
         <div className="relative flex flex-wrap items-center gap-2">
@@ -1058,10 +1508,19 @@ export function FriendsStatusView() {
         currentUserAvatar={currentUserAvatar}
         onDraftChange={updateDraft}
         onSendMessage={sendLocalMessage}
+        onSendImage={sendLocalImageMessage}
         onLoadOlder={() => selectedFriend && selectedHistory?.nextCursor ? loadHistoryMessages(selectedFriend, selectedHistory.nextCursor) : Promise.resolve()}
         onOpenProfile={openFriendProfile}
+        onOpenSharedVideo={openSharedVideo}
+        sharedPlayerLoadingId={sharedPlayerLoadingId}
       />
       </div>
+      <FullscreenPlayer
+        videos={sharedPlayerVideos}
+        initialIndex={0}
+        open={sharedPlayerOpen}
+        onClose={() => setSharedPlayerOpen(false)}
+      />
     </div>
   );
 }
@@ -1184,8 +1643,11 @@ function ChatWorkspace({
   currentUserAvatar,
   onDraftChange,
   onSendMessage,
+  onSendImage,
   onLoadOlder,
   onOpenProfile,
+  onOpenSharedVideo,
+  sharedPlayerLoadingId,
 }: {
   friend: FriendStatusItem | null;
   draft: string;
@@ -1196,13 +1658,17 @@ function ChatWorkspace({
   currentUserAvatar: string;
   onDraftChange: (secUid: string, value: string) => void;
   onSendMessage: (friend: FriendStatusItem, value: string) => Promise<void>;
+  onSendImage: (friend: FriendStatusItem, file: File) => Promise<void>;
   onLoadOlder: () => Promise<void>;
   onOpenProfile: (friend: FriendStatusItem) => Promise<void>;
+  onOpenSharedVideo: (card: SharedMessageCard) => Promise<void>;
+  sharedPlayerLoadingId: string;
 }) {
   const displayName = friendDisplayName(friend);
   const hasDraft = Boolean(draft.trim());
   const sending = messages.some((message) => message.status === "pending");
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const preserveScrollOffsetRef = useRef<number | null>(null);
   const latestMessageId = messages.length > 0 ? messages[messages.length - 1].id : "";
   const oldestMessageId = messages.length > 0 ? messages[0].id : "";
@@ -1233,6 +1699,16 @@ function ChatWorkspace({
   const handleSendMessage = () => {
     if (!friend || !hasDraft) return;
     void onSendMessage(friend, draft);
+  };
+  const handlePickImage = () => {
+    if (!friend || sending) return;
+    imageInputRef.current?.click();
+  };
+  const handleImageInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!friend || !file) return;
+    void onSendImage(friend, file);
   };
   const handleMessageScroll = () => {
     const scroller = scrollRef.current;
@@ -1302,37 +1778,51 @@ function ChatWorkspace({
                   加载中
                 </div>
               )}
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "flex max-w-[88%] items-start gap-2",
-                    message.direction === "in" ? "mr-auto flex-row" : "ml-auto flex-row-reverse",
-                  )}
-                >
-                  <MessageAvatar
-                    friend={friend}
-                    direction={message.direction || "out"}
-                    currentUserAvatar={currentUserAvatar}
-                    onOpenProfile={onOpenProfile}
-                  />
-                  <div className={cn("flex min-w-0 flex-col", message.direction === "in" ? "items-start" : "items-end")}>
+              {messages.map((message, index) => {
+                const prevMessage = index > 0 ? messages[index - 1] : null;
+                const showTime = !prevMessage || (message.createdAt - prevMessage.createdAt) > 10 * 60 * 1000;
+                return (
+                  <Fragment key={message.id}>
+                    {showTime && (
+                      <div className="mx-auto my-1 text-[0.68rem] text-text-muted select-none">
+                        {formatMessageTime(message.createdAt)}
+                      </div>
+                    )}
                     <div
                       className={cn(
-                        "peer/bubble min-w-0 rounded-[16px] px-3 py-2 shadow-[0_10px_20px_rgba(15,23,42,0.08)]",
-                        message.direction === "in"
-                          ? "rounded-tl-[6px] border border-border bg-surface text-text"
-                          : "rounded-tr-[6px] bg-accent text-white shadow-[0_10px_20px_rgba(254,44,85,0.16)]",
+                        "flex max-w-[88%] items-start gap-2",
+                        message.direction === "in" ? "mr-auto flex-row" : "ml-auto flex-row-reverse",
                       )}
                     >
-                      <p className="whitespace-pre-wrap break-words text-[0.76rem] leading-relaxed">{message.text}</p>
+                      <MessageAvatar
+                        friend={friend}
+                        direction={message.direction || "out"}
+                        currentUserAvatar={currentUserAvatar}
+                        onOpenProfile={onOpenProfile}
+                      />
+                      <div className={cn("flex min-w-0 flex-col", message.direction === "in" ? "items-start" : "items-end")}>
+                        <div
+                          className={cn(
+                            "peer/bubble min-w-0 rounded-[16px] shadow-[0_10px_20px_rgba(15,23,42,0.08)]",
+                            message.direction === "in"
+                              ? "rounded-tl-[6px] border border-border bg-surface text-text"
+                              : "rounded-tr-[6px] bg-accent text-white shadow-[0_10px_20px_rgba(254,44,85,0.16)]",
+                          )}
+                        >
+                          <MessageBody
+                            message={message}
+                            onOpenSharedVideo={onOpenSharedVideo}
+                            sharedPlayerLoadingId={sharedPlayerLoadingId}
+                          />
+                        </div>
+                        <div className="invisible mt-1 min-h-4 text-[0.62rem] text-text-muted opacity-0 transition-opacity peer-hover/bubble:visible peer-hover/bubble:opacity-100">
+                          {formatMessageTime(message.createdAt)}
+                        </div>
+                      </div>
                     </div>
-                    <div className="invisible mt-1 min-h-4 text-[0.62rem] text-text-muted opacity-0 transition-opacity peer-hover/bubble:visible peer-hover/bubble:opacity-100">
-                      {formatMessageTime(message.createdAt)}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                  </Fragment>
+                );
+              })}
               {hasDraft && (
                 <div className="ml-auto max-w-[82%] rounded-[16px] rounded-tr-[6px] border border-accent/25 bg-accent-soft px-3 py-2 text-accent">
                   <p className="whitespace-pre-wrap break-words text-[0.76rem] leading-relaxed">{draft}</p>
@@ -1353,7 +1843,24 @@ function ChatWorkspace({
         </div>
 
         <div className="border-t border-border bg-surface/40 p-3">
-          <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageInputChange}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!friend || sending}
+              onClick={handlePickImage}
+              className="h-10 w-10 px-0"
+              title="发送图片"
+            >
+              <ImagePlus className="h-3.5 w-3.5" />
+            </Button>
             <Textarea
               value={draft}
               onChange={(event) => friend && onDraftChange(friend.secUid, event.target.value)}
@@ -1373,6 +1880,187 @@ function ChatWorkspace({
   );
 }
 
+function MessageBody({
+  message,
+  onOpenSharedVideo,
+  sharedPlayerLoadingId,
+}: {
+  message: LocalChatMessage;
+  onOpenSharedVideo: (card: SharedMessageCard) => Promise<void>;
+  sharedPlayerLoadingId: string;
+}) {
+  if (message.imagePreviewUrl) {
+    return <ImageMessageView src={message.imagePreviewUrl} />;
+  }
+  const shared = parseSharedMessage(message);
+  if (shared) {
+    if (shared.kind === "image") {
+      return <ImageMessageView src={shared.coverUrl} />;
+    }
+    return (
+      <SharedMessageCardView
+        card={shared}
+        outgoing={message.direction !== "in"}
+        loading={Boolean(shared.itemId && sharedPlayerLoadingId === shared.itemId)}
+        onOpenSharedVideo={onOpenSharedVideo}
+      />
+    );
+  }
+  return (
+    <p className="whitespace-pre-wrap break-words px-3 py-2 text-[0.76rem] leading-relaxed">
+      {message.text}
+    </p>
+  );
+}
+
+function ImageMessageView({ src }: { src: string }) {
+  if (!src) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => window.open(src, "_blank", "noopener,noreferrer")}
+      className="block max-w-[min(12rem,52vw)] overflow-hidden rounded-[14px] bg-surface-raised outline-none ring-accent/35 transition hover:ring-2 focus-visible:ring-2"
+      title="打开图片"
+    >
+      <img src={src} alt="" className="block max-h-48 w-auto max-w-full object-contain" />
+    </button>
+  );
+}
+
+function SharedMessageCardView({
+  card,
+  outgoing,
+  loading,
+  onOpenSharedVideo,
+}: {
+  card: SharedMessageCard;
+  outgoing: boolean;
+  loading: boolean;
+  onOpenSharedVideo: (card: SharedMessageCard) => Promise<void>;
+}) {
+  const compact = !card.coverUrl;
+  const clickable = card.kind === "video" ? Boolean(card.itemId) : false;
+  if (card.kind === "video" && card.coverUrl) {
+    const videoContent = (
+      <div className="group relative w-[min(10.6rem,42vw)] overflow-hidden rounded-[12px] bg-black text-left shadow-[0_10px_24px_rgba(0,0,0,0.22)] sm:w-[11.6rem]">
+        <div className="relative w-full aspect-[9/16] max-h-[16.6rem] min-h-[12rem]">
+          <img
+            src={card.coverUrl}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+            loading="lazy"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/82 via-black/24 to-black/5" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-black/42 text-white shadow-[0_6px_12px_rgba(0,0,0,0.22)] backdrop-blur transition-transform duration-300 group-hover:scale-110">
+              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="ml-0.5 h-3.5 w-3.5 fill-current" />}
+            </div>
+          </div>
+          <div className="absolute inset-x-0 bottom-0 p-2.5 text-white">
+            <div className="mb-1.5 flex min-w-0 items-center gap-1.5">
+              {card.avatarUrl ? (
+                <img
+                  src={card.avatarUrl}
+                  alt=""
+                  className="h-5 w-5 shrink-0 rounded-full border border-white/70 object-cover shadow-[0_3px_8px_rgba(0,0,0,0.25)]"
+                />
+              ) : (
+                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/30 bg-white/15">
+                  <UserRound className="h-2.5 w-2.5 text-white/85" />
+                </div>
+              )}
+              <div className="min-w-0">
+                <div className="truncate text-[0.65rem] font-semibold">
+                  {card.authorName || "抖音作者"}
+                </div>
+                <div className="text-[0.55rem] text-white/68">{card.subtitle}</div>
+              </div>
+            </div>
+            <div className="line-clamp-3 break-words text-[0.7rem] font-semibold leading-snug text-white">
+              {card.title}
+            </div>
+          </div>
+          {loading && (
+            <div className="absolute inset-0 bg-black/18" />
+          )}
+        </div>
+      </div>
+    );
+    if (!clickable) return videoContent;
+    return (
+      <button
+        type="button"
+        disabled={loading}
+        onClick={() => void onOpenSharedVideo(card)}
+        className="block cursor-pointer rounded-[16px] outline-none ring-accent/35 transition hover:ring-2 focus-visible:ring-2 disabled:cursor-wait"
+        title="打开播放器"
+      >
+        {videoContent}
+      </button>
+    );
+  }
+  const content = (
+    <div className={cn(
+      compact
+        ? "grid w-[min(16rem,62vw)] grid-cols-[44px_minmax(0,1fr)] overflow-hidden rounded-[14px] text-left"
+        : "grid w-[min(18rem,68vw)] grid-cols-[112px_minmax(0,1fr)] overflow-hidden rounded-[14px] text-left sm:w-[20rem] sm:grid-cols-[132px_minmax(0,1fr)]",
+      outgoing ? "bg-white/12 text-white" : "bg-surface-raised text-text",
+    )}>
+      <div className={cn("relative overflow-hidden bg-black/10", compact ? "h-full min-h-[72px]" : "h-[112px] sm:h-[132px]")}>
+        {card.coverUrl ? (
+          <img src={card.coverUrl} alt="" className="h-full w-full object-cover outline outline-1 outline-black/10" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <MessageCircle className={cn("h-4 w-4", outgoing ? "text-white/70" : "text-text-muted")} />
+          </div>
+        )}
+        {card.avatarUrl && (
+          <img
+            src={card.avatarUrl}
+            alt=""
+            className="absolute bottom-1.5 right-1.5 h-5 w-5 rounded-full border border-white/80 object-cover"
+          />
+        )}
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/35">
+            <Loader2 className="h-4 w-4 animate-spin text-white" />
+          </div>
+        )}
+      </div>
+      <div className={cn("flex min-w-0 flex-col justify-between gap-2", compact ? "p-2.5" : "p-3")}>
+        <div className="min-w-0">
+          <div className={cn("text-[0.66rem] font-medium", outgoing ? "text-white/75" : "text-text-muted")}>
+            {card.subtitle}
+          </div>
+          <div className={cn(
+            "mt-1 break-words font-semibold leading-snug",
+            compact ? "line-clamp-3 text-[0.74rem]" : "line-clamp-2 text-[0.78rem]",
+          )}>
+            {card.title}
+          </div>
+        </div>
+        {card.itemId && (
+          <div className={cn("truncate text-[0.6rem] tabular-nums", outgoing ? "text-white/55" : "text-text-muted")}>
+            {card.itemId}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+  if (!clickable) return content;
+  return (
+    <button
+      type="button"
+      disabled={loading}
+      onClick={() => void onOpenSharedVideo(card)}
+      className="block cursor-pointer rounded-[14px] outline-none ring-accent/35 transition hover:ring-2 focus-visible:ring-2 disabled:cursor-wait"
+      title="打开播放器"
+    >
+      {content}
+    </button>
+  );
+}
+
 function MessageAvatar({
   friend,
   direction,
@@ -1386,14 +2074,15 @@ function MessageAvatar({
 }) {
   const isIncoming = direction === "in";
   const avatar = isIncoming ? friend.avatar : currentUserAvatar;
+  const avatarSrc = avatar ? mediaProxyUrl(avatar, "image") : "";
   const className = cn(
     "flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border outline-none ring-accent/35 transition",
     isIncoming
       ? "border-border bg-surface-raised hover:ring-2 focus-visible:ring-2"
       : "border-accent/20 bg-accent-soft text-accent",
   );
-  const content = avatar ? (
-    <img src={avatar} alt="" className="h-full w-full object-cover" />
+  const content = avatarSrc ? (
+    <img src={avatarSrc} alt="" className="h-full w-full object-cover" />
   ) : (
     <UserRound className="h-3.5 w-3.5" />
   );

@@ -105,6 +105,7 @@ function emitCookieInvalidIfNeeded(payload: unknown) {
   const data = payload as Record<string, unknown>;
   if (data.security_blocked) return;
   const message = String(data.message || "Cookie 已失效，请重新登录").trim();
+  if (/请先设置\s*Cookie/i.test(message)) return;
   const failedWithLoginMessage = data.success === false && isCookieInvalidMessage(message);
   if (!data.need_login && !failedWithLoginMessage) return;
 
@@ -114,6 +115,7 @@ function emitCookieInvalidIfNeeded(payload: unknown) {
 function emitCookieInvalidFromError(error: unknown) {
   const message = getErrorMessage(error, "");
   if (!message) return;
+  if (/请先设置\s*Cookie/i.test(message)) return;
   if (!isCookieInvalidMessage(message)) return;
   window.dispatchEvent(new CustomEvent("dy-cookie-invalid", { detail: { message } }));
 }
@@ -1174,6 +1176,36 @@ export async function sendFriendMessage(payload: {
     uid: payload.toUserId,
     content: payload.content,
   });
+}
+
+export async function sendFriendImageMessage(payload: {
+  toUserId: string | number;
+  imageDataUrl: string;
+  width?: number;
+  height?: number;
+  fileName?: string;
+  mimeType?: string;
+}): Promise<SendFriendMessageResponse> {
+  const body = {
+    to_user_id: payload.toUserId,
+    toUserId: payload.toUserId,
+    uid: payload.toUserId,
+    image_data_url: payload.imageDataUrl,
+    imageDataUrl: payload.imageDataUrl,
+    width: payload.width,
+    height: payload.height,
+    file_name: payload.fileName,
+    fileName: payload.fileName,
+    mime_type: payload.mimeType,
+    mimeType: payload.mimeType,
+  };
+  if (shouldUseBrowserBridge()) {
+    return requestJson("/api/send_friend_image_message", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+  return invoke("send_friend_image_message", body);
 }
 
 export async function getFriendMessageHistory(payload: {

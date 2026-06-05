@@ -3842,6 +3842,41 @@ def send_friend_message_api():
     except Exception as e:
         return jsonify({'success': False, 'message': f'发送私信失败: {str(e)}'}), 500
 
+@app.route('/api/send_friend_image_message', methods=['POST'])
+def send_friend_image_message_api():
+    """发送图片私信。"""
+    try:
+        _ensure_im_message_listener()
+        data = _request_json()
+        to_user_id = data.get('to_user_id') or data.get('toUserId') or data.get('uid') or ''
+        image_data_url = str(data.get('image_data_url') or data.get('imageDataUrl') or '').strip()
+        if not str(to_user_id).strip():
+            return jsonify({'success': False, 'message': '缺少好友数字 uid，无法发送图片'}), 400
+        if not image_data_url:
+            return jsonify({'success': False, 'message': '图片内容不能为空'}), 400
+        if len(image_data_url) > 12 * 1024 * 1024:
+            return jsonify({'success': False, 'message': '图片太大，请选择 12MB 以内的图片'}), 400
+        if not api:
+            return jsonify({'success': False, 'need_login': True, 'message': '请先设置 Cookie'})
+
+        result, success = run_async(
+            api.send_im_image_message(
+                to_user_id,
+                image_data_url,
+                data.get('width') or 0,
+                data.get('height') or 0,
+                str(data.get('file_name') or data.get('fileName') or ''),
+                str(data.get('mime_type') or data.get('mimeType') or ''),
+            ),
+            timeout=60,
+        )
+        return jsonify({
+            'success': bool(success),
+            **(result if isinstance(result, dict) else {'message': str(result)}),
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'发送图片私信失败: {str(e)}'}), 500
+
 @app.route('/api/get_friend_message_history', methods=['POST'])
 def get_friend_message_history_api():
     """获取最近的 IM 历史消息。"""
@@ -5138,6 +5173,7 @@ def verify_cookie():
             'valid': False,
             'user_name': None,
             'user_id': None,
+            'sec_uid': None,
             'expires_at': None,
             'message': '未配置 Cookie',
         })
@@ -5148,6 +5184,7 @@ def verify_cookie():
             'valid': True,
             'user_name': result.get('nickname') or None,
             'user_id': result.get('user_id') or result.get('sec_uid') or None,
+            'sec_uid': result.get('sec_uid') or None,
             'avatar_thumb': result.get('avatar_thumb') or None,
             'avatar_medium': result.get('avatar_medium') or None,
             'avatar_larger': result.get('avatar_larger') or None,
@@ -5159,6 +5196,7 @@ def verify_cookie():
         'valid': False,
         'user_name': None,
         'user_id': None,
+        'sec_uid': None,
         'expires_at': None,
         'need_login': bool(result.get('need_login')),
         'need_verify': bool(result.get('need_verify')),
