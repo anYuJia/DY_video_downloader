@@ -4,7 +4,7 @@
 
 # better-douyin
 
-更顺手的抖音内容下载与本地归档工具，支持用户搜索、链接解析、批量下载、推荐流预览、私信图片体验和本地文件管理。
+抖音内容下载、预览与本地归档工具。用 Python 构建，适合源码阅读、二次开发和桌面/浏览器两种运行方式。
 
 <p>
   <a href="README.md">简体中文</a> | <a href="README_EN.md">English</a>
@@ -12,37 +12,27 @@
 
 <p>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python"></a>
-  <a href="https://github.com/anYuJia/better-douyin/releases/latest"><img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-555?style=flat-square" alt="Platform"></a>
+  <a href="https://github.com/anYuJia/better-douyin/releases/latest"><img src="https://img.shields.io/badge/Release-1.0.25-111827?style=flat-square" alt="Release"></a>
+  <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-555?style=flat-square" alt="Platform">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2ea44f?style=flat-square" alt="License"></a>
 </p>
 
-[下载发行版](../../releases/latest) · [界面预览](#界面预览) · [快速开始](#快速开始) · [常见问题](#常见问题)
+[下载发行版](../../releases/latest) · [界面预览](#界面预览) · [快速开始](#快速开始) · [加入交流群](#加入交流群)
 
 </div>
 
 ---
 
-## 项目选择
+## 为什么选择它
 
-当前有两个版本：
+- 支持用户搜索、主页作品、收藏、点赞、分享链接解析与批量下载
+- 推荐流预览、沉浸式播放、一键下载，适合边看边归档
+- 私信图片、本地媒体与聊天历史体验持续优化
+- “我的下载”提供文件/作品两种视图，支持搜索、播放、定位和删除
+- 自动识别已下载作品，减少重复保存
+- Cookie、下载历史、配置与文件均保存在本机
 
-| 版本 | 适合人群 |
-|:---|:---|
-| **Python 版** | 想直接看源码、方便改功能，或更熟悉 Python 生态 |
-| **Rust / Tauri 版** | 更推荐日常桌面使用，体积更小，启动和本地播放体验更好 |
-
-Rust 版见：[better-douyin-R](https://github.com/anYuJia/better-douyin-R)。
-
-## 主要功能
-
-- 搜索抖音用户，查看用户主页、作品、收藏、点赞等内容
-- 粘贴分享链接解析单条作品，并支持直接下载
-- 批量下载视频、图集和部分 Live Photo 内容
-- 推荐视频流预览，支持沉浸式播放和一键下载
-- “我的下载”支持文件模式/作品模式、搜索、播放、定位和删除
-- 自动识别已下载作品，避免重复下载
-- Cookie 支持内置登录、浏览器读取和手动粘贴
-- 数据、Cookie 和下载文件均保存在本机
+> 日常桌面使用更推荐 Rust / Tauri 版：[better-douyin-R](https://github.com/anYuJia/better-douyin-R)。
 
 ## 界面预览
 
@@ -78,11 +68,7 @@ Rust 版见：[better-douyin-R](https://github.com/anYuJia/better-douyin-R)。
 
 ## 快速开始
 
-### 方式一：下载发行版
-
-从 [Releases](../../releases/latest) 下载对应平台的安装包或压缩包，解压后运行即可。
-
-常见文件选择：
+从 [Releases](../../releases/latest) 下载对应平台文件，解压或安装后运行。
 
 | 平台 | 推荐下载 |
 |:---|:---|
@@ -90,15 +76,13 @@ Rust 版见：[better-douyin-R](https://github.com/anYuJia/better-douyin-R)。
 | macOS | `.dmg` 或 `.app` |
 | Linux | `.tar.gz` |
 
-发行版会自动启动本地服务，并打开桌面窗口。
-
-macOS 首次运行如果提示“无法验证开发者”，可执行：
+macOS 首次运行如提示无法验证开发者：
 
 ```bash
 sudo xattr -rd com.apple.quarantine /path/to/better-douyin.app
 ```
 
-### 方式二：源码运行
+源码运行：
 
 ```bash
 git clone https://github.com/anYuJia/better-douyin.git
@@ -108,16 +92,8 @@ python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 pip install -r requirements.txt
+cd frontend && npm install && npm run build && cd ..
 
-cd frontend
-npm install
-npm run build
-cd ..
-```
-
-桌面模式：
-
-```bash
 python main.py
 ```
 
@@ -129,43 +105,48 @@ python -m src.web.web_app
 
 ## 首次使用
 
-1. 打开应用，在设置中配置 Cookie 和下载目录。
-2. 通过内置登录、浏览器 Cookie 读取或手动粘贴完成登录态配置。
-3. 使用“搜索用户”或“解析链接”获取内容。
-4. 选择单个作品下载，或进入用户主页、收藏、点赞列表进行批量下载。
-5. 在底部任务面板查看进度，在“我的下载”中管理本地文件。
+1. 在设置中配置 Cookie 与下载目录。
+2. 通过内置登录、浏览器读取或手动粘贴完成登录态配置。
+3. 使用搜索用户、解析链接、推荐流、收藏或点赞列表获取内容。
+4. 下载单个作品，或进入列表执行批量下载。
+5. 在底部任务面板查看进度，在“我的下载”管理本地文件。
 
-## Cookie、数据与隐私
+## 加入交流群
 
-- Cookie 只用于本机请求抖音相关接口，不会上传到本项目服务器
-- 下载历史、配置和缓存数据保存在本机
-- 下载目录可在设置中修改
+欢迎加入 QQ 群交流使用体验、问题反馈与功能建议。
+
+<p align="center">
+  <img src="img/community/qq-group.jpg" width="220" alt="QQ 群二维码">
+  <br>
+  <strong>QQ群：438407379</strong>
+</p>
+
+## Cookie 与隐私
+
+- Cookie 仅用于本机请求抖音相关接口，不会上传到本项目服务器
+- 下载历史、配置和缓存数据均保存在本机
 - 推荐、收藏、点赞和部分批量能力依赖有效 Cookie
-- 如果接口突然不可用，优先检查 Cookie 是否过期、账号是否需要重新验证、网络是否可访问抖音相关域名
+- 如果接口异常，优先检查 Cookie、账号验证状态和网络环境
 
 ## 常见问题
 
-### Cookie 失效或无法获取作品怎么办？
+### Cookie 失效或无法获取作品？
 
-重新登录或重新读取 Cookie，并确认当前账号在浏览器中可以正常访问目标内容。
+重新登录或重新读取 Cookie，并确认账号在浏览器中可以正常访问目标内容。
 
-### 下载速度慢或失败怎么办？
+### 下载慢或失败？
 
-速度受网络、资源可用性和平台响应影响。可以尝试更换网络、减少并发任务、刷新 Cookie，或稍后重试。
-
-### 为什么下载质量切换后文件大小差不多？
-
-部分作品本身只提供一种可下载地址，或不同清晰度经过平台转码后体积接近。实际可选质量取决于平台返回内容。
+通常与网络、资源可用性、平台响应或 Cookie 状态有关。可减少并发、刷新 Cookie，或稍后重试。
 
 ### 为什么已下载作品会被跳过？
 
-应用会记录已下载作品并检查本地文件，避免重复下载。如果手动移动过文件或修改过下载目录，请在“我的下载”中确认当前目录。
+应用会记录下载历史并检查本地文件，避免重复下载。若移动过文件，请在“我的下载”中确认当前目录。
 
 ### 可以在 Linux 服务器上运行吗？
 
-可以。服务器环境更适合使用浏览器 / 无界面模式。若要远程访问，请自行处理访问控制、反向代理和 Cookie 暴露风险。
+可以，建议使用浏览器 / 无界面模式。远程访问时请自行处理访问控制、反向代理和 Cookie 暴露风险。
 
-## 从源码开发
+## 开发
 
 | 模块 | 技术 |
 |:---|:---|
@@ -174,24 +155,6 @@ python -m src.web.web_app
 | 下载能力 | asyncio, aiohttp, requests |
 | 前端界面 | React, Vite, TypeScript, Tailwind CSS |
 | 打包分发 | PyInstaller |
-
-项目结构：
-
-```text
-.
-├── main.py
-├── src/
-│   ├── api/
-│   ├── config/
-│   ├── downloader/
-│   ├── user/
-│   ├── utils/
-│   └── web/
-├── frontend/
-├── scripts/
-├── icons/
-└── img/
-```
 
 ## 免责声明
 
