@@ -20,6 +20,7 @@ LOGIN_MARKER_KEYS = {
 
 RELATION_SIGNER_COOKIE_NAME = 'dy_relation_signer'
 RELATION_SIGNER_DEBUG_COOKIE_NAME = 'dy_relation_signer_debug'
+CURRENT_USER_PROFILE_COOKIE_NAME = 'dy_current_user_profile'
 
 
 @dataclass
@@ -35,6 +36,11 @@ class NativeCookieLoginSession:
 
     def is_active(self) -> bool:
         return not self.finished_event.is_set()
+
+    def close(self, wait_timeout: float = 1.0) -> None:
+        self.cancel_event.set()
+        if not self.finished_event.wait(wait_timeout):
+            destroy_window_safely(self.window)
 
 
 def is_native_cookie_login_available() -> bool:
@@ -180,7 +186,7 @@ def serialize_cookie_entries(entries: list[dict[str, str]]) -> str:
     for entry in entries:
         name = (entry.get('name') or '').strip()
         value = (entry.get('value') or '').strip()
-        if not name or not value or name == RELATION_SIGNER_COOKIE_NAME:
+        if not name or not value or name in (RELATION_SIGNER_COOKIE_NAME, CURRENT_USER_PROFILE_COOKIE_NAME):
             continue
 
         domain = (entry.get('domain') or '').strip().lstrip('.').lower()
@@ -252,6 +258,31 @@ def extract_relation_signer_debug(entries: list[dict[str, str]]) -> dict[str, st
     return debug if isinstance(debug, dict) else None
 
 
+def extract_current_user_profile_entries(entries: list[dict[str, str]]) -> dict[str, str] | None:
+    raw_value = ''
+    for entry in reversed(entries or []):
+        if entry.get('name') == CURRENT_USER_PROFILE_COOKIE_NAME:
+            raw_value = entry.get('value') or ''
+            break
+    if not raw_value:
+        return None
+
+    try:
+        decoded = urllib.parse.unquote(raw_value)
+        profile = json.loads(base64.b64decode(decoded).decode('utf-8'))
+    except Exception:
+        return None
+
+    if not isinstance(profile, dict):
+        return None
+    result = {}
+    for key in ('uid', 'sec_uid', 'nickname', 'avatar_thumb', 'avatar_medium', 'avatar_larger'):
+        value = str(profile.get(key) or '').strip()
+        if value:
+            result[key] = value
+    return result or None
+
+
 def relation_signer_ready(signer: dict[str, str] | None) -> bool:
     return bool(isinstance(signer, dict) and str(signer.get('dtrait') or '').strip())
 
@@ -305,6 +336,51 @@ def inject_relation_signer_probe(window: Any) -> None:
                     document.cookie = `dy_relation_signer_debug=${encodeURIComponent(encoded)}; path=/; max-age=600`;
                 } catch (error) {}
             };
+            const saveCurrentUserProfile = () => {
+                try {
+                    const firstUrl = (value) => {
+                        if (!value) return "";
+                        if (typeof value === "string") return value;
+                        for (const key of ["url_list", "urlList"]) {
+                            if (Array.isArray(value[key])) {
+                                const found = value[key].find((item) => typeof item === "string" && item);
+                                if (found) return found;
+                            }
+                        }
+                        return "";
+                    };
+                    const app = window.SSR_RENDER_DATA && window.SSR_RENDER_DATA.app || {};
+                    const odin = app.odin || {};
+                    const user = app.user || app.userInfo || app.user_info || {};
+                    const stateUser = window.__INITIAL_STATE__ && (
+                        window.__INITIAL_STATE__.user ||
+                        window.__INITIAL_STATE__.userInfo ||
+                        window.__INITIAL_STATE__.user_info
+                    ) || {};
+                    const payload = {
+                        uid: odin.user_id || user.uid || user.user_id || stateUser.uid || stateUser.user_id || "",
+                        sec_uid: user.sec_uid || user.secUid || stateUser.sec_uid || stateUser.secUid || "",
+                        nickname: user.nickname || user.nick_name || stateUser.nickname || stateUser.nick_name || "",
+                        avatar_thumb: firstUrl(user.avatar_thumb || user.avatarThumb || stateUser.avatar_thumb || stateUser.avatarThumb),
+                        avatar_medium: firstUrl(user.avatar_medium || user.avatarMedium || stateUser.avatar_medium || stateUser.avatarMedium),
+                        avatar_larger: firstUrl(user.avatar_larger || user.avatarLarger || stateUser.avatar_larger || stateUser.avatarLarger),
+                    };
+                    if (!payload.avatar_thumb) {
+                        const image = Array.from(document.querySelectorAll("img"))
+                            .map((node) => node.currentSrc || node.src || "")
+                            .find((src) => /avatar|aweme-avatar|user-avatar|p3-pc|p9-pc/i.test(src));
+                        payload.avatar_thumb = image || "";
+                    }
+                    if (payload.uid || payload.sec_uid || payload.avatar_thumb || payload.avatar_medium || payload.avatar_larger) {
+                        const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+                        document.cookie = `dy_current_user_profile=${encodeURIComponent(encoded)}; domain=.douyin.com; path=/; max-age=600`;
+                        document.cookie = `dy_current_user_profile=${encodeURIComponent(encoded)}; path=/; max-age=600`;
+                    }
+                } catch (error) {}
+            };
+            saveCurrentUserProfile();
+            setTimeout(saveCurrentUserProfile, 800);
+            setTimeout(saveCurrentUserProfile, 2200);
             const readExistingSigner = () => {
                 try {
                     const match = document.cookie.match(/(?:^|; )dy_relation_signer=([^;]+)/);

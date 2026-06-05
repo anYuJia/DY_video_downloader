@@ -1709,6 +1709,7 @@ class DouyinAPI:
                 conversation_short_id=int(conversation.get('conversation_short_id') or 0),
                 conversation_type=int(conversation.get('conversation_type') or 1),
                 cursor=max(0, int(cursor or 0)),
+                count=20,
             ),
             signer=signer,
         )
@@ -1742,16 +1743,42 @@ class DouyinAPI:
         )
 
         if not success:
-            return resp, False
+            logger.warning(
+                'Douyin profile/self current user lookup failed, falling back to query/user: %s',
+                resp.get('message') if isinstance(resp, dict) else resp,
+            )
+            return await self._get_current_user_from_query_user()
 
         user = resp.get('user') if isinstance(resp, dict) else None
         if not isinstance(user, dict) or not user:
+            logger.warning('Douyin profile/self returned no user, falling back to query/user')
+            return await self._get_current_user_from_query_user()
+
+        return user, True
+
+    async def _get_current_user_from_query_user(self) -> tuple[dict, bool]:
+        resp, success = await self.common_request(
+            '/aweme/v1/web/query/user',
+            {'publish_video_strategy_type': '2'},
+            {'Referer': 'https://www.douyin.com/discover'},
+        )
+        if not success:
+            return resp, False
+        uid = str(resp.get('user_uid') or resp.get('uid') or resp.get('id') or '').strip()
+        if not uid:
             return {
                 '_need_login': True,
                 'message': '登录态校验失败：抖音未返回当前用户，请重新登录获取 Cookie',
+                'raw': resp,
             }, False
-
-        return user, True
+        return {
+            'uid': uid,
+            'sec_uid': str(resp.get('sec_user_id') or resp.get('sec_uid') or '').strip(),
+            'nickname': str(resp.get('nickname') or '抖音用户').strip() or '抖音用户',
+            'avatar_thumb': {},
+            'avatar_medium': {},
+            'avatar_larger': {},
+        }, True
 
     async def get_recommended_feed(self, count: int = 20, cursor: int = 0) -> tuple[dict, bool]:
         """获取推荐视频流

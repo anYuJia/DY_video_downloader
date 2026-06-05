@@ -768,7 +768,7 @@ export function FriendsStatusView() {
       return 0;
     }), [chatMessages, chatSummaries, friends, unreadCounts]);
   const selectedFriend = useMemo(
-    () => friendItems.find((friend) => friend.secUid === selectedFriendId) || friendItems[0] || null,
+    () => friendItems.find((friend) => friend.secUid === selectedFriendId) || null,
     [friendItems, selectedFriendId],
   );
   const selectedMessages = selectedFriend ? chatMessages[selectedFriend.secUid] || [] : [];
@@ -1138,6 +1138,7 @@ export function FriendsStatusView() {
     const current = historyState[friend.secUid];
     if (current?.loading) return;
     if (cursor > 0 && current?.hasMore === false) return;
+    const currentMessages = chatMessages[friend.secUid] || [];
     setHistoryState((state) => ({
       ...state,
       [friend.secUid]: {
@@ -1170,15 +1171,17 @@ export function FriendsStatusView() {
       setHistoryState((state) => ({
         ...state,
         [friend.secUid]: {
-          loaded: Boolean(state[friend.secUid]?.loaded),
+          loaded: cursor === 0 ? true : Boolean(state[friend.secUid]?.loaded),
           loading: false,
           nextCursor: state[friend.secUid]?.nextCursor || 0,
-          hasMore: state[friend.secUid]?.hasMore ?? true,
-          error: caught instanceof Error ? caught.message : "获取历史消息失败",
+          hasMore: false,
+          error: cursor === 0 && currentMessages.length === 0
+            ? caught instanceof Error ? caught.message : "获取历史消息失败"
+            : "",
         },
       }));
     }
-  }, [historyState, mergeHistoryMessages]);
+  }, [chatMessages, historyState, mergeHistoryMessages]);
 
   useEffect(() => {
     if (!selectedFriend || !selectedFriend.uid) return;
@@ -1269,10 +1272,10 @@ export function FriendsStatusView() {
       setSelectedFriendId("");
       return;
     }
-    if (!selectedFriendId || !friends.some((friend) => friend.secUid === selectedFriendId)) {
-      setSelectedFriendId(friendItems[0]?.secUid || friends[0].secUid);
+    if (selectedFriendId && !friends.some((friend) => friend.secUid === selectedFriendId)) {
+      setSelectedFriendId("");
     }
-  }, [friendItems, friends, selectedFriendId]);
+  }, [friends, selectedFriendId]);
 
   useEffect(() => {
     if (selectedFriend) {
@@ -1612,7 +1615,7 @@ export function FriendsStatusView() {
               <FriendRow
                 key={friend.secUid}
                 friend={friend}
-                selected={friend.secUid === selectedFriend?.secUid}
+                selected={friend.secUid === selectedFriendId}
                 onSelect={selectFriend}
                 onOpenProfile={openFriendProfile}
               />
@@ -1798,7 +1801,12 @@ function ChatWorkspace({
   const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const preserveScrollOffsetRef = useRef<number | null>(null);
+  const preserveScrollUntilRef = useRef(0);
+  const olderLoadArmedRef = useRef(false);
   const ignoreScrollUntilRef = useRef(0);
+  const pinBottomUntilRef = useRef(0);
+  const userScrollIntentUntilRef = useRef(0);
+  const lastScrollTopRef = useRef(0);
   const latestMessageId = messages.length > 0 ? messages[messages.length - 1].id : "";
   const oldestMessageId = messages.length > 0 ? messages[0].id : "";
 
@@ -1809,12 +1817,29 @@ function ChatWorkspace({
   const scrollToBottom = useCallback(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
+    pinBottomUntilRef.current = Date.now() + 2600;
     markProgrammaticScroll();
     scroller.scrollTop = scroller.scrollHeight;
     bottomAnchorRef.current?.scrollIntoView({ block: "end" });
   }, [markProgrammaticScroll]);
 
+  const isNearBottom = useCallback(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return true;
+    return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 96;
+  }, []);
+
+  const restorePreservedScroll = useCallback(() => {
+    const scroller = scrollRef.current;
+    const offset = preserveScrollOffsetRef.current;
+    if (!scroller || offset === null) return false;
+    markProgrammaticScroll();
+    scroller.scrollTop = Math.max(0, scroller.scrollHeight - offset);
+    return true;
+  }, [markProgrammaticScroll]);
+
   const scheduleScrollToBottom = useCallback(() => {
+    pinBottomUntilRef.current = Date.now() + 2600;
     let disposed = false;
     const timers: number[] = [];
     const frames: number[] = [];
@@ -1841,17 +1866,45 @@ function ChatWorkspace({
 
   useEffect(() => {
     if (preserveScrollOffsetRef.current === null) return;
-    const frame = window.requestAnimationFrame(() => {
-      const scroller = scrollRef.current;
-      const offset = preserveScrollOffsetRef.current;
-      if (scroller && offset !== null) {
-        markProgrammaticScroll();
-        scroller.scrollTop = Math.max(0, scroller.scrollHeight - offset);
-      }
+    preserveScrollUntilRef.current = Date.now() + 1600;
+    const frames: number[] = [];
+    const timers: number[] = [];
+    const restore = () => {
+      restorePreservedScroll();
+    };
+    frames.push(window.requestAnimationFrame(restore));
+    frames.push(window.requestAnimationFrame(() => {
+      frames.push(window.requestAnimationFrame(restore));
+    }));
+    for (const delay of [80, 240, 520]) {
+      timers.push(window.setTimeout(restore, delay));
+    }
+    timers.push(window.setTimeout(() => {
       preserveScrollOffsetRef.current = null;
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [markProgrammaticScroll, oldestMessageId]);
+    }, 1700));
+    return () => {
+      frames.forEach((frame) => window.cancelAnimationFrame(frame));
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [oldestMessageId, restorePreservedScroll]);
+
+  useEffect(() => {
+    olderLoadArmedRef.current = false;
+    preserveScrollOffsetRef.current = null;
+    preserveScrollUntilRef.current = 0;
+    pinBottomUntilRef.current = Date.now() + 2600;
+    userScrollIntentUntilRef.current = 0;
+  }, [friend?.secUid]);
+
+  const handleMediaSettled = useCallback(() => {
+    if (preserveScrollOffsetRef.current !== null && Date.now() < preserveScrollUntilRef.current) {
+      restorePreservedScroll();
+      return;
+    }
+    if (Date.now() < pinBottomUntilRef.current || isNearBottom()) {
+      scheduleScrollToBottom();
+    }
+  }, [isNearBottom, restorePreservedScroll, scheduleScrollToBottom]);
 
   useEffect(() => {
     setPendingImages((current) => {
@@ -1923,13 +1976,33 @@ function ChatWorkspace({
       return current.filter((item) => item.id !== id);
     });
   };
+  const markUserScrollIntent = useCallback(() => {
+    userScrollIntentUntilRef.current = Date.now() + 900;
+  }, []);
+
   const handleMessageScroll = () => {
     const scroller = scrollRef.current;
-    if (!scroller || !friend || historyLoading || !canLoadOlder) return;
+    if (!scroller) return;
+    const scrollTop = scroller.scrollTop;
+    const previousScrollTop = lastScrollTopRef.current;
+    lastScrollTopRef.current = scrollTop;
     if (Date.now() < ignoreScrollUntilRef.current) return;
+    if (scrollTop < previousScrollTop - 4) {
+      pinBottomUntilRef.current = 0;
+    }
+    if (!friend || historyLoading || !canLoadOlder) return;
+    if (Date.now() > userScrollIntentUntilRef.current) return;
     if (scroller.scrollHeight <= scroller.clientHeight + 4) return;
+    if (scroller.scrollTop > 140) {
+      olderLoadArmedRef.current = true;
+      return;
+    }
     if (scroller.scrollTop > 72) return;
+    if (!olderLoadArmedRef.current) return;
+    if (scrollTop >= previousScrollTop - 4) return;
+    olderLoadArmedRef.current = false;
     preserveScrollOffsetRef.current = scroller.scrollHeight - scroller.scrollTop;
+    preserveScrollUntilRef.current = Date.now() + 1600;
     void onLoadOlder();
   };
   const handleDraftKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1984,7 +2057,14 @@ function ChatWorkspace({
             {historyError}
           </div>
         )}
-        <div ref={scrollRef} onScroll={handleMessageScroll} className="flex-1 overflow-y-auto px-4 py-4">
+        <div
+          ref={scrollRef}
+          onPointerDown={markUserScrollIntent}
+          onTouchStart={markUserScrollIntent}
+          onWheel={markUserScrollIntent}
+          onScroll={handleMessageScroll}
+          className="flex-1 overflow-y-auto px-4 py-4"
+        >
           {friend ? (
             <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
               {historyLoading && messages.length > 0 && (
@@ -2040,7 +2120,7 @@ function ChatWorkspace({
                             message={message}
                             onOpenSharedVideo={onOpenSharedVideo}
                             sharedPlayerLoadingId={sharedPlayerLoadingId}
-                            onMediaSettled={scheduleScrollToBottom}
+                            onMediaSettled={handleMediaSettled}
                           />
                           </div>
                         </div>
@@ -2070,12 +2150,12 @@ function ChatWorkspace({
             </div>
           ) : (
             <div className="flex h-full min-h-[280px] flex-col items-center justify-center text-center">
-              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-[16px] border border-border bg-surface">
-                <MessageCircle className="h-5 w-5 text-text-muted" />
+              <div className="mb-3 flex h-16 w-16 items-center justify-center overflow-hidden rounded-[18px] border border-border bg-surface">
+                <img src="/animated_icon.svg" alt="" className="h-14 w-14 object-contain opacity-90" />
               </div>
-              <p className="text-[0.88rem] font-semibold text-text">暂无会话</p>
+              <p className="text-[0.88rem] font-semibold text-text">未选择会话</p>
               <p className="mt-1 max-w-sm text-[0.74rem] leading-relaxed text-text-muted">
-                刷新好友状态后，选择一个好友开始聊天。
+                左侧选择好友后再加载聊天内容。
               </p>
             </div>
           )}

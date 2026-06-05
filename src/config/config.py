@@ -28,6 +28,7 @@ class Config:
     # Cookie设置
     COOKIE = ""
     RELATION_SIGNER = None
+    CURRENT_USER_PROFILE = None
     APP_VERSION = (os.environ.get("APP_VERSION") or os.environ.get("GITHUB_REF_NAME") or "1.0.25").lstrip("v")
 
     # 文件保存路径默认在执行文件旁边
@@ -113,6 +114,8 @@ class Config:
                     cls.COOKIE = config_data.get("cookie", cls.COOKIE).replace('\n', '').replace('\r', '').strip()
                     relation_signer = config_data.get("relation_signer")
                     cls.RELATION_SIGNER = relation_signer if isinstance(relation_signer, dict) else None
+                    current_user_profile = config_data.get("current_user_profile")
+                    cls.CURRENT_USER_PROFILE = current_user_profile if isinstance(current_user_profile, dict) else None
                     cls.BASE_DIR = config_data.get("base_dir", cls.BASE_DIR)
                     cls.DOWNLOAD_DIR = cls.BASE_DIR
                     cls.HISTORY_DIRS = cls.normalize_history_dirs(config_data.get("history_dirs", []))
@@ -254,6 +257,7 @@ class Config:
         folder_name_template=None,
         auto_create_folder=None,
         relation_signer=None,
+        current_user_profile=None,
         im_friend_sec_user_ids=None,
         im_friend_include_all_users=None,
         im_friend_refresh_interval_seconds=None,
@@ -299,6 +303,7 @@ class Config:
         config_data = {
             "cookie": cookie,
             "relation_signer": relation_signer if relation_signer is not None else cls.RELATION_SIGNER,
+            "current_user_profile": current_user_profile if current_user_profile is not None else cls.CURRENT_USER_PROFILE,
             "base_dir": base_dir,
             "history_dirs": cls.normalize_history_dirs(history_dirs if history_dirs is not None else cls.HISTORY_DIRS),
             "download_quality": resolved_quality,

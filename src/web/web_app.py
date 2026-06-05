@@ -109,6 +109,7 @@ from src.api.native_cookie_login import (
     create_native_douyin_window,
     create_login_window,
     destroy_window_safely,
+    extract_current_user_profile_entries,
     extract_relation_signer_entries,
     has_login_cookie,
     inject_relation_signer_probe,
@@ -3129,7 +3130,7 @@ def _start_native_verify_cookie_sync(window):
     if active_session and active_session.is_active() and active_session.window is window:
         return
     if active_session and active_session.is_active():
-        active_session.cancel_event.set()
+        active_session.close()
 
     session = NativeCookieLoginSession(window=window)
     session.last_cookie_value = Config.COOKIE or ''
@@ -3949,6 +3950,16 @@ def get_friend_message_history_api():
             ),
             timeout=60,
         )
+        if isinstance(result, dict):
+            logger.info(
+                "friend message history: cursor=%s to_user_id_present=%s conversation_id_present=%s messages=%s next_cursor=%s has_more=%s",
+                cursor,
+                bool(to_user_id),
+                bool(conversation_id),
+                len(result.get('messages') or []) if isinstance(result.get('messages'), list) else 0,
+                result.get('next_cursor'),
+                result.get('has_more'),
+            )
         return jsonify({
             'success': bool(success),
             **(result if isinstance(result, dict) else {'message': str(result)}),
@@ -5351,24 +5362,41 @@ def _verify_native_cookie_login(cookie: str) -> dict:
                 'message': _api_message(user, '登录态校验失败，请重新登录获取 Cookie'),
             }
 
+        saved_profile = Config.CURRENT_USER_PROFILE if isinstance(Config.CURRENT_USER_PROFILE, dict) else {}
         return {
             'success': True,
-            'nickname': (user.get('nickname') or '').strip(),
-            'user_id': user.get('uid') or user.get('sec_uid') or '',
-            'sec_uid': user.get('sec_uid') or '',
-            'avatar_thumb': safe_get_url(user.get('avatar_thumb') or {}),
-            'avatar_medium': safe_get_url(user.get('avatar_medium') or {}),
-            'avatar_larger': safe_get_url(user.get('avatar_larger') or {}),
+            'nickname': (user.get('nickname') or saved_profile.get('nickname') or '').strip(),
+            'user_id': user.get('uid') or user.get('sec_uid') or saved_profile.get('uid') or saved_profile.get('sec_uid') or '',
+            'sec_uid': user.get('sec_uid') or saved_profile.get('sec_uid') or '',
+            'avatar_thumb': safe_get_url(user.get('avatar_thumb') or {}) or saved_profile.get('avatar_thumb') or '',
+            'avatar_medium': safe_get_url(user.get('avatar_medium') or {}) or saved_profile.get('avatar_medium') or '',
+            'avatar_larger': safe_get_url(user.get('avatar_larger') or {}) or saved_profile.get('avatar_larger') or '',
         }
     except Exception as error:
         logger.warning('原生 Cookie 登录校验失败: %s', error)
         return {'success': False, 'message': str(error)}
 
 
-def _save_cookie_login_success(cookie: str, nickname: str = '', relation_signer: dict | None = None) -> None:
+def _save_cookie_login_success(
+    cookie: str,
+    nickname: str = '',
+    relation_signer: dict | None = None,
+    current_user_profile: dict | None = None,
+) -> None:
     Config.COOKIE = cookie
     Config.RELATION_SIGNER = relation_signer
-    Config.save_config(Config.COOKIE, Config.BASE_DIR, Config.HISTORY_DIRS, relation_signer=Config.RELATION_SIGNER)
+    if isinstance(current_user_profile, dict) and current_user_profile:
+        Config.CURRENT_USER_PROFILE = {
+            **(Config.CURRENT_USER_PROFILE if isinstance(Config.CURRENT_USER_PROFILE, dict) else {}),
+            **current_user_profile,
+        }
+    Config.save_config(
+        Config.COOKIE,
+        Config.BASE_DIR,
+        Config.HISTORY_DIRS,
+        relation_signer=Config.RELATION_SIGNER,
+        current_user_profile=Config.CURRENT_USER_PROFILE,
+    )
     _stop_im_message_listener()
     init_app()
     _ensure_im_message_listener()
@@ -5418,13 +5446,13 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
 
             if not session.window.events.loaded.wait(45):
                 if not session.cancel_event.is_set():
-                    destroy_window_safely(session.window)
+                    session.close()
                     emit_once('error', '登录窗口加载超时，请重试')
                 return
 
             while True:
                 if session.cancel_event.is_set():
-                    destroy_window_safely(session.window)
+                    session.close()
                     emit_once('cancelled', '登录已取消')
                     return
 
@@ -5433,7 +5461,7 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                     return
 
                 if time.monotonic() - session.created_at >= timeout:
-                    destroy_window_safely(session.window)
+                    session.close()
                     emit_once('timeout', '登录超时，请重试')
                     return
 
@@ -5450,7 +5478,8 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                     continue
 
                 relation_signer = extract_relation_signer_entries(entries)
-                if not relation_signer_ready(relation_signer):
+                current_user_profile = extract_current_user_profile_entries(entries)
+                if not relation_signer_ready(relation_signer) or not current_user_profile:
                     inject_relation_signer_probe(session.window)
 
                 cookie_string = serialize_cookie_entries(entries)
@@ -5484,20 +5513,26 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                 user_id = str(verify_result.get('user_id') or '').strip()
                 if user_id:
                     if not relation_signer_ready_for_uid(relation_signer, user_id):
-                        emit_once('pending', '登录已确认，正在采集点赞参数')
+                        emit_once('pending', '登录已确认，正在采集私信安全参数')
                         try:
                             session.window.load_url('https://www.douyin.com/?recommend=1')
                         except Exception as error:
-                            logger.debug('跳转推荐页采集点赞安全参数失败: %s', error)
+                            logger.debug('跳转推荐页采集私信安全参数失败: %s', error)
                         for _ in range(relation_signer_attempts):
                             inject_relation_signer_probe(session.window)
                             time.sleep(relation_signer_interval)
                             try:
                                 latest_entries = normalize_cookie_entries(session.window.get_cookies() or [])
                             except Exception as error:
-                                logger.debug('读取点赞安全参数 Cookie 失败: %s', error)
+                                logger.debug('读取私信安全参数 Cookie 失败: %s', error)
                                 continue
                             latest_signer = extract_relation_signer_entries(latest_entries)
+                            latest_profile = extract_current_user_profile_entries(latest_entries)
+                            if latest_profile:
+                                current_user_profile = {
+                                    **(current_user_profile if isinstance(current_user_profile, dict) else {}),
+                                    **latest_profile,
+                                }
                             if latest_signer:
                                 latest_signer['uid'] = user_id
                                 relation_signer = {
@@ -5530,8 +5565,21 @@ def _start_native_cookie_login(timeout: int) -> tuple[bool, str]:
                     elif not relation_signer_has_ticket_guard(relation_signer, user_id):
                         relation_signer = None
 
-                _save_cookie_login_success(cookie_string, verify_result.get('nickname', ''), relation_signer)
-                destroy_window_safely(session.window)
+                if isinstance(current_user_profile, dict):
+                    current_user_profile = {
+                        **current_user_profile,
+                        "uid": current_user_profile.get("uid") or verify_result.get("user_id") or "",
+                        "sec_uid": current_user_profile.get("sec_uid") or verify_result.get("sec_uid") or "",
+                        "nickname": current_user_profile.get("nickname") or verify_result.get("nickname") or "",
+                    }
+
+                _save_cookie_login_success(
+                    cookie_string,
+                    verify_result.get('nickname', ''),
+                    relation_signer,
+                    current_user_profile,
+                )
+                session.close()
                 return
         finally:
             finish()
@@ -5567,10 +5615,9 @@ def cookie_browser_login_cancel():
     global _native_cookie_login_session
 
     if _native_cookie_login_session and _native_cookie_login_session.is_active():
-        _native_cookie_login_session.cancel_event.set()
+        _native_cookie_login_session.close()
         _native_cookie_login_session.last_event = 'cancelled'
         _native_cookie_login_session.last_message = '登录已取消'
-        destroy_window_safely(_native_cookie_login_session.window)
         _emit_cookie_login_status('cancelled', '登录已取消')
         return jsonify({'success': True, 'message': '已取消登录'})
 
