@@ -35,6 +35,8 @@ const ONLINE_WINDOW_SECONDS = 60;
 const DEFAULT_REFRESH_INTERVAL_SECONDS = 5;
 const COOKIE_REQUIRED_PATTERN = /请先设置\s*Cookie/i;
 const MAX_SEND_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_PERSISTED_CHAT_MESSAGES_PER_FRIEND = 40;
+const MAX_PERSISTED_RAW_CONTENT_CHARS = 30_000;
 
 type ChatDrafts = Record<string, string>;
 type HistoryPageState = Record<string, {
@@ -208,6 +210,73 @@ function latestChatMessage(messages: LocalChatMessage[] | undefined) {
     if (!latest || message.createdAt > latest.createdAt) return message;
     return latest;
   }, undefined);
+}
+
+function safeSetLocalStorage(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (error) {
+    console.warn(`localStorage 写入失败: ${key}`, error);
+    return false;
+  }
+}
+
+function compactRawContent(rawContent: string | undefined, maxLength = MAX_PERSISTED_RAW_CONTENT_CHARS) {
+  if (!rawContent) return undefined;
+  return rawContent.length > maxLength ? undefined : rawContent;
+}
+
+function sanitizePersistedChatMessage(message: LocalChatMessage, rawLimit = MAX_PERSISTED_RAW_CONTENT_CHARS): LocalChatMessage {
+  return {
+    ...message,
+    rawContent: compactRawContent(message.rawContent, rawLimit),
+    imagePreviewUrl: message.imagePreviewUrl?.startsWith("blob:") ? undefined : message.imagePreviewUrl,
+    error: message.error ? message.error.slice(0, 300) : undefined,
+  };
+}
+
+function compactChatMessagesForStorage(
+  messages: ChatMessages,
+  perFriendLimit = MAX_PERSISTED_CHAT_MESSAGES_PER_FRIEND,
+  rawLimit = MAX_PERSISTED_RAW_CONTENT_CHARS,
+) {
+  const compacted: ChatMessages = {};
+  for (const [secUid, items] of Object.entries(messages)) {
+    const kept = [...items]
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(-perFriendLimit)
+      .map((message) => sanitizePersistedChatMessage(message, rawLimit));
+    if (kept.length > 0) compacted[secUid] = kept;
+  }
+  return compacted;
+}
+
+function persistChatMessages(messages: ChatMessages) {
+  const compacted = compactChatMessagesForStorage(messages);
+  if (safeSetLocalStorage(CHAT_MESSAGES_KEY, JSON.stringify(compacted))) return;
+  const smaller = compactChatMessagesForStorage(messages, 12, 8_000);
+  if (safeSetLocalStorage(CHAT_MESSAGES_KEY, JSON.stringify(smaller))) return;
+  safeSetLocalStorage(CHAT_MESSAGES_KEY, "{}");
+}
+
+function sanitizePersistedSummaries(summaries: ChatSummaries): ChatSummaries {
+  return Object.fromEntries(
+    Object.entries(summaries).map(([secUid, summary]) => [
+      secUid,
+      {
+        ...summary,
+        latestMessage: summary.latestMessage
+          ? sanitizePersistedChatMessage(summary.latestMessage, 8_000)
+          : undefined,
+      },
+    ]),
+  ) as ChatSummaries;
+}
+
+function persistChatSummaries(summaries: ChatSummaries) {
+  if (safeSetLocalStorage(CHAT_SUMMARIES_KEY, JSON.stringify(sanitizePersistedSummaries(summaries)))) return;
+  safeSetLocalStorage(CHAT_SUMMARIES_KEY, "{}");
 }
 
 function normalizeMessageStatus(value: string): LocalChatMessage["status"] {
@@ -790,7 +859,7 @@ export function FriendsStatusView() {
             unreadCount: Math.max(count, nextSummaries[secUid]?.unreadCount || 0),
           };
         }
-        localStorage.setItem(CHAT_SUMMARIES_KEY, JSON.stringify(nextSummaries));
+        persistChatSummaries(nextSummaries);
         setChatSummaries(nextSummaries);
         setUnreadCounts((current) => {
           const next = { ...current };
@@ -840,7 +909,7 @@ export function FriendsStatusView() {
         changed = true;
       }
       if (!changed) return current;
-      localStorage.setItem(CHAT_SUMMARIES_KEY, JSON.stringify(next));
+      persistChatSummaries(next);
       return next;
     });
   }, [chatMessages, unreadCounts]);
@@ -882,7 +951,7 @@ export function FriendsStatusView() {
           message.id === messageId ? { ...message, ...patch } : message,
         ),
       };
-      localStorage.setItem(CHAT_MESSAGES_KEY, JSON.stringify(next));
+      persistChatMessages(next);
       return next;
     });
   }, []);
@@ -905,7 +974,7 @@ export function FriendsStatusView() {
           unreadCount: 0,
         },
       };
-      localStorage.setItem(CHAT_SUMMARIES_KEY, JSON.stringify(next));
+      persistChatSummaries(next);
       return next;
     });
   }, []);
@@ -926,7 +995,7 @@ export function FriendsStatusView() {
         ...current,
         [friend.secUid]: [...(current[friend.secUid] || []), message],
       };
-      localStorage.setItem(CHAT_MESSAGES_KEY, JSON.stringify(next));
+      persistChatMessages(next);
       return next;
     });
     updateDraft(friend.secUid, "");
@@ -987,7 +1056,7 @@ export function FriendsStatusView() {
         ...current,
         [friend.secUid]: [...(current[friend.secUid] || []), message],
       };
-      localStorage.setItem(CHAT_MESSAGES_KEY, JSON.stringify(next));
+      persistChatMessages(next);
       return next;
     });
 
@@ -1053,7 +1122,7 @@ export function FriendsStatusView() {
         mergedCount += 1;
       }
       if (mergedCount > 0) {
-        localStorage.setItem(CHAT_MESSAGES_KEY, JSON.stringify(next));
+        persistChatMessages(next);
         return next;
       }
       return current;
@@ -1161,7 +1230,7 @@ export function FriendsStatusView() {
           ...current,
           [friend.secUid]: [...currentMessages, message],
         };
-        localStorage.setItem(CHAT_MESSAGES_KEY, JSON.stringify(next));
+        persistChatMessages(next);
         return next;
       });
       if (friend.secUid !== selectedFriendId) {
