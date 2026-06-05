@@ -340,6 +340,18 @@ def _guess_local_media_mimetype(path: Path) -> str:
     return 'application/octet-stream'
 
 
+def _guess_image_content_type_from_bytes(data: bytes) -> str:
+    if data.startswith(b'\xff\xd8\xff'):
+        return 'image/jpeg'
+    if data.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'image/png'
+    if data.startswith(b'RIFF') and data[8:12] == b'WEBP':
+        return 'image/webp'
+    if data.startswith(b'GIF87a') or data.startswith(b'GIF89a'):
+        return 'image/gif'
+    return 'application/octet-stream'
+
+
 def build_download_history() -> list[dict]:
     return get_download_history_items()
 
@@ -2750,6 +2762,7 @@ def media_proxy():
     url = request.args.get('url', '').strip()
     requested_filename = _sanitize_download_filename(request.args.get('filename', '').strip(), default='')
     requested_media_type = request.args.get('media_type', '').strip().lower()
+    image_skey = request.args.get('skey', '').strip()
     allow_origin, origin_value = _allowed_media_request_origin()
 
     if not allow_origin:
@@ -2894,6 +2907,31 @@ def media_proxy():
 
         resp_headers['Access-Control-Allow-Origin'] = origin_value or '*'
         resp_headers['Cache-Control'] = 'public, max-age=3600'
+
+        if requested_media_type == 'image' and image_skey:
+            try:
+                from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+                encrypted = resp.content
+                resp.close()
+                key = bytes.fromhex(image_skey)
+                if len(key) != 32 or len(encrypted) <= 28:
+                    raise ValueError('invalid encrypted image payload')
+                decrypted = AESGCM(key).decrypt(encrypted[:12], encrypted[12:], None)
+                decrypted_headers = {
+                    'Content-Type': _guess_image_content_type_from_bytes(decrypted),
+                    'Content-Length': str(len(decrypted)),
+                    'Access-Control-Allow-Origin': origin_value or '*',
+                    'Cache-Control': 'public, max-age=3600',
+                }
+                if content_disposition:
+                    decrypted_headers['Content-Disposition'] = content_disposition
+                return Response(decrypted, status=resp.status_code, headers=decrypted_headers)
+            except Exception as decrypt_error:
+                logger.warning(
+                    '[media_proxy] 图片解密失败，将返回原始响应: url=%s error=%s',
+                    upstream_url[:120],
+                    decrypt_error,
+                )
 
         def generate():
             total = 0
