@@ -119,6 +119,7 @@ def build_send_message_body(
     content: str,
     client_message_id: str,
     now_ms: int,
+    message_type: int = 7,
 ) -> bytes:
     ext_client_id = _string_field(1, "s:client_message_id") + _string_field(2, client_message_id)
     ext_time = _string_field(1, "s:stime") + _string_field(2, str(now_ms))
@@ -128,10 +129,10 @@ def build_send_message_body(
     inner += _int_field(2, 1)
     inner += _int_field(3, conversation_short_id)
     inner += _string_field(4, content)
+    inner += _bytes_field(5, ext_mentions)
     inner += _bytes_field(5, ext_client_id)
     inner += _bytes_field(5, ext_time)
-    inner += _bytes_field(5, ext_mentions)
-    inner += _int_field(6, 7)
+    inner += _int_field(6, int(message_type or 7))
     inner += _string_field(7, ticket)
     inner += _string_field(8, client_message_id)
     return _bytes_field(100, bytes(inner))
