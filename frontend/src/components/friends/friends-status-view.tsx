@@ -512,6 +512,10 @@ function messagePreviewText(message: LocalChatMessage | undefined) {
   return message.text;
 }
 
+function hasFramedMessageBody(message: LocalChatMessage) {
+  return Boolean(message.imagePreviewUrl || parseSharedMessage(message));
+}
+
 function fallbackMessageText(rawContent: string | undefined) {
   if (!rawContent) return "";
   const shared = parseSharedMessage({
@@ -1992,6 +1996,7 @@ function ChatWorkspace({
               {messages.map((message, index) => {
                 const prevMessage = index > 0 ? messages[index - 1] : null;
                 const showTime = !prevMessage || (message.createdAt - prevMessage.createdAt) > 10 * 60 * 1000;
+                const framedBody = hasFramedMessageBody(message);
                 return (
                   <Fragment key={message.id}>
                     {showTime && (
@@ -2020,10 +2025,15 @@ function ChatWorkspace({
                           )}
                           <div
                             className={cn(
-                              "min-w-0 rounded-[16px] shadow-[0_10px_20px_rgba(15,23,42,0.08)]",
-                              message.direction === "in"
-                                ? "rounded-tl-[6px] border border-border bg-surface text-text"
-                                : "rounded-tr-[6px] bg-accent text-white shadow-[0_10px_20px_rgba(254,44,85,0.16)]",
+                              "min-w-0",
+                              framedBody
+                                ? ""
+                                : "rounded-[16px] shadow-[0_10px_20px_rgba(15,23,42,0.08)]",
+                              !framedBody && (
+                                message.direction === "in"
+                                  ? "rounded-tl-[6px] border border-border bg-surface text-text"
+                                  : "rounded-tr-[6px] bg-accent text-white shadow-[0_10px_20px_rgba(254,44,85,0.16)]"
+                              ),
                             )}
                           >
                           <MessageBody
