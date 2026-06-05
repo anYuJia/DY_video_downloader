@@ -2244,7 +2244,7 @@ export function FullscreenPlayer({
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: 6 }}
                         transition={{ duration: 0.16 }}
-                        className="absolute bottom-9 left-1/2 z-40 w-[160px] -translate-x-1/2 rounded-xl bg-[#141414]/95 p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+                        className="absolute bottom-9 right-0 z-40 w-[160px] rounded-xl bg-[#141414]/95 p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
                         onPointerEnter={(event) => openPanelOnPointerEnter("download", event)}
                         onPointerLeave={(event) => closePanelOnPointerLeave("download", event)}
                         onMouseEnter={() => openToolPanel("download")}

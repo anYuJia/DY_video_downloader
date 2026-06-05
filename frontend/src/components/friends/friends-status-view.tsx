@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FullscreenPlayer } from "@/components/player/fullscreen-player";
+import { useDownloads } from "@/hooks/use-downloads";
 import { getConfig, getFriendChatState, getFriendMessageHistory, getFriendOnlineStatus, getUserDetail, getVideoDetail, listenEvent, mediaProxyUrl, saveConfig, saveFriendChatState, sendFriendImageMessage, sendFriendMessage, verifyCookie, type FriendOnlineStatusResponse } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
@@ -701,6 +702,7 @@ export function FriendsStatusView() {
   const setView = useAppStore((state) => state.setView);
   const setFriendUnreadCount = useAppStore((state) => state.setFriendUnreadCount);
   const openUser = useSearchStore((state) => state.openUser);
+  const { downloadVideo } = useDownloads();
   const [input, setInput] = useState(() => localStorage.getItem(STORAGE_KEY) || "");
   const [chatDrafts, setChatDrafts] = useState<ChatDrafts>(() => readChatDrafts());
   const [chatMessages, setChatMessages] = useState<ChatMessages>(() => readChatMessages());
@@ -1403,27 +1405,28 @@ export function FriendsStatusView() {
 
   useEffect(() => {
     let disposed = false;
+    let unlistenCookieLogin: (() => void) | null = null;
     const saveAvatar = (avatar: string) => {
       if (!avatar) return;
       setCurrentUserAvatar(avatar);
       localStorage.setItem(CURRENT_USER_AVATAR_KEY, avatar);
     };
     const retry = (attempt: number) => {
-      if (disposed || attempt >= 3) return;
+      if (disposed || attempt >= 8) return;
       if (avatarRetryTimerRef.current !== null) {
         window.clearTimeout(avatarRetryTimerRef.current);
       }
       avatarRetryTimerRef.current = window.setTimeout(() => {
         avatarRetryTimerRef.current = null;
         void loadAvatar(attempt + 1);
-      }, 600 + attempt * 500);
+      }, 700 + attempt * 700);
     };
     const loadAvatar = async (attempt = 0) => {
       try {
         const status = await verifyCookie();
         if (disposed) return;
         if (!status.valid) {
-          if (COOKIE_REQUIRED_PATTERN.test(status.message || "")) retry(attempt);
+          retry(attempt);
           return;
         }
         const directAvatar = status.avatar_thumb || status.avatar_medium || status.avatar_larger || "";
@@ -1446,12 +1449,24 @@ export function FriendsStatusView() {
         }
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : "";
-        if (COOKIE_REQUIRED_PATTERN.test(message)) retry(attempt);
+        if (COOKIE_REQUIRED_PATTERN.test(message) || attempt < 8) retry(attempt);
       }
     };
     void loadAvatar();
+    void listenEvent<{ event?: string; cookie_set?: boolean }>("cookie-login-status", (payload) => {
+      if (payload?.cookie_set || payload?.event === "success") {
+        void loadAvatar();
+      }
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+        return;
+      }
+      unlistenCookieLogin = unlisten;
+    });
     return () => {
       disposed = true;
+      unlistenCookieLogin?.();
       if (avatarRetryTimerRef.current !== null) {
         window.clearTimeout(avatarRetryTimerRef.current);
       }
@@ -1646,6 +1661,7 @@ export function FriendsStatusView() {
         initialIndex={0}
         open={sharedPlayerOpen}
         onClose={() => setSharedPlayerOpen(false)}
+        onDownload={(video) => downloadVideo(video)}
       />
     </div>
   );

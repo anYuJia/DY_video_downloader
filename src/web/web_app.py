@@ -514,9 +514,9 @@ def _search_user_payload(user_info: dict, item: dict | None = None) -> dict:
         'favoriting_count': _first_count(sources, ('favoriting_count', 'favoriting_count_str', 'favoriting_count_text')),
         'signature': user_info.get('signature', ''),
         'sec_uid': user_info.get('sec_uid', ''),
-        'avatar_thumb': user_info.get('avatar_thumb', {}).get('url_list', [''])[0] if user_info.get('avatar_thumb') else '',
-        'avatar_medium': user_info.get('avatar_medium', {}).get('url_list', [''])[0] if user_info.get('avatar_medium') else '',
-        'avatar_larger': user_info.get('avatar_larger', {}).get('url_list', [''])[0] if user_info.get('avatar_larger') else '',
+        'avatar_thumb': _avatar_url(user_info, 'avatar_thumb', 'avatar_100x100', 'avatar_168x168', 'avatar_medium', 'avatar_300x300', 'avatar_larger'),
+        'avatar_medium': _avatar_url(user_info, 'avatar_medium', 'avatar_168x168', 'avatar_300x300', 'avatar_larger', 'avatar_thumb', 'avatar_100x100'),
+        'avatar_larger': _avatar_url(user_info, 'avatar_larger', 'avatar_300x300', 'avatar_medium', 'avatar_168x168', 'avatar_thumb', 'avatar_100x100'),
         'is_follow': bool(user_info.get('is_follow', False)),
         'verify_status': _count_value(user_info.get('verify_status'), 0),
     }
@@ -527,7 +527,9 @@ def _user_detail_payload(user_info: dict, fallback_sec_uid: str = '', fallback_n
     payload['uid'] = (user_info or {}).get('uid', '')
     payload['sec_uid'] = payload.get('sec_uid') or fallback_sec_uid
     payload['nickname'] = payload.get('nickname') or fallback_nickname
-    payload['avatar_medium'] = safe_get_url((user_info or {}).get('avatar_medium'))
+    payload['avatar_thumb'] = payload.get('avatar_thumb') or _avatar_url(user_info or {}, 'avatar_thumb', 'avatar_100x100', 'avatar_168x168', 'avatar_medium', 'avatar_300x300', 'avatar_larger')
+    payload['avatar_medium'] = payload.get('avatar_medium') or _avatar_url(user_info or {}, 'avatar_medium', 'avatar_168x168', 'avatar_300x300', 'avatar_larger', 'avatar_thumb', 'avatar_100x100')
+    payload['avatar_larger'] = payload.get('avatar_larger') or _avatar_url(user_info or {}, 'avatar_larger', 'avatar_300x300', 'avatar_medium', 'avatar_168x168', 'avatar_thumb', 'avatar_100x100')
     return payload
 
 
@@ -631,13 +633,45 @@ def _cleanup_empty_parent_dirs(path: Path, stop_root: Path) -> None:
 
 
 def safe_get_url(obj, default=''):
-    """安全地从 obj['url_list'] 中获取 URL，避免索引越界"""
+    """安全地从常见抖音媒体字段中获取 URL，避免索引越界"""
     if not obj:
         return default
-    url_list = obj.get('url_list', [])
-    if not url_list:
+    if isinstance(obj, str):
+        return obj.strip() or default
+    if isinstance(obj, (list, tuple)):
+        for item in obj:
+            url = safe_get_url(item, '')
+            if url:
+                return url
         return default
-    return url_list[0] if url_list else default
+    if not isinstance(obj, dict):
+        return default
+    for key in (
+        'url_list',
+        'urlList',
+        'large_url_list',
+        'origin_url_list',
+        'medium_url_list',
+        'thumb_url_list',
+    ):
+        url = safe_get_url(obj.get(key), '')
+        if url:
+            return url
+    for key in ('url', 'uri', 'download_url', 'src'):
+        value = obj.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return default
+
+
+def _avatar_url(user_info: dict, *keys: str) -> str:
+    if not isinstance(user_info, dict):
+        return ''
+    for key in keys:
+        url = safe_get_url(user_info.get(key), '')
+        if url:
+            return url
+    return ''
 
 
 def _api_message(payload, fallback='请求失败'):
@@ -5368,9 +5402,9 @@ def _verify_native_cookie_login(cookie: str) -> dict:
             'nickname': (user.get('nickname') or saved_profile.get('nickname') or '').strip(),
             'user_id': user.get('uid') or user.get('sec_uid') or saved_profile.get('uid') or saved_profile.get('sec_uid') or '',
             'sec_uid': user.get('sec_uid') or saved_profile.get('sec_uid') or '',
-            'avatar_thumb': safe_get_url(user.get('avatar_thumb') or {}) or saved_profile.get('avatar_thumb') or '',
-            'avatar_medium': safe_get_url(user.get('avatar_medium') or {}) or saved_profile.get('avatar_medium') or '',
-            'avatar_larger': safe_get_url(user.get('avatar_larger') or {}) or saved_profile.get('avatar_larger') or '',
+            'avatar_thumb': _avatar_url(user, 'avatar_thumb', 'avatar_100x100', 'avatar_168x168', 'avatar_medium', 'avatar_300x300', 'avatar_larger') or saved_profile.get('avatar_thumb') or '',
+            'avatar_medium': _avatar_url(user, 'avatar_medium', 'avatar_168x168', 'avatar_300x300', 'avatar_larger', 'avatar_thumb', 'avatar_100x100') or saved_profile.get('avatar_medium') or '',
+            'avatar_larger': _avatar_url(user, 'avatar_larger', 'avatar_300x300', 'avatar_medium', 'avatar_168x168', 'avatar_thumb', 'avatar_100x100') or saved_profile.get('avatar_larger') or '',
         }
     except Exception as error:
         logger.warning('原生 Cookie 登录校验失败: %s', error)
