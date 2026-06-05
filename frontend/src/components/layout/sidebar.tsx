@@ -69,11 +69,11 @@ export function Sidebar() {
         transition={{ duration: 0.3 }}
       >
         <div className="w-10 h-10 rounded-[14px] overflow-hidden flex items-center justify-center">
-          <img src="/animated_icon.svg" alt="Douyin Downloader" className="w-10 h-10" />
+          <img src="/animated_icon.svg" alt="better-douyin" className="w-10 h-10" />
         </div>
         <div className="flex min-w-0 flex-col max-lg:hidden">
           <span className="text-[0.9rem] font-[780] tracking-tight text-text truncate">
-            Douyin Downloader
+            better-douyin
           </span>
           <span className="text-[0.7rem] font-semibold text-text-muted tracking-wide">
             本地媒体工作台

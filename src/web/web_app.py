@@ -60,9 +60,9 @@ MEDIA_PROXY_MAX_RANGE_BYTES = 4 * 1024 * 1024
 MEDIA_PROXY_MAX_RETRIES = 3
 MEDIA_PROXY_REDIRECT_CACHE_MAX_SIZE = 256
 DOWNLOAD_TASK_HISTORY_MAX_SIZE = 200
-LATEST_RELEASE_API_URL = 'https://api.github.com/repos/anYuJia/DY_video_downloader/releases/latest'
-LATEST_RELEASE_PAGE_URL = 'https://github.com/anYuJia/DY_video_downloader/releases/latest'
-UPDATER_METADATA_URL = 'https://github.com/anYuJia/DY_video_downloader/releases/latest/download/latest.json'
+LATEST_RELEASE_API_URL = 'https://api.github.com/repos/anYuJia/better-douyin/releases/latest'
+LATEST_RELEASE_PAGE_URL = 'https://github.com/anYuJia/better-douyin/releases/latest'
+UPDATER_METADATA_URL = 'https://github.com/anYuJia/better-douyin/releases/latest/download/latest.json'
 UPDATER_PUBLIC_KEY = (
     'dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ4N0YyNERCNDcxNjlGRgpS'
     'V1QvYVhHMFRmS0hEZmpYNEdhWEFnUExoU1dqUHFiYXhnU2UzWm1Rblo5UUc4MnM0cE13RXFiNAo='
@@ -139,7 +139,7 @@ _native_verify_window_session = None
 VERIFY_COOKIE_SYNC_TIMEOUT = 10 * 60
 
 app = Flask(__name__, static_folder=None)
-app.config['SECRET_KEY'] = 'douyin_downloader_secret_key'
+app.config['SECRET_KEY'] = 'better_douyin_secret_key'
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # 禁用静态文件缓存
 # macOS + pywebview 时 gevent 未 patch，必须用 threading 模式
 if IS_WINDOWS or (IS_MACOS and os.environ.get('USE_PYWEBVIEW') == '1'):
@@ -1055,7 +1055,7 @@ def _fetch_latest_release() -> dict:
         LATEST_RELEASE_API_URL,
         headers={
             'Accept': 'application/vnd.github+json',
-            'User-Agent': f'DY-Video-Downloader/{_get_current_app_version()}',
+            'User-Agent': f'better-douyin/{_get_current_app_version()}',
         },
         timeout=(5, 15),
     )
@@ -1072,7 +1072,7 @@ def _fetch_updater_metadata() -> dict | None:
             UPDATER_METADATA_URL,
             headers={
                 'Accept': 'application/json',
-                'User-Agent': f'DY-Video-Downloader/{_get_current_app_version()}',
+                'User-Agent': f'better-douyin/{_get_current_app_version()}',
             },
             timeout=(5, 15),
         )
@@ -1306,16 +1306,16 @@ def _safe_update_filename(asset_name: str, release_version: str, download_url: s
     if not filename:
         filename = Path(urlparse(download_url).path).name
     if not filename:
-        filename = f'DY-Video-Downloader-v{release_version}'
+        filename = f'better-douyin-v{release_version}'
 
     filename = re.sub(r'[^A-Za-z0-9._() -]+', '_', filename).strip(' ._')
-    return filename or f'DY-Video-Downloader-v{release_version}'
+    return filename or f'better-douyin-v{release_version}'
 
 
 def _get_update_download_dir() -> Path:
     candidates = [
-        Path.home() / 'Downloads' / 'DY Video Downloader Updates',
-        Path(tempfile.gettempdir()) / 'dy-video-downloader-updates',
+        Path.home() / 'Downloads' / 'better-douyin Updates',
+        Path(tempfile.gettempdir()) / 'better-douyin-updates',
     ]
 
     for candidate in candidates:
@@ -1405,7 +1405,7 @@ def _download_update_asset(
 
     headers = {
         'Accept': 'application/octet-stream',
-        'User-Agent': f'DY-Video-Downloader/{_get_current_app_version()}',
+        'User-Agent': f'better-douyin/{_get_current_app_version()}',
     }
     downloaded = 0
     last_emit = 0.0
@@ -1521,7 +1521,7 @@ def _write_update_script(name: str, content: str, suffix: str) -> Path:
 
 def _stage_windows_update(file_path: Path, install_mode: str, paths: dict) -> None:
     log_path = _get_update_download_dir() / 'update-helper.log'
-    stage_dir = Path(tempfile.gettempdir()) / f'dy-video-downloader-update-{uuid.uuid4().hex}'
+    stage_dir = Path(tempfile.gettempdir()) / f'better-douyin-update-{uuid.uuid4().hex}'
     current_pid = os.getpid()
     target_root = paths['target_root']
     target_exe = paths['executable']
@@ -1601,7 +1601,7 @@ def _stage_macos_update(file_path: Path, install_mode: str, paths: dict) -> None
     current_pid = os.getpid()
     target_app = paths['app_bundle']
     package = file_path
-    stage_dir = Path(tempfile.gettempdir()) / f'dy-video-downloader-update-{uuid.uuid4().hex}'
+    stage_dir = Path(tempfile.gettempdir()) / f'better-douyin-update-{uuid.uuid4().hex}'
     log_path = _get_update_download_dir() / 'update-helper.log'
 
     script = f"""#!/usr/bin/env bash
@@ -1672,7 +1672,7 @@ def _stage_linux_update(file_path: Path, install_mode: str, paths: dict) -> None
     target_root = paths['target_root']
     target_exe = paths['executable']
     package = file_path
-    stage_dir = Path(tempfile.gettempdir()) / f'dy-video-downloader-update-{uuid.uuid4().hex}'
+    stage_dir = Path(tempfile.gettempdir()) / f'better-douyin-update-{uuid.uuid4().hex}'
     log_path = _get_update_download_dir() / 'update-helper.log'
 
     script = f"""#!/usr/bin/env bash
@@ -1953,7 +1953,7 @@ def index():
           <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>Douyin Downloader</title>
+            <title>better-douyin</title>
             <style>
               body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b0b11; color: #f5f5f7; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
               main { width: min(680px, calc(100vw - 40px)); border: 1px solid rgba(255,255,255,.12); border-radius: 18px; padding: 24px; background: rgba(255,255,255,.05); box-shadow: 0 20px 60px rgba(0,0,0,.35); }

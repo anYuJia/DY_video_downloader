@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="animated_icon.svg" width="128" height="128" alt="DY Video Downloader Logo">
+<img src="animated_icon.svg" width="128" height="128" alt="better-douyin Logo">
 
-# DY Video Downloader
+# better-douyin
 
-抖音内容下载与本地归档工具，支持用户搜索、链接解析、批量下载、推荐流预览和本地文件管理。
+更顺手的抖音内容下载与本地归档工具，支持用户搜索、链接解析、批量下载、推荐流预览、私信图片体验和本地文件管理。
 
 <p>
   <a href="README.md">简体中文</a> | <a href="README_EN.md">English</a>
@@ -12,7 +12,7 @@
 
 <p>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python"></a>
-  <a href="https://github.com/anYuJia/DY_video_downloader/releases/latest"><img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-555?style=flat-square" alt="Platform"></a>
+  <a href="https://github.com/anYuJia/better-douyin/releases/latest"><img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-555?style=flat-square" alt="Platform"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2ea44f?style=flat-square" alt="License"></a>
 </p>
 
@@ -31,7 +31,7 @@
 | **Python 版** | 想直接看源码、方便改功能，或更熟悉 Python 生态 |
 | **Rust / Tauri 版** | 更推荐日常桌面使用，体积更小，启动和本地播放体验更好 |
 
-Rust 版见：[douyin-downloader-rust](https://github.com/anYuJia/douyin-downloader-rust)。
+Rust 版见：[better-douyin-R](https://github.com/anYuJia/better-douyin-R)。
 
 ## 主要功能
 
@@ -95,14 +95,14 @@ Rust 版见：[douyin-downloader-rust](https://github.com/anYuJia/douyin-downloa
 macOS 首次运行如果提示“无法验证开发者”，可执行：
 
 ```bash
-sudo xattr -rd com.apple.quarantine /path/to/douyin_downloader.app
+sudo xattr -rd com.apple.quarantine /path/to/better-douyin.app
 ```
 
 ### 方式二：源码运行
 
 ```bash
-git clone https://github.com/anYuJia/DY_video_downloader.git
-cd DY_video_downloader
+git clone https://github.com/anYuJia/better-douyin.git
+cd better-douyin
 
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
@@ -200,8 +200,8 @@ python -m src.web.web_app
 ## Star History
 
 <p align="center">
-  <a href="https://star-history.com/#anYuJia/DY_video_downloader&Date">
-    <img src="https://api.star-history.com/svg?repos=anYuJia/DY_video_downloader&type=Date" width="100%" alt="DY_video_downloader Star History Chart">
+  <a href="https://star-history.com/#anYuJia/better-douyin&Date">
+    <img src="https://api.star-history.com/svg?repos=anYuJia/better-douyin&type=Date" width="100%" alt="better-douyin Star History Chart">
   </a>
 </p>
 

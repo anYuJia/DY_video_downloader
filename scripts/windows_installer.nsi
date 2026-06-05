@@ -1,15 +1,15 @@
 !include "MUI2.nsh"
 
 ; 定义版本号（由 CI 自动更新）
-!define APP_NAME "DY Video Downloader"
-!define APP_VERSION "1.0.24"
+!define APP_NAME "better-douyin"
+!define APP_VERSION "1.0.25"
 !define APP_PUBLISHER "anYuJia"
-!define APP_EXE "DY Video Downloader.exe"
+!define APP_EXE "better-douyin.exe"
 !define APP_GUID "E4F9A7B3-8C2D-4F1E-9A5B-3C7D2E8F1A6B"
 
 ; 安装程序信息
 Name "${APP_NAME}"
-OutFile "..\dist\DY_Video_Downloader_Setup_v${APP_VERSION}.exe"
+OutFile "..\dist\better-douyin-Setup-v${APP_VERSION}.exe"
 InstallDir "$PROGRAMFILES64\${APP_NAME}"
 InstallDirRegKey HKLM "Software\${APP_NAME}" "Install_Dir"
 RequestExecutionLevel admin
@@ -41,7 +41,7 @@ Section "Install" SecInstall
 
     ; 复制整个程序文件夹（文件夹模式）
     ; 脚本在 scripts/ 目录，需要用 ..\dist\ 来引用
-    File /r "..\dist\DY Video Downloader\*.*"
+    File /r "..\dist\better-douyin\*.*"
 
     ; 创建卸载程序
     WriteUninstaller "$INSTDIR\Uninstall.exe"

@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="animated_icon.svg" width="128" height="128" alt="DY Video Downloader Logo">
+<img src="animated_icon.svg" width="128" height="128" alt="better-douyin Logo">
 
-# DY Video Downloader
+# better-douyin
 
 A local Douyin downloader and archive manager for searching creators, parsing links, downloading media, previewing feeds, and managing saved works.
 
@@ -12,7 +12,7 @@ A local Douyin downloader and archive manager for searching creators, parsing li
 
 <p>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python"></a>
-  <a href="https://github.com/anYuJia/DY_video_downloader/releases/latest"><img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-555?style=flat-square" alt="Platform"></a>
+  <a href="https://github.com/anYuJia/better-douyin/releases/latest"><img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-555?style=flat-square" alt="Platform"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2ea44f?style=flat-square" alt="License"></a>
 </p>
 
@@ -31,7 +31,7 @@ There are two related projects:
 | **Python version** | Easier source-level customization and Python-based workflows |
 | **Rust / Tauri version** | Recommended for daily desktop use, smaller builds, and smoother local playback |
 
-Rust version: [douyin-downloader-rust](https://github.com/anYuJia/douyin-downloader-rust).
+Rust version: [better-douyin-R](https://github.com/anYuJia/better-douyin-R).
 
 ## Features
 
@@ -96,14 +96,14 @@ Release builds start the local service and open the desktop window automatically
 If macOS reports that the developer cannot be verified, run:
 
 ```bash
-sudo xattr -rd com.apple.quarantine /path/to/douyin_downloader.app
+sudo xattr -rd com.apple.quarantine /path/to/better-douyin.app
 ```
 
 ### Option 2: Run from source
 
 ```bash
-git clone https://github.com/anYuJia/DY_video_downloader.git
-cd DY_video_downloader
+git clone https://github.com/anYuJia/better-douyin.git
+cd better-douyin
 
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
@@ -183,8 +183,8 @@ This project is for personal learning, research, and content backup only. Please
 ## Star History
 
 <p align="center">
-  <a href="https://star-history.com/#anYuJia/DY_video_downloader&Date">
-    <img src="https://api.star-history.com/svg?repos=anYuJia/DY_video_downloader&type=Date" width="100%" alt="DY_video_downloader Star History Chart">
+  <a href="https://star-history.com/#anYuJia/better-douyin&Date">
+    <img src="https://api.star-history.com/svg?repos=anYuJia/better-douyin&type=Date" width="100%" alt="better-douyin Star History Chart">
   </a>
 </p>
 
