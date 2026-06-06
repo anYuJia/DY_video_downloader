@@ -664,6 +664,29 @@ def safe_get_url(obj, default=''):
     return default
 
 
+def _format_comment_item(item: dict) -> dict:
+    user = item.get('user') or {}
+    sticker = item.get('sticker') or {}
+    sticker_url = safe_get_url(sticker.get('static_url') or {}) or safe_get_url(sticker.get('animate_url') or {})
+    return {
+        'cid': item.get('cid', ''),
+        'text': item.get('text', ''),
+        'create_time': item.get('create_time', 0),
+        'user': {
+            'uid': user.get('uid', ''),
+            'nickname': user.get('nickname', ''),
+            'avatar_thumb': safe_get_url(user.get('avatar_thumb') or {}),
+            'sec_uid': user.get('sec_uid', ''),
+        },
+        'digg_count': item.get('digg_count', 0),
+        'reply_comment_total': item.get('reply_comment_total', 0),
+        'sub_comments': None,
+        'status': item.get('status', 0),
+        'ip_label': item.get('ip_label', ''),
+        'sticker_url': sticker_url,
+    }
+
+
 def _avatar_url(user_info: dict, *keys: str) -> str:
     if not isinstance(user_info, dict):
         return ''
@@ -5276,28 +5299,7 @@ def get_comments():
 
         data_block = resp.get('data') if isinstance(resp.get('data'), dict) else resp
         raw_comments = data_block.get('comments') or []
-        comments = []
-
-        for item in raw_comments:
-            if not isinstance(item, dict):
-                continue
-
-            user = item.get('user') or {}
-            comments.append({
-                'cid': item.get('cid', ''),
-                'text': item.get('text', ''),
-                'create_time': item.get('create_time', 0),
-                'user': {
-                    'uid': user.get('uid', ''),
-                    'nickname': user.get('nickname', ''),
-                    'avatar_thumb': safe_get_url(user.get('avatar_thumb') or {}),
-                    'sec_uid': user.get('sec_uid', ''),
-                },
-                'digg_count': item.get('digg_count', 0),
-                'reply_comment_total': item.get('reply_comment_total', 0),
-                'sub_comments': None,
-                'status': item.get('status', 0),
-            })
+        comments = [_format_comment_item(item) for item in raw_comments if isinstance(item, dict)]
 
         has_more = data_block.get('has_more', False)
         return jsonify({
@@ -5305,11 +5307,62 @@ def get_comments():
             'comments': comments,
             'cursor': data_block.get('cursor', 0),
             'has_more': has_more == 1 or has_more is True,
+            'total': data_block.get('total', 0),
         })
 
     except Exception as e:
         logger.exception(f"获取评论失败: {e}")
         return jsonify({'success': False, 'message': f'获取评论失败: {str(e)}'}), 500
+
+
+@app.route('/api/get_comment_replies', methods=['POST'])
+def get_comment_replies():
+    """获取评论的二级回复列表。"""
+    try:
+        data = _request_json()
+        aweme_id = str(data.get('aweme_id') or '').strip()
+        comment_id = str(data.get('comment_id') or '').strip()
+        count = _coerce_int(data.get('count'), 6, 1, 50)
+        cursor = _coerce_int(data.get('cursor'), 0, 0)
+
+        if not aweme_id:
+            return jsonify({'success': False, 'message': '视频ID不能为空'}), 400
+        if not comment_id:
+            return jsonify({'success': False, 'message': '评论ID不能为空'}), 400
+        if not api:
+            return jsonify({'success': False, 'message': '服务未初始化'}), 400
+
+        resp, success = run_async(api.get_comment_replies(aweme_id, comment_id, count, cursor))
+
+        if isinstance(resp, dict) and resp.get('_need_verify'):
+            return jsonify(_verify_error_response(
+                resp,
+                '获取评论回复失败，请完成验证后重试',
+                verify_url=f'https://www.douyin.com/video/{aweme_id}',
+            ))
+        if isinstance(resp, dict) and resp.get('_need_login'):
+            return jsonify(_login_error_response(resp))
+
+        if not success:
+            return jsonify({
+                'success': False,
+                'message': _api_message(resp, '获取评论回复失败，请稍后重试'),
+            })
+
+        data_block = resp.get('data') if isinstance(resp.get('data'), dict) else resp
+        raw_comments = data_block.get('comments') or data_block.get('reply_comments') or []
+        has_more = data_block.get('has_more', False)
+        return jsonify({
+            'success': True,
+            'comments': [_format_comment_item(item) for item in raw_comments if isinstance(item, dict)],
+            'cursor': data_block.get('cursor', 0),
+            'has_more': has_more == 1 or has_more is True,
+            'total': data_block.get('total', 0),
+        })
+
+    except Exception as e:
+        logger.exception(f"获取评论回复失败: {e}")
+        return jsonify({'success': False, 'message': f'获取评论回复失败: {str(e)}'}), 500
 
 
 @app.route('/api/verify_cookie', methods=['GET'])

@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type TouchEvent as ReactTouchEvent,
+  type UIEvent as ReactUIEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { AnimatePresence, motion, type Variants } from "framer-motion";
@@ -18,6 +19,7 @@ import {
   Heart,
   Info,
   Loader2,
+  MessageCircle,
   Music,
   Pause,
   Play,
@@ -31,12 +33,15 @@ import { cn, formatDuration, formatNumber } from "@/lib/utils";
 import { prewarmVideoForPlayback } from "@/lib/media-prewarm";
 import {
   copyTextToClipboard,
+  getCommentReplies,
+  getComments,
   getShareFriends,
   getVideoDetail,
   mediaProxyUrl,
   sendFriendVideoShare,
   setVideoCollected,
   setVideoLiked,
+  type CommentInfo,
   type ShareFriend,
   type VideoInfo,
 } from "@/lib/tauri";
@@ -129,6 +134,34 @@ function readMediaDuration(node: HTMLMediaElement): number {
   return finiteMediaTime(ranges.end(ranges.length - 1));
 }
 
+function formatCommentTime(createTime: number): string {
+  const timestamp = Number(createTime || 0);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
+  const ms = timestamp > 1_000_000_000_000 ? timestamp : timestamp * 1000;
+  const diffSeconds = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (diffSeconds < 60) return "刚刚";
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes}分钟前`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}小时前`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}天前`;
+  return new Date(ms).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+}
+
+type CommentRepliesState = Record<
+  string,
+  {
+    items: CommentInfo[];
+    cursor: number;
+    hasMore: boolean;
+    loading: boolean;
+    error: string;
+    total: number;
+    loaded: boolean;
+  }
+>;
+
 function getDocumentVideoNode(reference: HTMLElement | null): HTMLVideoElement | null {
   return reference?.ownerDocument.querySelector("video") || null;
 }
@@ -210,6 +243,16 @@ export function FullscreenPlayer({
   const [shareFriendsLoaded, setShareFriendsLoaded] = useState(false);
   const [shareSendingFriendKey, setShareSendingFriendKey] = useState("");
   const [shareSentFriendKeys, setShareSentFriendKeys] = useState<Set<string>>(() => new Set());
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [comments, setComments] = useState<CommentInfo[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentsError, setCommentsError] = useState("");
+  const [commentsCursor, setCommentsCursor] = useState(0);
+  const [commentsHasMore, setCommentsHasMore] = useState(false);
+  const [commentsTotal, setCommentsTotal] = useState(0);
+  const [commentsLoadedAwemeId, setCommentsLoadedAwemeId] = useState("");
+  const [commentReplies, setCommentReplies] = useState<CommentRepliesState>({});
+  const [expandedCommentReplyIds, setExpandedCommentReplyIds] = useState<Set<string>>(() => new Set());
   const [videoOverrides, setVideoOverrides] = useState<Record<string, VideoInfo>>({});
   const [mediaTransitionDirection, setMediaTransitionDirection] = useState(0);
   const [navigationNotice, setNavigationNotice] = useState("");
@@ -232,6 +275,8 @@ export function FullscreenPlayer({
   const mediaSwitchReleaseRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const qualitySwitchReleaseRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const panelCloseTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const commentsHoverCloseTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const commentsPanelStickyRef = useRef(false);
   const wheelResetTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const loadStatusTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const loadTimeoutTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
@@ -283,9 +328,6 @@ export function FullscreenPlayer({
       : currentMedia?.url || "";
   const currentMediaSrc = currentMedia
     ? playerMediaProxyUrl(currentPlaybackUrl, getMediaProxyType(currentMedia), reloadKey)
-    : "";
-  const currentPosterSrc = currentMedia?.poster
-    ? playerMediaProxyUrl(currentMedia.poster, "image")
     : "";
   const mediaKey = currentMedia
     ? `${currentVideo?.aweme_id || "video"}-${activeMediaIndex}-${currentMedia.type}-${currentMedia.url}-${reloadKey}`
@@ -975,6 +1017,158 @@ export function FullscreenPlayer({
     }
   }, [currentVideo, shareSendingFriendKey, showNavigationNotice]);
 
+  const loadComments = useCallback(async (mode: "initial" | "more" = "initial") => {
+    if (!currentVideo?.aweme_id || commentsLoading) return;
+    const isMore = mode === "more";
+    setCommentsLoading(true);
+    setCommentsError("");
+    try {
+      const result = await getComments(currentVideo.aweme_id, 20, isMore ? commentsCursor : 0);
+      if (!result.success) {
+        throw new Error(result.message || "获取评论失败");
+      }
+      const nextComments = Array.isArray(result.comments) ? result.comments : [];
+      setComments((prev) => (isMore ? [...prev, ...nextComments] : nextComments));
+      setCommentsCursor(Number(result.cursor || 0));
+      setCommentsHasMore(Boolean(result.has_more));
+      setCommentsTotal(Number(result.total || 0));
+      setCommentsLoadedAwemeId(currentVideo.aweme_id);
+    } catch (error) {
+      setCommentsError(error instanceof Error ? error.message : "获取评论失败");
+      if (!isMore) {
+        setComments([]);
+        setCommentsHasMore(false);
+      }
+    } finally {
+      setCommentsLoading(false);
+    }
+  }, [commentsCursor, commentsLoading, currentVideo?.aweme_id]);
+
+  const loadCommentReplies = useCallback(async (comment: CommentInfo, mode: "initial" | "more" = "initial") => {
+    if (!currentVideo?.aweme_id || !comment.cid) return;
+    const currentState = commentReplies[comment.cid];
+    if (currentState?.loading) return;
+    const isMore = mode === "more";
+    const cursor = isMore ? currentState?.cursor || 0 : 0;
+
+    setCommentReplies((prev) => ({
+      ...prev,
+      [comment.cid]: {
+        items: isMore ? prev[comment.cid]?.items || [] : prev[comment.cid]?.items || [],
+        cursor,
+        hasMore: isMore ? prev[comment.cid]?.hasMore ?? false : prev[comment.cid]?.hasMore ?? false,
+        loading: true,
+        error: "",
+        total: prev[comment.cid]?.total || comment.reply_comment_total || 0,
+        loaded: prev[comment.cid]?.loaded || false,
+      },
+    }));
+
+    try {
+      const result = await getCommentReplies(currentVideo.aweme_id, comment.cid, 6, cursor);
+      if (!result.success) {
+        throw new Error(result.message || "获取回复失败");
+      }
+      const nextReplies = Array.isArray(result.comments) ? result.comments : [];
+      setCommentReplies((prev) => {
+        const previous = prev[comment.cid];
+        return {
+          ...prev,
+          [comment.cid]: {
+            items: isMore ? [...(previous?.items || []), ...nextReplies] : nextReplies,
+            cursor: Number(result.cursor || 0),
+            hasMore: Boolean(result.has_more),
+            loading: false,
+            error: "",
+            total: Number(result.total || comment.reply_comment_total || nextReplies.length || 0),
+            loaded: true,
+          },
+        };
+      });
+    } catch (error) {
+      setCommentReplies((prev) => ({
+        ...prev,
+        [comment.cid]: {
+          items: prev[comment.cid]?.items || [],
+          cursor: prev[comment.cid]?.cursor || 0,
+          hasMore: prev[comment.cid]?.hasMore || false,
+          loading: false,
+          error: error instanceof Error ? error.message : "获取回复失败",
+          total: prev[comment.cid]?.total || comment.reply_comment_total || 0,
+          loaded: true,
+        },
+      }));
+    }
+  }, [commentReplies, currentVideo?.aweme_id]);
+
+  const toggleCommentReplies = useCallback((comment: CommentInfo) => {
+    const willExpand = !expandedCommentReplyIds.has(comment.cid);
+    setExpandedCommentReplyIds((prev) => {
+      const next = new Set(prev);
+      if (willExpand) {
+        next.add(comment.cid);
+      } else {
+        next.delete(comment.cid);
+      }
+      return next;
+    });
+    const replyState = commentReplies[comment.cid];
+    if (willExpand && !replyState?.loaded && !replyState?.loading) {
+      void loadCommentReplies(comment, "initial");
+    }
+  }, [commentReplies, expandedCommentReplyIds, loadCommentReplies]);
+
+  const handleCommentsScroll = useCallback((event: ReactUIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (distanceToBottom > 96 || commentsLoading || !commentsHasMore) return;
+    void loadComments("more");
+  }, [commentsHasMore, commentsLoading, loadComments]);
+
+  const clearCommentsHoverCloseTimer = useCallback(() => {
+    if (commentsHoverCloseTimerRef.current) {
+      window.clearTimeout(commentsHoverCloseTimerRef.current);
+      commentsHoverCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const openCommentsPanel = useCallback((event?: ReactMouseEvent | ReactPointerEvent<HTMLElement>, options?: { sticky?: boolean }) => {
+    event?.stopPropagation();
+    clearPanelCloseTimer();
+    clearCommentsHoverCloseTimer();
+    if (options?.sticky) {
+      commentsPanelStickyRef.current = true;
+    } else if (!commentsOpen) {
+      commentsPanelStickyRef.current = false;
+    }
+    setOpenPanel(null);
+    setCommentsOpen(true);
+  }, [clearCommentsHoverCloseTimer, clearPanelCloseTimer, commentsOpen]);
+
+  const markCommentsPanelSticky = useCallback((event?: ReactMouseEvent | ReactPointerEvent<HTMLElement>) => {
+    event?.stopPropagation();
+    clearCommentsHoverCloseTimer();
+    commentsPanelStickyRef.current = true;
+  }, [clearCommentsHoverCloseTimer]);
+
+  const scheduleTransientCommentsClose = useCallback((event?: ReactMouseEvent | ReactPointerEvent<HTMLElement>) => {
+    event?.stopPropagation();
+    clearCommentsHoverCloseTimer();
+    commentsHoverCloseTimerRef.current = window.setTimeout(() => {
+      if (!commentsPanelStickyRef.current) {
+        setCommentsOpen(false);
+      }
+      commentsHoverCloseTimerRef.current = null;
+    }, 180);
+  }, [clearCommentsHoverCloseTimer]);
+
+  const closeCommentsPanel = useCallback((event?: ReactMouseEvent) => {
+    event?.stopPropagation();
+    clearCommentsHoverCloseTimer();
+    commentsPanelStickyRef.current = false;
+    setCommentsOpen(false);
+  }, [clearCommentsHoverCloseTimer]);
+
   const toggleMute = useCallback((event: ReactMouseEvent) => {
     event.stopPropagation();
     if (muted && volume === 0) {
@@ -1412,12 +1606,25 @@ export function FullscreenPlayer({
 
   useEffect(() => {
     setOpenPanel(null);
+    setComments([]);
+    setCommentsError("");
+    setCommentsCursor(0);
+    setCommentsHasMore(false);
+    setCommentsTotal(0);
+    setCommentsLoadedAwemeId("");
+    setCommentReplies({});
+    setExpandedCommentReplyIds(new Set());
   }, [currentVideo?.aweme_id]);
 
   useEffect(() => {
     if (openPanel !== "share") return;
     void loadShareFriends();
   }, [loadShareFriends, openPanel]);
+
+  useEffect(() => {
+    if (!commentsOpen || !currentVideo?.aweme_id || commentsLoadedAwemeId === currentVideo.aweme_id) return;
+    void loadComments("initial");
+  }, [commentsLoadedAwemeId, commentsOpen, currentVideo?.aweme_id, loadComments]);
 
   useEffect(() => {
     return () => {
@@ -1429,6 +1636,9 @@ export function FullscreenPlayer({
       }
       if (panelCloseTimerRef.current) {
         window.clearTimeout(panelCloseTimerRef.current);
+      }
+      if (commentsHoverCloseTimerRef.current) {
+        window.clearTimeout(commentsHoverCloseTimerRef.current);
       }
       if (wheelResetTimerRef.current) {
         window.clearTimeout(wheelResetTimerRef.current);
@@ -1447,10 +1657,13 @@ export function FullscreenPlayer({
 
   useEffect(() => {
     if (open) return;
+    clearCommentsHoverCloseTimer();
+    commentsPanelStickyRef.current = false;
+    setCommentsOpen(false);
     setPlaying(false);
     setShowLoadStatus(false);
     releasePlayerMediaResources();
-  }, [open, releasePlayerMediaResources]);
+  }, [clearCommentsHoverCloseTimer, open, releasePlayerMediaResources]);
 
   useEffect(() => {
     if (!open) return;
@@ -1830,23 +2043,20 @@ export function FullscreenPlayer({
             className="relative flex min-h-0 flex-1 items-center justify-center"
             onClick={(event) => event.stopPropagation()}
           >
-            <AnimatePresence initial={false} custom={mediaTransitionDirection}>
-              <motion.div
-                key={mediaKey}
-                custom={mediaTransitionDirection}
-                variants={mediaMotionVariants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{ duration: 0.18, ease: [0.2, 0, 0, 1] }}
-                className="absolute inset-0 flex items-center justify-center"
-                style={{ willChange: "transform, opacity" }}
-              >
+            <motion.div
+              key={mediaKey}
+              custom={mediaTransitionDirection}
+              variants={mediaMotionVariants}
+              initial="enter"
+              animate="center"
+              transition={{ duration: 0.18, ease: [0.2, 0, 0, 1] }}
+              className="absolute inset-0 flex items-center justify-center"
+              style={{ willChange: "transform, opacity" }}
+            >
                 {currentMedia && isVideoLikeMedia(currentMedia) && (
                   <video
                     ref={setVideoElementRef}
                     src={currentMediaSrc}
-                    poster={currentPosterSrc}
 	                    className="pointer-events-none h-full max-h-full w-full max-w-full object-contain"
                     autoPlay={desiredPlayingRef.current}
                     loop={!hasMultipleMedia}
@@ -1995,8 +2205,7 @@ export function FullscreenPlayer({
                     state="error"
                   />
 	                )}
-	              </motion.div>
-	            </AnimatePresence>
+            </motion.div>
 
             <div
               ref={surfaceHitRef}
@@ -2282,6 +2491,236 @@ export function FullscreenPlayer({
                     </AnimatePresence>
                   </div>
                 )}
+
+                <div
+                  className="relative shrink-0"
+                  onPointerEnter={(event) => {
+                    if (event.pointerType !== "touch") openCommentsPanel(event);
+                  }}
+                  onMouseEnter={() => openCommentsPanel()}
+                  onPointerLeave={(event) => {
+                    if (event.pointerType !== "touch") scheduleTransientCommentsClose(event);
+                  }}
+                  onMouseLeave={() => scheduleTransientCommentsClose()}
+                >
+                  <PlayerIconButton
+                    label="评论区"
+                    onClick={(event) => {
+                      event.stopPropagation();
+	                      clearPanelCloseTimer();
+	                      setOpenPanel(null);
+	                      if (commentsOpen) {
+	                        closeCommentsPanel(event);
+	                      } else {
+	                        openCommentsPanel(event, { sticky: true });
+	                      }
+	                    }}
+                    active={commentsOpen}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                  </PlayerIconButton>
+                  <AnimatePresence>
+                    {commentsOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8, scale: 0.985 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 8, scale: 0.985 }}
+                        transition={{ duration: 0.18 }}
+                        className="fixed bottom-20 right-3 z-50 flex w-[min(380px,calc(100vw-24px))] max-h-[min(520px,72vh)] flex-col overflow-hidden rounded-xl border border-white/[0.08] bg-[#111111]/80 shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:right-5"
+                        onPointerEnter={markCommentsPanelSticky}
+                        onMouseEnter={() => markCommentsPanelSticky()}
+                        onClick={(event) => event.stopPropagation()}
+                        onWheel={(event) => event.stopPropagation()}
+                      >
+                        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.08] px-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[0.78rem] font-semibold text-white/90">评论区</div>
+                            <div className="text-[0.64rem] text-white/42">
+                              {formatNumber(commentsTotal || currentVideo?.statistics?.comment_count || comments.length || 0)} 条评论
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            aria-label="关闭评论区"
+                            onClick={closeCommentsPanel}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        <div className="share-friends-scroll min-h-0 flex-1 overflow-y-auto p-2" onScroll={handleCommentsScroll}>
+                          {commentsLoading && comments.length === 0 ? (
+                            <div className="flex h-32 items-center justify-center gap-2 text-[0.74rem] text-white/58">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              正在获取评论
+                            </div>
+                          ) : commentsError && comments.length === 0 ? (
+                            <div className="rounded-lg bg-white/[0.06] px-3 py-3 text-[0.74rem] leading-5 text-white/62">
+                              {commentsError}
+                            </div>
+                          ) : comments.length === 0 ? (
+                            <div className="rounded-lg bg-white/[0.06] px-3 py-3 text-[0.74rem] text-white/55">
+                              暂无评论
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {comments.map((comment) => {
+                                const avatar = comment.user?.avatar_thumb || "";
+                                const replyState = commentReplies[comment.cid];
+                                const replies = replyState?.items || [];
+                                const repliesExpanded = expandedCommentReplyIds.has(comment.cid);
+                                return (
+                                  <div key={comment.cid} className="flex gap-2 rounded-lg px-1.5 py-2 transition-colors hover:bg-white/[0.04]">
+                                    <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-white/[0.08]">
+                                      {avatar ? (
+                                        <img
+                                          src={mediaProxyUrl(avatar, "image")}
+                                          alt={comment.user?.nickname || ""}
+                                          className="h-full w-full object-cover"
+                                        />
+                                      ) : (
+                                        <div className="flex h-full w-full items-center justify-center bg-accent/25 text-[0.72rem] font-bold text-white">
+                                          {(comment.user?.nickname || "?").slice(0, 1)}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex min-w-0 items-center gap-1.5">
+                                        <span className="truncate text-[0.72rem] font-semibold text-white/72">
+                                          {comment.user?.nickname || "抖音用户"}
+                                        </span>
+                                        <span className="shrink-0 text-[0.62rem] text-white/32">
+                                          {formatCommentTime(comment.create_time)}
+                                        </span>
+                                      </div>
+                                      {comment.text ? (
+                                        <div className="mt-0.5 whitespace-pre-wrap break-words text-[0.76rem] leading-5 text-white/90">
+                                          {comment.text}
+                                        </div>
+                                      ) : comment.sticker_url ? (
+                                        <img
+                                          src={mediaProxyUrl(comment.sticker_url, "image")}
+                                          alt="评论表情"
+                                          className="mt-1 max-h-20 max-w-24 rounded-md object-contain"
+                                        />
+                                      ) : (
+                                        <div className="mt-0.5 text-[0.76rem] leading-5 text-white/62">[表情]</div>
+                                      )}
+                                      <div className="mt-1 flex items-center gap-3 text-[0.62rem] text-white/36">
+                                        {comment.ip_label && <span>IP {comment.ip_label}</span>}
+                                        {comment.digg_count > 0 && <span>{formatNumber(comment.digg_count)} 赞</span>}
+                                        {comment.reply_comment_total > 0 && <span>{formatNumber(comment.reply_comment_total)} 回复</span>}
+                                      </div>
+                                      {comment.reply_comment_total > 0 && (
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            toggleCommentReplies(comment);
+                                          }}
+                                          className="mt-1.5 flex h-6 items-center rounded-md px-1.5 text-[0.64rem] font-semibold text-white/42 transition-colors hover:bg-white/[0.06] hover:text-white/70"
+                                        >
+                                          {repliesExpanded ? "收起回复" : `展开 ${formatNumber(comment.reply_comment_total)} 条回复`}
+                                        </button>
+                                      )}
+                                      {repliesExpanded && (replies.length > 0 || replyState?.loading || replyState?.error) && (
+                                        <div className="mt-2 space-y-2 border-l border-white/[0.08] pl-2.5">
+                                          {replies.map((reply) => {
+                                            const replyAvatar = reply.user?.avatar_thumb || "";
+                                            return (
+                                              <div key={reply.cid} className="flex gap-2">
+                                                <div className="h-6 w-6 shrink-0 overflow-hidden rounded-full bg-white/[0.08]">
+                                                  {replyAvatar ? (
+                                                    <img
+                                                      src={mediaProxyUrl(replyAvatar, "image")}
+                                                      alt={reply.user?.nickname || ""}
+                                                      className="h-full w-full object-cover"
+                                                    />
+                                                  ) : (
+                                                    <div className="flex h-full w-full items-center justify-center bg-white/[0.08] text-[0.58rem] font-bold text-white/70">
+                                                      {(reply.user?.nickname || "?").slice(0, 1)}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                  <div className="flex min-w-0 items-center gap-1.5">
+                                                    <span className="truncate text-[0.68rem] font-semibold text-white/58">
+                                                      {reply.user?.nickname || "抖音用户"}
+                                                    </span>
+                                                    <span className="shrink-0 text-[0.58rem] text-white/28">
+                                                      {formatCommentTime(reply.create_time)}
+                                                    </span>
+                                                  </div>
+                                                  {reply.text ? (
+                                                    <div className="mt-0.5 whitespace-pre-wrap break-words text-[0.7rem] leading-4 text-white/78">
+                                                      {reply.text}
+                                                    </div>
+                                                  ) : reply.sticker_url ? (
+                                                    <img
+                                                      src={mediaProxyUrl(reply.sticker_url, "image")}
+                                                      alt="回复表情"
+                                                      className="mt-1 max-h-16 max-w-20 rounded-md object-contain"
+                                                    />
+                                                  ) : (
+                                                    <div className="mt-0.5 text-[0.7rem] leading-4 text-white/50">[表情]</div>
+                                                  )}
+                                                  <div className="mt-1 flex items-center gap-2 text-[0.58rem] text-white/30">
+                                                    {reply.ip_label && <span>IP {reply.ip_label}</span>}
+                                                    {reply.digg_count > 0 && <span>{formatNumber(reply.digg_count)} 赞</span>}
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                          {replyState?.error && (
+                                            <div className="text-[0.62rem] text-white/42">{replyState.error}</div>
+                                          )}
+                                          {(replyState?.hasMore || replyState?.loading) && (
+                                            <button
+                                              type="button"
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                                void loadCommentReplies(comment, "more");
+                                              }}
+                                              disabled={replyState?.loading}
+                                              className="flex h-7 items-center gap-1.5 rounded-md px-2 text-[0.64rem] font-semibold text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white/70 disabled:cursor-wait disabled:opacity-60"
+                                            >
+                                              {replyState?.loading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                                              {replyState?.loading ? "正在加载回复" : "查看更多回复"}
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {(commentsHasMore || commentsLoading) && (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void loadComments("more");
+                                  }}
+                                  disabled={commentsLoading}
+                                  className="mt-1 flex h-8 w-full items-center justify-center gap-2 rounded-lg bg-white/[0.06] text-[0.72rem] font-semibold text-white/68 transition-colors hover:bg-white/[0.1] disabled:cursor-wait disabled:opacity-60"
+                                >
+                                  {commentsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                                  {commentsLoading ? "正在加载" : "加载更多"}
+                                </button>
+                              )}
+                              {commentsError && (
+                                <div className="rounded-lg bg-white/[0.06] px-2 py-2 text-[0.68rem] text-white/55">
+                                  {commentsError}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
 
                 <div
                   className="relative shrink-0"

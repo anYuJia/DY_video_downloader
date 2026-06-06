@@ -205,6 +205,33 @@ export interface LikedAuthorsResponse extends ApiResponse {
   count?: number;
 }
 
+export interface CommentUser {
+  uid: string;
+  nickname: string;
+  avatar_thumb: string;
+  sec_uid: string;
+}
+
+export interface CommentInfo {
+  cid: string;
+  text: string;
+  create_time: number;
+  user: CommentUser;
+  digg_count: number;
+  reply_comment_total: number;
+  sub_comments?: CommentInfo[] | null;
+  status?: number;
+  ip_label?: string;
+  sticker_url?: string;
+}
+
+export interface CommentsResponse extends ApiResponse {
+  comments?: CommentInfo[];
+  cursor?: number;
+  has_more?: boolean;
+  total?: number;
+}
+
 export interface FriendOnlineStatusResponse extends ApiResponse {
   sec_user_ids?: string[];
   user_info?: unknown;

@@ -7,6 +7,7 @@ import type {
   AppConfig,
   ApiResponse,
   BitRateInfo,
+  CommentsResponse,
   CookieStatus,
   CollectedMixItem,
   CollectedMixesResponse,
@@ -1127,14 +1128,29 @@ export async function getMixVideos(seriesId: string, cursor: number, count: numb
   };
 }
 
-export async function getComments(awemeId: string, count: number, cursor?: number): Promise<unknown> {
+export async function getComments(awemeId: string, count: number, cursor = 0): Promise<CommentsResponse> {
   if (shouldUseBrowserBridge()) {
     return requestJson("/api/get_comments", {
       method: "POST",
       body: JSON.stringify({ aweme_id: awemeId, count, cursor }),
-    }).catch(() => []);
+    });
   }
   return invoke("get_comments", { awemeId, count, cursor });
+}
+
+export async function getCommentReplies(
+  awemeId: string,
+  commentId: string,
+  count: number,
+  cursor = 0
+): Promise<CommentsResponse> {
+  if (shouldUseBrowserBridge()) {
+    return requestJson("/api/get_comment_replies", {
+      method: "POST",
+      body: JSON.stringify({ aweme_id: awemeId, comment_id: commentId, count, cursor }),
+    });
+  }
+  return invoke("get_comment_replies", { awemeId, commentId, count, cursor });
 }
 
 export async function getFriendOnlineStatus(
