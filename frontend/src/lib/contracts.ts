@@ -211,6 +211,29 @@ export interface FriendOnlineStatusResponse extends ApiResponse {
   active_status?: unknown;
 }
 
+export interface ShareFriend {
+  uid: string;
+  sec_uid: string;
+  nickname: string;
+  avatar_thumb: string;
+  avatar_medium: string;
+  unique_id?: string;
+  short_id?: string;
+  follow_status?: number;
+  follower_status?: number;
+  conv_id?: string;
+  conv_type?: number;
+  is_recent_share?: boolean;
+  share_day_count?: number;
+  last_share_timestamp?: number;
+}
+
+export interface ShareFriendsResponse extends ApiResponse {
+  friends?: ShareFriend[];
+  count?: number;
+  has_more?: boolean;
+}
+
 export interface SendFriendMessageResponse extends ApiResponse {
   client_message_id?: string;
   message_id?: string | number;

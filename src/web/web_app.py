@@ -3904,6 +3904,36 @@ def get_friend_online_status_api():
     except Exception as e:
         return jsonify({'success': False, 'message': f'获取好友在线状态失败: {str(e)}'}), 500
 
+@app.route('/api/get_share_friends', methods=['POST'])
+def get_share_friends_api():
+    """获取视频分享面板可展示的好友列表。"""
+    try:
+        if not api:
+            return jsonify({'success': False, 'need_login': True, 'message': '请先设置 Cookie'})
+
+        data = _request_json()
+        count = _coerce_int(data.get('count'), 50, 1, 100)
+        result, success = run_async(api.get_im_share_friends(count))
+        if not success:
+            return jsonify({
+                'success': False,
+                'message': _api_message(result, '获取分享好友失败'),
+                'need_login': bool(isinstance(result, dict) and result.get('_need_login')),
+                'need_verify': bool(isinstance(result, dict) and result.get('_need_verify')),
+                'verify_url': result.get('_verify_url') if isinstance(result, dict) else None,
+            })
+
+        friends = result.get('friends') if isinstance(result, dict) else []
+        return jsonify({
+            'success': True,
+            'message': result.get('message') if isinstance(result, dict) else '获取分享好友成功',
+            'friends': friends if isinstance(friends, list) else [],
+            'count': len(friends) if isinstance(friends, list) else 0,
+            'has_more': bool(result.get('has_more')) if isinstance(result, dict) else False,
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'获取分享好友失败: {str(e)}'}), 500
+
 @app.route('/api/send_friend_message', methods=['POST'])
 def send_friend_message_api():
     """发送文本私信。"""
@@ -3961,6 +3991,29 @@ def send_friend_image_message_api():
         })
     except Exception as e:
         return jsonify({'success': False, 'message': f'发送图片私信失败: {str(e)}'}), 500
+
+@app.route('/api/send_friend_video_share', methods=['POST'])
+def send_friend_video_share_api():
+    """发送视频分享卡片私信。"""
+    try:
+        _ensure_im_message_listener()
+        data = _request_json()
+        to_user_id = data.get('to_user_id') or data.get('toUserId') or data.get('uid') or ''
+        video = data.get('video') if isinstance(data.get('video'), dict) else data
+        if not str(to_user_id).strip():
+            return jsonify({'success': False, 'message': '缺少好友数字 uid，无法分享视频'}), 400
+        if not isinstance(video, dict) or not str(video.get('aweme_id') or video.get('itemId') or '').strip():
+            return jsonify({'success': False, 'message': '缺少作品信息，无法分享视频'}), 400
+        if not api:
+            return jsonify({'success': False, 'need_login': True, 'message': '请先设置 Cookie'})
+
+        result, success = run_async(api.send_im_video_share_message(to_user_id, video), timeout=60)
+        return jsonify({
+            'success': bool(success),
+            **(result if isinstance(result, dict) else {'message': str(result)}),
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'分享视频失败: {str(e)}'}), 500
 
 @app.route('/api/get_friend_message_history', methods=['POST'])
 def get_friend_message_history_api():

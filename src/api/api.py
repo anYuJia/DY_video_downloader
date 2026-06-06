@@ -997,6 +997,154 @@ class DouyinAPI:
 
         return ids[:limit]
 
+    @staticmethod
+    def _collect_sec_uid_records(value) -> list[dict]:
+        records = []
+        seen = set()
+
+        def visit(item):
+            if isinstance(item, list):
+                for child in item:
+                    visit(child)
+                return
+            if not isinstance(item, dict):
+                return
+            sec_uid = str(item.get('sec_uid') or item.get('sec_user_id') or '').strip()
+            if sec_uid and sec_uid not in seen:
+                seen.add(sec_uid)
+                records.append(item)
+            for child in item.values():
+                if isinstance(child, (dict, list)):
+                    visit(child)
+
+        visit(value)
+        return records
+
+    @staticmethod
+    def _share_sorted_sec_uids(response: dict, limit: int) -> list[str]:
+        ids = []
+        seen = set()
+        for item in response.get('sorted_info') or []:
+            if not isinstance(item, dict) or int(item.get('conv_type') or 0) != 0:
+                continue
+            sec_uid = str(item.get('sec_uid') or item.get('sec_user_id') or '').strip()
+            if sec_uid and sec_uid not in seen:
+                seen.add(sec_uid)
+                ids.append(sec_uid)
+            if len(ids) >= limit:
+                break
+        return ids
+
+    @staticmethod
+    def _first_url(value) -> str:
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, dict):
+            url_list = value.get('url_list')
+            if isinstance(url_list, list):
+                for item in url_list:
+                    url = DouyinAPI._first_url(item)
+                    if url:
+                        return url
+            for key in ('url', 'uri', 'src', 'download_url'):
+                url = DouyinAPI._first_url(value.get(key))
+                if url:
+                    return url
+        if isinstance(value, list):
+            for item in value:
+                url = DouyinAPI._first_url(item)
+                if url:
+                    return url
+        return ''
+
+    @staticmethod
+    def _normalize_share_friends(response: dict, limit: int) -> list[dict]:
+        users_by_sec_uid = {}
+        recent_meta = {}
+        order = []
+        seen_order = set()
+
+        def remember_order(sec_uid: str):
+            sec_uid = str(sec_uid or '').strip()
+            if sec_uid and sec_uid not in seen_order:
+                seen_order.add(sec_uid)
+                order.append(sec_uid)
+
+        def read_sec_uid(item: dict) -> str:
+            if not isinstance(item, dict):
+                return ''
+            return str(item.get('sec_uid') or item.get('sec_user_id') or '').strip()
+
+        for item in response.get('followings') or []:
+            if not isinstance(item, dict):
+                continue
+            sec_uid = read_sec_uid(item)
+            if not sec_uid:
+                continue
+            users_by_sec_uid[sec_uid] = item
+            remember_order(sec_uid)
+
+        for key in ('mix_recent_share_day_sort', 'mix_recent_share_users', 'single_recent_share_users'):
+            for item in response.get(key) or []:
+                if not isinstance(item, dict):
+                    continue
+                sec_uid = read_sec_uid(item)
+                if not sec_uid:
+                    continue
+                meta = recent_meta.setdefault(sec_uid, {})
+                meta['is_recent_share'] = True
+                if item.get('conv_id'):
+                    meta['conv_id'] = str(item.get('conv_id'))
+                if item.get('conv_type') is not None:
+                    meta['conv_type'] = int(item.get('conv_type') or 0)
+                if item.get('share_day_cnt') is not None:
+                    meta['share_day_count'] = int(item.get('share_day_cnt') or 0)
+                if item.get('last_share_timestamp') is not None:
+                    meta['last_share_timestamp'] = int(item.get('last_share_timestamp') or 0)
+                elif item.get('timestamp') is not None:
+                    meta['last_share_timestamp'] = int(item.get('timestamp') or 0)
+
+        sorted_order = []
+        sorted_seen = set()
+        for item in response.get('sorted_info') or []:
+            if not isinstance(item, dict) or int(item.get('conv_type') or 0) != 0:
+                continue
+            sec_uid = read_sec_uid(item)
+            if sec_uid and sec_uid not in sorted_seen:
+                sorted_seen.add(sec_uid)
+                sorted_order.append(sec_uid)
+
+        ordered_ids = [sec_uid for sec_uid in sorted_order if sec_uid in users_by_sec_uid]
+        ordered_ids.extend([sec_uid for sec_uid in order if sec_uid in users_by_sec_uid and sec_uid not in set(ordered_ids)])
+
+        friends = []
+        seen = set()
+        for sec_uid in ordered_ids:
+            if sec_uid in seen:
+                continue
+            seen.add(sec_uid)
+            user = users_by_sec_uid.get(sec_uid) or {}
+            nickname = str(user.get('nickname') or user.get('remark_name') or user.get('unique_id') or user.get('short_id') or '').strip()
+            if not nickname:
+                continue
+            friend = {
+                'uid': str(user.get('uid') or ''),
+                'sec_uid': sec_uid,
+                'nickname': nickname,
+                'avatar_thumb': DouyinAPI._first_url(user.get('avatar_thumb') or user.get('avatar_small')),
+                'avatar_medium': DouyinAPI._first_url(user.get('avatar_medium') or user.get('avatar_168x168') or user.get('avatar_small')),
+                'unique_id': str(user.get('unique_id') or ''),
+                'short_id': str(user.get('short_id') or ''),
+                'follow_status': int(user.get('follow_status') or 0),
+                'follower_status': int(user.get('follower_status') or 0),
+                **recent_meta.get(sec_uid, {}),
+            }
+            friends.append(friend)
+            if len(friends) >= limit:
+                break
+
+        return friends
+
     async def get_im_spotlight_relation_sec_user_ids(self, limit: int = 500, include_all_users: bool = False) -> tuple[list[str], bool, dict]:
         params = {
             "count": "100",
@@ -1011,6 +1159,50 @@ class DouyinAPI:
         if not success:
             return [], False, response
         return self._collect_spotlight_sec_user_ids(response, include_all_users, limit), True, response
+
+    async def get_im_share_friends(self, limit: int = 50) -> tuple[dict, bool]:
+        safe_limit = max(1, min(int(limit or 50), 100))
+        params = {
+            "count": str(safe_limit),
+            "source": "coldup",
+            "max_time": str(int(time.time() * 1000)),
+            "min_time": "0",
+            "need_remove_share_panel": "true",
+            "need_sorted_info": "true",
+            "with_fstatus": "1",
+        }
+        response, success = await self._request_im('/aweme/v1/web/im/spotlight/relation/', params, method='GET')
+        if not success:
+            return response, False
+        known_sec_uids = {
+            str(item.get('sec_uid') or item.get('sec_user_id') or '').strip()
+            for item in response.get('followings') or []
+            if isinstance(item, dict)
+        }
+        missing_sec_uids = [
+            sec_uid
+            for sec_uid in self._share_sorted_sec_uids(response, safe_limit)
+            if sec_uid and sec_uid not in known_sec_uids
+        ]
+        if missing_sec_uids:
+            followings = response.setdefault('followings', [])
+            for index in range(0, len(missing_sec_uids), 20):
+                user_info, user_success = await self.get_im_user_info(missing_sec_uids[index:index + 20])
+                if not user_success:
+                    continue
+                for record in self._collect_sec_uid_records(user_info):
+                    sec_uid = str(record.get('sec_uid') or record.get('sec_user_id') or '').strip()
+                    if sec_uid and sec_uid not in known_sec_uids:
+                        known_sec_uids.add(sec_uid)
+                        followings.append(record)
+        friends = self._normalize_share_friends(response, safe_limit)
+        return {
+            'status_code': 0,
+            'message': '获取分享好友成功',
+            'friends': friends,
+            'count': len(friends),
+            'has_more': bool(response.get('has_more')),
+        }, True
 
     async def get_im_user_info(self, sec_user_ids: list[str]) -> tuple[dict, bool]:
         ids = [str(value).strip() for value in sec_user_ids if str(value).strip()]
@@ -1082,9 +1274,9 @@ class DouyinAPI:
             return '', f'私信签名生成失败: {error}'
         return base64.b64encode(signature).decode('ascii'), None
 
-    def _build_im_request_common_headers(self, signer: dict) -> dict[str, str]:
+    def _build_im_request_common_headers(self, signer: dict, extra_headers: dict[str, str] | None = None) -> dict[str, str]:
         cookie_dict = self._cookies_to_dict(self.cookie)
-        return {
+        headers = {
             'session_aid': '6383',
             'session_did': '0',
             'app_name': 'douyin_pc',
@@ -1105,6 +1297,11 @@ class DouyinAPI:
             'fp': cookie_dict.get('s_v_web_id') or self._generate_s_v_web_id(),
             'is-retry': '0',
         }
+        for key, value in (extra_headers or {}).items():
+            text = str(value or '').strip()
+            if key and text:
+                headers[str(key)] = text
+        return headers
 
     def _build_im_proto_request(
         self,
@@ -1115,6 +1312,7 @@ class DouyinAPI:
         signer: dict,
         sdk_version: str = "1.1.3",
         build_number: str = "5fa6ff1:Detached: 5fa6ff1111fd53aafc4c753505d3c93daad74d27",
+        extra_headers: dict[str, str] | None = None,
     ) -> bytes:
         sdk_cert = str(signer.get('client_cert') or '')
         return douyin_im_proto.build_request(
@@ -1124,13 +1322,21 @@ class DouyinAPI:
             sdk_cert=base64.b64encode(sdk_cert.encode('utf-8')).decode('ascii'),
             request_sign=request_sign,
             body=body,
-            headers=self._build_im_request_common_headers(signer),
+            headers=self._build_im_request_common_headers(signer, extra_headers),
             sequence_id=random.randint(10000, 11000),
             sdk_version=sdk_version,
             build_number=build_number,
         )
 
-    def _build_im_pc_proto_request(self, *, cmd: int, body: bytes, signer: dict, request_sign: str = '') -> bytes:
+    def _build_im_pc_proto_request(
+        self,
+        *,
+        cmd: int,
+        body: bytes,
+        signer: dict,
+        request_sign: str = '',
+        extra_headers: dict[str, str] | None = None,
+    ) -> bytes:
         return self._build_im_proto_request(
             cmd=cmd,
             body=body,
@@ -1138,7 +1344,95 @@ class DouyinAPI:
             signer=signer,
             sdk_version='0.1.6',
             build_number='fef1a80:p/lzg/store',
+            extra_headers=extra_headers,
         )
+
+    @staticmethod
+    def _media_uri_from_url(url: str) -> str:
+        text = str(url or '').strip()
+        if not text:
+            return ''
+        try:
+            parsed = urllib.parse.urlparse(text)
+            path = urllib.parse.unquote(parsed.path or '').lstrip('/')
+        except Exception:
+            path = text.split('?', 1)[0].lstrip('/')
+        if not path:
+            return ''
+        if path.startswith('aweme/'):
+            path = path[len('aweme/'):]
+        if path.startswith('img/'):
+            path = path[len('img/'):]
+        path = path.split('~', 1)[0]
+        for suffix in ('.webp', '.jpeg', '.jpg', '.png'):
+            if path.endswith(suffix):
+                path = path[:-len(suffix)]
+                break
+        return path
+
+    async def get_im_identity_security_token(self) -> tuple[dict, bool]:
+        uri = '/passport/safe/get_identity_security_token/'
+        trace_id = uuid.uuid4().hex[:8]
+        params = {
+            'passport_jssdk_version': '4.2.3',
+            'passport_jssdk_type': 'lite',
+            'is_from_ttaccountsdk': '1',
+            'aid': '6383',
+            'language': 'zh',
+            'scene': 'web_im',
+            'auto_retry_req': '0',
+            'skip_verify': 'false',
+            'identity_token_force_get_tag': '0',
+            'biz_trace_id': trace_id,
+            'id_token_version': '1.2.10',
+        }
+        headers = {
+            **self.common_headers,
+            'accept': 'application/json, text/javascript',
+            'referer': 'https://www.douyin.com/',
+            'priority': 'u=1, i',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'x-tt-passport-trace-id': trace_id,
+        }
+        cookie_dict = self._cookies_to_dict(self.cookie)
+        csrf_token = cookie_dict.get('passport_csrf_token') or cookie_dict.get('passport_csrf_token_default') or ''
+        if csrf_token:
+            headers['x-tt-passport-csrf-token'] = csrf_token
+        headers.update(self._relation_ticket_guard_headers(uri))
+        params = await self._deal_params(params, headers)
+        query = urllib.parse.urlencode(params)
+        params['a_bogus'] = douyin_sign.sign_detail(query, headers.get('User-Agent') or '')
+
+        try:
+            response = await asyncio.to_thread(
+                _api_get,
+                f'{self.host}{uri}',
+                params=params,
+                headers=headers,
+                cookies=cookie_dict,
+                timeout=(10, 30),
+            )
+        except requests.RequestException as error:
+            return {'message': f'获取分享安全凭证失败: {error}'}, False
+        if response.status_code != 200:
+            return {'message': f'获取分享安全凭证失败（HTTP {response.status_code}）'}, False
+        try:
+            payload = response.json()
+        except Exception:
+            return {'message': '获取分享安全凭证失败：响应无法解析'}, False
+        if str(payload.get('message') or '').lower() not in ('success', 'ok', ''):
+            return {'message': str(payload.get('message') or '获取分享安全凭证失败'), 'raw': payload}, False
+        data = payload.get('data') if isinstance(payload.get('data'), dict) else {}
+        token = str(data.get('identity_security_token') or '').strip()
+        device_id = str(data.get('device_id') or '').strip()
+        if not token or not device_id:
+            return {'message': '获取分享安全凭证失败：缺少 token 或 device_id', 'raw': payload}, False
+        return {
+            'identity_security_token': token,
+            'device_id': device_id,
+        }, True
 
     async def _post_im_proto(self, url: str, payload: bytes, with_signed_query: bool = False) -> tuple[dict, bool]:
         headers = {
@@ -1249,6 +1543,65 @@ class DouyinAPI:
             'text': message,
         }, ensure_ascii=False, separators=(',', ':'))
         return await self._send_im_content_message(to_user_id, msg_content, message_type=7)
+
+    async def send_im_video_share_message(self, to_user_id: str | int, video: dict) -> tuple[dict, bool]:
+        if not isinstance(video, dict):
+            return {'message': '缺少视频信息，无法分享'}, False
+        aweme_id = str(video.get('aweme_id') or video.get('itemId') or '').strip()
+        if not aweme_id:
+            return {'message': '缺少作品 ID，无法分享'}, False
+        author = video.get('author') if isinstance(video.get('author'), dict) else {}
+        video_data = video.get('video') if isinstance(video.get('video'), dict) else {}
+        cover = (
+            video.get('cover_url')
+            or video.get('cover')
+            or video_data.get('cover')
+            or video_data.get('origin_cover')
+            or video_data.get('dynamic_cover')
+        )
+        cover_url = self._first_url(cover)
+        author_avatar = self._first_url(
+            author.get('avatar_thumb')
+            or author.get('avatar_medium')
+            or author.get('avatar_larger')
+        )
+        cover_uri = self._media_uri_from_url(cover_url)
+        author_avatar_uri = self._media_uri_from_url(author_avatar)
+        content = {
+            'aweType': 800,
+            'content_title': str(video.get('desc') or aweme_id),
+            'cover_height': int(video_data.get('height') or video.get('height') or 0),
+            'cover_width': int(video_data.get('width') or video.get('width') or 0),
+            'itemId': aweme_id,
+            'cover_url': {
+                'url_list': [cover_url] if cover_url else [],
+                'uri': cover_uri,
+            },
+            'content_thumb': {
+                'url_list': [author_avatar] if author_avatar else [],
+                'uri': author_avatar_uri,
+            },
+            'uid': str(author.get('uid') or video.get('uid') or ''),
+        }
+        security, security_success = await self.get_im_identity_security_token()
+        if not security_success:
+            return security, False
+        extra_headers = {
+            'identity_security_token': json.dumps(
+                {'token': security['identity_security_token']},
+                ensure_ascii=False,
+                separators=(',', ':'),
+            ),
+            'identity_security_device_id': security['device_id'],
+            'identity_security_aid': '6383',
+        }
+        msg_content = json.dumps(content, ensure_ascii=False, separators=(',', ':'))
+        return await self._send_im_content_message(
+            to_user_id,
+            msg_content,
+            message_type=8,
+            extra_headers=extra_headers,
+        )
 
     @staticmethod
     def _aws_quote(value) -> str:
@@ -1555,7 +1908,13 @@ class DouyinAPI:
         }, ensure_ascii=False, separators=(',', ':'))
         return await self._send_im_content_message(to_user_id, msg_content, message_type=27)
 
-    async def _send_im_content_message(self, to_user_id: str | int, msg_content: str, message_type: int = 7) -> tuple[dict, bool]:
+    async def _send_im_content_message(
+        self,
+        to_user_id: str | int,
+        msg_content: str,
+        message_type: int = 7,
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[dict, bool]:
         conversation, success = await self.create_im_conversation(to_user_id)
         if not success:
             return conversation, False
@@ -1587,6 +1946,7 @@ class DouyinAPI:
             body=body,
             request_sign=request_sign,
             signer=signer,
+            extra_headers=extra_headers,
         )
         response, send_success = await self._post_im_proto(
             'https://imapi.douyin.com/v1/message/send',

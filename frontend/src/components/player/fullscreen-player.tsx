@@ -21,6 +21,7 @@ import {
   Music,
   Pause,
   Play,
+  Share2,
   Star,
   Volume2,
   VolumeX,
@@ -30,10 +31,13 @@ import { cn, formatDuration, formatNumber } from "@/lib/utils";
 import { prewarmVideoForPlayback } from "@/lib/media-prewarm";
 import {
   copyTextToClipboard,
+  getShareFriends,
   getVideoDetail,
   mediaProxyUrl,
+  sendFriendVideoShare,
   setVideoCollected,
   setVideoLiked,
+  type ShareFriend,
   type VideoInfo,
 } from "@/lib/tauri";
 import {
@@ -77,7 +81,7 @@ const PROGRESS_PREVIEW_WIDTH = 184;
 const PROGRESS_PREVIEW_HEIGHT = 104;
 const PROGRESS_PREVIEW_SAMPLE_RATIOS = [0.08, 0.22, 0.38, 0.55, 0.72, 0.88] as const;
 
-type PlayerPanel = "volume" | "rate" | "quality" | "download" | "music";
+type PlayerPanel = "volume" | "rate" | "quality" | "download" | "music" | "share";
 
 const mediaMotionVariants: Variants = {
   enter: (direction = 0) => ({
@@ -200,6 +204,12 @@ export function FullscreenPlayer({
   const [reloadKey, setReloadKey] = useState(0);
   const [bgmPlaying, setBgmPlaying] = useState(false);
   const [downloadSubmitting, setDownloadSubmitting] = useState(false);
+  const [shareFriends, setShareFriends] = useState<ShareFriend[]>([]);
+  const [shareFriendsLoading, setShareFriendsLoading] = useState(false);
+  const [shareFriendsError, setShareFriendsError] = useState("");
+  const [shareFriendsLoaded, setShareFriendsLoaded] = useState(false);
+  const [shareSendingFriendKey, setShareSendingFriendKey] = useState("");
+  const [shareSentFriendKeys, setShareSentFriendKeys] = useState<Set<string>>(() => new Set());
   const [videoOverrides, setVideoOverrides] = useState<Record<string, VideoInfo>>({});
   const [mediaTransitionDirection, setMediaTransitionDirection] = useState(0);
   const [navigationNotice, setNavigationNotice] = useState("");
@@ -919,6 +929,52 @@ export function FullscreenPlayer({
     });
   }, [clearPanelCloseTimer, currentVideo, downloadSubmitting, onDownload]);
 
+  const loadShareFriends = useCallback(async () => {
+    if (shareFriendsLoading || shareFriendsLoaded) return;
+    setShareFriendsLoading(true);
+    setShareFriendsError("");
+    try {
+      const result = await getShareFriends(50);
+      if (!result.success) {
+        throw new Error(result.message || "获取好友列表失败");
+      }
+      setShareFriends(Array.isArray(result.friends) ? result.friends : []);
+      setShareFriendsLoaded(true);
+    } catch (error) {
+      setShareFriendsError(error instanceof Error ? error.message : "获取好友列表失败");
+    } finally {
+      setShareFriendsLoading(false);
+    }
+  }, [shareFriendsLoaded, shareFriendsLoading]);
+
+  const handleShareFriendClick = useCallback(async (friend: ShareFriend, event: ReactMouseEvent) => {
+    event.stopPropagation();
+    if (!currentVideo || shareSendingFriendKey) return;
+    const toUserId = String(friend.uid || "").trim();
+    if (!toUserId) {
+      showNavigationNotice("这个好友缺少 uid，暂时无法分享");
+      return;
+    }
+    const friendKey = friend.sec_uid || friend.uid;
+    setShareSendingFriendKey(friendKey);
+    try {
+      const result = await sendFriendVideoShare({ toUserId, video: currentVideo });
+      if (!result.success) {
+        throw new Error(result.message || "分享失败");
+      }
+      setShareSentFriendKeys((prev) => {
+        const next = new Set(prev);
+        next.add(friendKey);
+        return next;
+      });
+      showNavigationNotice(friend.nickname ? `已分享给 ${friend.nickname}` : "已分享给好友");
+    } catch (error) {
+      showNavigationNotice(error instanceof Error ? error.message : "分享失败");
+    } finally {
+      setShareSendingFriendKey("");
+    }
+  }, [currentVideo, shareSendingFriendKey, showNavigationNotice]);
+
   const toggleMute = useCallback((event: ReactMouseEvent) => {
     event.stopPropagation();
     if (muted && volume === 0) {
@@ -1357,6 +1413,11 @@ export function FullscreenPlayer({
   useEffect(() => {
     setOpenPanel(null);
   }, [currentVideo?.aweme_id]);
+
+  useEffect(() => {
+    if (openPanel !== "share") return;
+    void loadShareFriends();
+  }, [loadShareFriends, openPanel]);
 
   useEffect(() => {
     return () => {
@@ -2221,6 +2282,111 @@ export function FullscreenPlayer({
                     </AnimatePresence>
                   </div>
                 )}
+
+                <div
+                  className="relative shrink-0"
+                  onPointerEnter={(event) => openPanelOnPointerEnter("share", event)}
+                  onPointerLeave={(event) => closePanelOnPointerLeave("share", event)}
+                  onMouseEnter={() => openToolPanel("share")}
+                  onMouseLeave={() => schedulePanelClose("share")}
+                >
+                  <PlayerIconButton
+                    label="分享"
+                    onClick={(event) => togglePanel("share", event)}
+                    onPointerDown={(event) => openPanelOnPointerDown("share", event)}
+                    active={openPanel === "share"}
+                  >
+                    <Share2 className="h-4 w-4" />
+                  </PlayerIconButton>
+                  <AnimatePresence>
+                    {openPanel === "share" && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 6 }}
+                        transition={{ duration: 0.16 }}
+                        className="absolute bottom-9 right-0 z-40 w-[268px] overflow-hidden rounded-xl bg-[#141414]/95 shadow-[0_4px_16px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+                        onPointerEnter={(event) => openPanelOnPointerEnter("share", event)}
+                        onPointerLeave={(event) => closePanelOnPointerLeave("share", event)}
+                        onMouseEnter={() => openToolPanel("share")}
+                        onMouseLeave={() => schedulePanelClose("share")}
+                        onClick={(event) => event.stopPropagation()}
+                        onWheel={(event) => event.stopPropagation()}
+                      >
+                        <div className="border-b border-white/[0.08] px-3 py-2">
+                          <div className="text-[0.74rem] font-semibold text-white/85">分享给好友</div>
+                          <div className="mt-0.5 text-[0.66rem] text-white/42">点击好友即可发送</div>
+                        </div>
+                        <div className="share-friends-scroll max-h-[320px] overflow-y-auto p-1.5">
+                          {shareFriendsLoading ? (
+                            <div className="flex h-20 items-center justify-center gap-2 text-[0.72rem] text-white/60">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              正在获取好友
+                            </div>
+                          ) : shareFriendsError ? (
+                            <div className="rounded-md bg-white/[0.06] px-2 py-2 text-[0.72rem] leading-5 text-white/60">
+                              {shareFriendsError}
+                            </div>
+                          ) : shareFriends.length === 0 ? (
+                            <div className="rounded-md bg-white/[0.06] px-2 py-2 text-[0.72rem] text-white/55">
+                              暂无可分享好友
+                            </div>
+                          ) : (
+                            shareFriends.slice(0, 20).map((friend) => {
+                              const avatar = friend.avatar_thumb || friend.avatar_medium;
+                              const subtitle = friend.unique_id || friend.short_id || friend.uid;
+                              const friendKey = friend.sec_uid || friend.uid;
+                              const sending = shareSendingFriendKey === friendKey;
+                              const sent = shareSentFriendKeys.has(friendKey);
+                              return (
+                                <button
+                                  key={friendKey}
+                                  type="button"
+                                  onClick={(event) => handleShareFriendClick(friend, event)}
+                                  disabled={Boolean(shareSendingFriendKey)}
+                                  className="flex h-11 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left transition-colors hover:bg-white/[0.08] disabled:cursor-default disabled:opacity-70"
+                                >
+                                  <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-white/[0.08]">
+                                    {avatar ? (
+                                      <img
+                                        src={mediaProxyUrl(avatar, "image")}
+                                        alt={friend.nickname}
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : (
+                                      <div className="flex h-full w-full items-center justify-center bg-accent/30 text-[0.72rem] font-bold text-white">
+                                        {friend.nickname.slice(0, 1)}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="truncate text-[0.78rem] font-semibold text-white/90">
+                                      {friend.nickname}
+                                    </div>
+                                    {subtitle && (
+                                      <div className="truncate text-[0.66rem] text-white/42">
+                                        {subtitle}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {sending ? (
+                                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-white/60" />
+                                  ) : sent ? (
+                                    <Check className="h-3.5 w-3.5 shrink-0 text-accent" />
+                                  ) : friend.is_recent_share && (
+                                    <span className="shrink-0 rounded-full bg-accent/18 px-1.5 py-0.5 text-[0.62rem] font-semibold text-accent">
+                                      最近
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
 
                 <div
                   className="relative shrink-0"

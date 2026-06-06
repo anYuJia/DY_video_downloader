@@ -161,6 +161,17 @@ body {
 * { scrollbar-width: thin; scrollbar-color: rgba(128, 128, 128, 0.12) transparent; }
 [data-theme="light"] * { scrollbar-color: rgba(0, 0, 0, 0.08) transparent; }
 
+.share-friends-scroll {
+  scrollbar-width: none !important;
+  scrollbar-color: transparent transparent !important;
+}
+
+.share-friends-scroll::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+}
+
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;

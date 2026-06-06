@@ -24,6 +24,7 @@ import type {
   RecommendedResponse,
   SearchUserResponse,
   SendFriendMessageResponse,
+  ShareFriendsResponse,
   Statistics,
   UserDetailResponse,
   UserInfo,
@@ -1159,6 +1160,17 @@ export async function getFriendOnlineStatus(
   });
 }
 
+export async function getShareFriends(count = 50): Promise<ShareFriendsResponse> {
+  const safeCount = Math.max(1, Math.min(100, Math.floor(Number(count) || 50)));
+  if (shouldUseBrowserBridge()) {
+    return requestJson("/api/get_share_friends", {
+      method: "POST",
+      body: JSON.stringify({ count: safeCount }),
+    });
+  }
+  return invoke("get_share_friends", { count: safeCount });
+}
+
 export async function sendFriendMessage(payload: {
   toUserId: string | number;
   content: string;
@@ -1180,6 +1192,25 @@ export async function sendFriendMessage(payload: {
     uid: payload.toUserId,
     content: payload.content,
   });
+}
+
+export async function sendFriendVideoShare(payload: {
+  toUserId: string | number;
+  video: VideoInfo;
+}): Promise<SendFriendMessageResponse> {
+  const body = {
+    to_user_id: payload.toUserId,
+    toUserId: payload.toUserId,
+    uid: payload.toUserId,
+    video: payload.video,
+  };
+  if (shouldUseBrowserBridge()) {
+    return requestJson("/api/send_friend_video_share", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+  return invoke("send_friend_video_share", body);
 }
 
 export async function sendFriendImageMessage(payload: {
