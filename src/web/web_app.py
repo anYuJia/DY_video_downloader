@@ -679,6 +679,7 @@ def _format_comment_item(item: dict) -> dict:
             'sec_uid': user.get('sec_uid', ''),
         },
         'digg_count': item.get('digg_count', 0),
+        'user_digged': item.get('user_digged', 0),
         'reply_comment_total': item.get('reply_comment_total', 0),
         'sub_comments': None,
         'status': item.get('status', 0),
@@ -5365,6 +5366,105 @@ def get_comment_replies():
         return jsonify({'success': False, 'message': f'获取评论回复失败: {str(e)}'}), 500
 
 
+@app.route('/api/comment_digg', methods=['POST'])
+def comment_digg():
+    """点赞或取消点赞评论。"""
+    try:
+        data = _request_json()
+        aweme_id = str(data.get('aweme_id') or '').strip()
+        comment_id = str(data.get('comment_id') or '').strip()
+        raw_liked = data.get('liked')
+        liked = str(raw_liked).strip().lower() in ('1', 'true', 'yes', 'on') if isinstance(raw_liked, str) else bool(raw_liked)
+        level = _coerce_int(data.get('level'), 1, 1, 2)
+
+        if not aweme_id:
+            return jsonify({'success': False, 'message': '视频ID不能为空'}), 400
+        if not comment_id:
+            return jsonify({'success': False, 'message': '评论ID不能为空'}), 400
+        if not api:
+            return jsonify({'success': False, 'message': '服务未初始化'}), 400
+
+        resp, success = run_async(api.set_comment_liked(aweme_id, comment_id, liked, level))
+
+        if isinstance(resp, dict) and resp.get('_need_verify'):
+            return jsonify(_verify_error_response(
+                resp,
+                '评论点赞失败，请完成验证后重试',
+                verify_url=f'https://www.douyin.com/video/{aweme_id}',
+            ))
+        if isinstance(resp, dict) and resp.get('_need_login'):
+            return jsonify(_login_error_response(resp))
+
+        if not success:
+            return jsonify({
+                'success': False,
+                'message': _api_message(resp, '评论点赞失败，请稍后重试'),
+                'security_blocked': bool(isinstance(resp, dict) and resp.get('_security_blocked')),
+            })
+
+        return jsonify({
+            'success': True,
+            'aweme_id': aweme_id,
+            'cid': comment_id,
+            'user_digged': 1 if liked else 0,
+            'raw': resp,
+            'message': '评论点赞成功' if liked else '已取消评论点赞',
+        })
+
+    except Exception as e:
+        logger.exception(f"评论点赞失败: {e}")
+        return jsonify({'success': False, 'message': f'评论点赞失败: {str(e)}'}), 500
+
+
+@app.route('/api/comment_publish', methods=['POST'])
+def comment_publish():
+    """发布一级评论或回复评论。"""
+    try:
+        data = _request_json()
+        aweme_id = str(data.get('aweme_id') or '').strip()
+        text = str(data.get('text') or '').strip()
+        reply_id = str(data.get('reply_id') or '').strip()
+        reply_to_reply_id = str(data.get('reply_to_reply_id') or '').strip()
+
+        if not aweme_id:
+            return jsonify({'success': False, 'message': '视频ID不能为空'}), 400
+        if not text:
+            return jsonify({'success': False, 'message': '评论内容不能为空'}), 400
+        if not api:
+            return jsonify({'success': False, 'message': '服务未初始化'}), 400
+
+        resp, success = run_async(api.publish_comment(aweme_id, text, reply_id, reply_to_reply_id))
+
+        if isinstance(resp, dict) and resp.get('_need_verify'):
+            return jsonify(_verify_error_response(
+                resp,
+                '发表评论失败，请完成验证后重试',
+                verify_url=f'https://www.douyin.com/video/{aweme_id}',
+            ))
+        if isinstance(resp, dict) and resp.get('_need_login'):
+            return jsonify(_login_error_response(resp))
+
+        if not success:
+            logger.warning("发表评论失败，抖音响应: %s", resp)
+            return jsonify({
+                'success': False,
+                'message': _api_message(resp, '发表评论失败，请稍后重试'),
+            })
+
+        raw_comment = resp.get('comment') if isinstance(resp, dict) else None
+        return jsonify({
+            'success': True,
+            'aweme_id': aweme_id,
+            'comment': _format_comment_item(raw_comment) if isinstance(raw_comment, dict) else None,
+            'raw': resp,
+            'message': '评论已发布',
+        })
+
+    except Exception as e:
+        logger.exception(f"发表评论失败: {e}")
+        return jsonify({'success': False, 'message': f'发表评论失败: {str(e)}'}), 500
+
+
 @app.route('/api/verify_cookie', methods=['GET'])
 def verify_cookie():
     """校验当前保存的 Cookie 是否可用。"""
@@ -5487,7 +5587,7 @@ def _verify_native_cookie_login(cookie: str) -> dict:
             }
 
         candidate_api = DouyinAPI(cookie)
-        user, success = run_async(candidate_api.get_current_user())
+        user, success = run_async(candidate_api.get_current_user(strict_profile=True))
 
         if not success:
             if user.get('_need_verify'):

@@ -7,6 +7,7 @@ import type {
   AppConfig,
   ApiResponse,
   BitRateInfo,
+  CommentDiggResponse,
   CommentsResponse,
   CookieStatus,
   CollectedMixItem,
@@ -22,6 +23,7 @@ import type {
   LikedVideosResponse,
   LinkParseResponse,
   MixVideosResponse,
+  PublishCommentResponse,
   RecommendedResponse,
   SearchUserResponse,
   SendFriendMessageResponse,
@@ -1151,6 +1153,36 @@ export async function getCommentReplies(
     });
   }
   return invoke("get_comment_replies", { awemeId, commentId, count, cursor });
+}
+
+export async function setCommentLiked(
+  awemeId: string,
+  commentId: string,
+  liked: boolean,
+  level = 1
+): Promise<CommentDiggResponse> {
+  if (shouldUseBrowserBridge()) {
+    return requestJson("/api/comment_digg", {
+      method: "POST",
+      body: JSON.stringify({ aweme_id: awemeId, comment_id: commentId, liked, level }),
+    });
+  }
+  return invoke("set_comment_liked", { awemeId, commentId, liked, level });
+}
+
+export async function publishComment(
+  awemeId: string,
+  text: string,
+  replyId = "",
+  replyToReplyId = ""
+): Promise<PublishCommentResponse> {
+  if (shouldUseBrowserBridge()) {
+    return requestJson("/api/comment_publish", {
+      method: "POST",
+      body: JSON.stringify({ aweme_id: awemeId, text, reply_id: replyId, reply_to_reply_id: replyToReplyId }),
+    });
+  }
+  return invoke("publish_comment", { awemeId, text, replyId, replyToReplyId });
 }
 
 export async function getFriendOnlineStatus(

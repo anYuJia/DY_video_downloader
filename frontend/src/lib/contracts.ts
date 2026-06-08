@@ -218,6 +218,7 @@ export interface CommentInfo {
   create_time: number;
   user: CommentUser;
   digg_count: number;
+  user_digged?: number;
   reply_comment_total: number;
   sub_comments?: CommentInfo[] | null;
   status?: number;
@@ -230,6 +231,18 @@ export interface CommentsResponse extends ApiResponse {
   cursor?: number;
   has_more?: boolean;
   total?: number;
+}
+
+export interface CommentDiggResponse extends ApiResponse {
+  aweme_id?: string;
+  cid?: string;
+  user_digged?: number;
+  digg_count?: number;
+}
+
+export interface PublishCommentResponse extends ApiResponse {
+  aweme_id?: string;
+  comment?: CommentInfo;
 }
 
 export interface FriendOnlineStatusResponse extends ApiResponse {

@@ -23,6 +23,7 @@ import {
   Music,
   Pause,
   Play,
+  Send,
   Share2,
   Star,
   Volume2,
@@ -38,7 +39,9 @@ import {
   getShareFriends,
   getVideoDetail,
   mediaProxyUrl,
+  publishComment,
   sendFriendVideoShare,
+  setCommentLiked,
   setVideoCollected,
   setVideoLiked,
   type CommentInfo,
@@ -162,6 +165,12 @@ type CommentRepliesState = Record<
   }
 >;
 
+type CommentReplyTarget = {
+  replyId: string;
+  replyToReplyId: string;
+  nickname: string;
+} | null;
+
 function getDocumentVideoNode(reference: HTMLElement | null): HTMLVideoElement | null {
   return reference?.ownerDocument.querySelector("video") || null;
 }
@@ -253,6 +262,10 @@ export function FullscreenPlayer({
   const [commentsLoadedAwemeId, setCommentsLoadedAwemeId] = useState("");
   const [commentReplies, setCommentReplies] = useState<CommentRepliesState>({});
   const [expandedCommentReplyIds, setExpandedCommentReplyIds] = useState<Set<string>>(() => new Set());
+  const [commentDiggingIds, setCommentDiggingIds] = useState<Set<string>>(() => new Set());
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [commentReplyTarget, setCommentReplyTarget] = useState<CommentReplyTarget>(null);
   const [videoOverrides, setVideoOverrides] = useState<Record<string, VideoInfo>>({});
   const [mediaTransitionDirection, setMediaTransitionDirection] = useState(0);
   const [navigationNotice, setNavigationNotice] = useState("");
@@ -303,6 +316,12 @@ export function FullscreenPlayer({
   const currentVideo = rawCurrentVideo?.aweme_id
     ? videoOverrides[rawCurrentVideo.aweme_id] || rawCurrentVideo
     : rawCurrentVideo;
+  const currentAwemeId = (
+    currentVideo?.aweme_id ||
+    (currentVideo as unknown as { awemeId?: string; id?: string })?.awemeId ||
+    (currentVideo as unknown as { awemeId?: string; id?: string })?.id ||
+    ""
+  ).trim();
   const mediaItems = useMemo(
     () => (currentVideo ? collectVideoMedia(currentVideo) : []),
     [currentVideo]
@@ -1117,6 +1136,136 @@ export function FullscreenPlayer({
       void loadCommentReplies(comment, "initial");
     }
   }, [commentReplies, expandedCommentReplyIds, loadCommentReplies]);
+
+  const updateCommentById = useCallback((commentId: string, updater: (comment: CommentInfo) => CommentInfo) => {
+    setComments((prev) => prev.map((comment) => (comment.cid === commentId ? updater(comment) : comment)));
+    setCommentReplies((prev) => {
+      let changed = false;
+      const next: CommentRepliesState = {};
+      for (const [cid, state] of Object.entries(prev)) {
+        const nextItems = state.items.map((reply) => {
+          if (reply.cid !== commentId) return reply;
+          changed = true;
+          return updater(reply);
+        });
+        next[cid] = changed ? { ...state, items: nextItems } : state;
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
+  const toggleCommentLike = useCallback(async (comment: CommentInfo, level: number) => {
+    if (!currentVideo?.aweme_id || !comment.cid || commentDiggingIds.has(comment.cid)) return;
+    const wasLiked = Number(comment.user_digged || 0) > 0;
+    const nextLiked = !wasLiked;
+    const delta = nextLiked ? 1 : -1;
+
+    setCommentDiggingIds((prev) => new Set(prev).add(comment.cid));
+    updateCommentById(comment.cid, (item) => ({
+      ...item,
+      user_digged: nextLiked ? 1 : 0,
+      digg_count: Math.max(0, Number(item.digg_count || 0) + delta),
+    }));
+
+    try {
+      const result = await setCommentLiked(currentVideo.aweme_id, comment.cid, nextLiked, level);
+      if (!result.success) {
+        throw new Error(result.message || "评论点赞失败");
+      }
+    } catch (error) {
+      updateCommentById(comment.cid, (item) => ({
+        ...item,
+        user_digged: wasLiked ? 1 : 0,
+        digg_count: Math.max(0, Number(item.digg_count || 0) - delta),
+      }));
+      showNavigationNotice(error instanceof Error ? error.message : "评论点赞失败");
+    } finally {
+      setCommentDiggingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(comment.cid);
+        return next;
+      });
+    }
+  }, [commentDiggingIds, currentVideo?.aweme_id, showNavigationNotice, updateCommentById]);
+
+  const submitComment = useCallback(async () => {
+    const text = commentDraft.trim();
+    if (commentSubmitting) return;
+    if (!text) {
+      showNavigationNotice("请输入评论内容");
+      return;
+    }
+    if (!currentAwemeId) {
+      showNavigationNotice("缺少视频ID，无法发表评论");
+      return;
+    }
+    const target = commentReplyTarget;
+    setCommentSubmitting(true);
+    try {
+      const result = await publishComment(
+        currentAwemeId,
+        text,
+        target?.replyId || "",
+        target?.replyToReplyId || ""
+      );
+      if (!result.success) {
+        throw new Error(result.message || "发表评论失败");
+      }
+      const created = result.comment;
+      if (created?.cid) {
+        if (target?.replyId) {
+          setExpandedCommentReplyIds((prev) => new Set(prev).add(target.replyId));
+          setCommentReplies((prev) => {
+            const current = prev[target.replyId] || {
+              items: [],
+              cursor: 0,
+              hasMore: false,
+              loading: false,
+              error: "",
+              total: 0,
+              loaded: true,
+            };
+            return {
+              ...prev,
+              [target.replyId]: {
+                ...current,
+                items: [created, ...current.items],
+                total: current.total + 1,
+                loaded: true,
+              },
+            };
+          });
+          updateCommentById(target.replyId, (item) => ({
+            ...item,
+            reply_comment_total: Number(item.reply_comment_total || 0) + 1,
+          }));
+        } else {
+          setComments((prev) => [created, ...prev]);
+          setCommentsTotal((prev) => prev + 1);
+        }
+      } else if (target?.replyId) {
+        void loadCommentReplies({ cid: target.replyId } as CommentInfo, "initial");
+      } else {
+        void loadComments("initial");
+      }
+      setCommentDraft("");
+      setCommentReplyTarget(null);
+      showNavigationNotice("评论已发布");
+    } catch (error) {
+      showNavigationNotice(error instanceof Error ? error.message : "发表评论失败");
+    } finally {
+      setCommentSubmitting(false);
+    }
+  }, [
+    commentDraft,
+    commentReplyTarget,
+    commentSubmitting,
+    currentAwemeId,
+    loadCommentReplies,
+    loadComments,
+    showNavigationNotice,
+    updateCommentById,
+  ]);
 
   const handleCommentsScroll = useCallback((event: ReactUIEvent<HTMLDivElement>) => {
     const target = event.currentTarget;
@@ -2569,6 +2718,8 @@ export function FullscreenPlayer({
                                 const replyState = commentReplies[comment.cid];
                                 const replies = replyState?.items || [];
                                 const repliesExpanded = expandedCommentReplyIds.has(comment.cid);
+                                const commentLiked = Number(comment.user_digged || 0) > 0;
+                                const commentDigging = commentDiggingIds.has(comment.cid);
                                 return (
                                   <div key={comment.cid} className="flex gap-2 rounded-lg px-1.5 py-2 transition-colors hover:bg-white/[0.04]">
                                     <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-white/[0.08]">
@@ -2608,7 +2759,36 @@ export function FullscreenPlayer({
                                       )}
                                       <div className="mt-1 flex items-center gap-3 text-[0.62rem] text-white/36">
                                         {comment.ip_label && <span>IP {comment.ip_label}</span>}
-                                        {comment.digg_count > 0 && <span>{formatNumber(comment.digg_count)} 赞</span>}
+                                        <button
+                                          type="button"
+                                          disabled={commentDigging}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void toggleCommentLike(comment, 1);
+                                          }}
+                                          className={cn(
+                                            "flex items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-white/[0.06]",
+                                            commentLiked ? "text-red-400" : "text-white/36 hover:text-white/70",
+                                            commentDigging && "cursor-wait opacity-70"
+                                          )}
+                                        >
+                                          <Heart className={cn("h-3 w-3", commentLiked && "fill-current")} />
+                                          <span>{comment.digg_count > 0 ? formatNumber(comment.digg_count) : "赞"}</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setCommentReplyTarget({
+                                              replyId: comment.cid,
+                                              replyToReplyId: "0",
+                                              nickname: comment.user?.nickname || "抖音用户",
+                                            });
+                                          }}
+                                          className="rounded-md px-1 py-0.5 transition-colors hover:bg-white/[0.06] hover:text-white/70"
+                                        >
+                                          回复
+                                        </button>
                                         {comment.reply_comment_total > 0 && <span>{formatNumber(comment.reply_comment_total)} 回复</span>}
                                       </div>
                                       {comment.reply_comment_total > 0 && (
@@ -2627,6 +2807,8 @@ export function FullscreenPlayer({
                                         <div className="mt-2 space-y-2 border-l border-white/[0.08] pl-2.5">
                                           {replies.map((reply) => {
                                             const replyAvatar = reply.user?.avatar_thumb || "";
+                                            const replyLiked = Number(reply.user_digged || 0) > 0;
+                                            const replyDigging = commentDiggingIds.has(reply.cid);
                                             return (
                                               <div key={reply.cid} className="flex gap-2">
                                                 <div className="h-6 w-6 shrink-0 overflow-hidden rounded-full bg-white/[0.08]">
@@ -2666,7 +2848,36 @@ export function FullscreenPlayer({
                                                   )}
                                                   <div className="mt-1 flex items-center gap-2 text-[0.58rem] text-white/30">
                                                     {reply.ip_label && <span>IP {reply.ip_label}</span>}
-                                                    {reply.digg_count > 0 && <span>{formatNumber(reply.digg_count)} 赞</span>}
+                                                    <button
+                                                      type="button"
+                                                      disabled={replyDigging}
+                                                      onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        void toggleCommentLike(reply, 2);
+                                                      }}
+                                                      className={cn(
+                                                        "flex items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-white/[0.06]",
+                                                        replyLiked ? "text-red-400" : "text-white/30 hover:text-white/62",
+                                                        replyDigging && "cursor-wait opacity-70"
+                                                      )}
+                                                    >
+                                                      <Heart className={cn("h-2.5 w-2.5", replyLiked && "fill-current")} />
+                                                      <span>{reply.digg_count > 0 ? formatNumber(reply.digg_count) : "赞"}</span>
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        setCommentReplyTarget({
+                                                          replyId: comment.cid,
+                                                          replyToReplyId: reply.cid,
+                                                          nickname: reply.user?.nickname || "抖音用户",
+                                                        });
+                                                      }}
+                                                      className="rounded-md px-1 py-0.5 transition-colors hover:bg-white/[0.06] hover:text-white/62"
+                                                    >
+                                                      回复
+                                                    </button>
                                                   </div>
                                                 </div>
                                               </div>
@@ -2716,6 +2927,57 @@ export function FullscreenPlayer({
                               )}
                             </div>
                           )}
+                        </div>
+                        <div className="shrink-0 border-t border-white/[0.08] p-2">
+                          {commentReplyTarget && (
+                            <div className="mb-1.5 flex items-center gap-2 rounded-lg bg-white/[0.05] px-2 py-1 text-[0.64rem] text-white/48">
+                              <span className="min-w-0 flex-1 truncate">回复 {commentReplyTarget.nickname}</span>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setCommentReplyTarget(null);
+                                }}
+                                className="rounded px-1 text-white/45 transition-colors hover:bg-white/[0.08] hover:text-white/80"
+                              >
+                                取消
+                              </button>
+                            </div>
+                          )}
+                          <form
+                            className="flex items-end gap-2"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void submitComment();
+                            }}
+                          >
+                            <textarea
+                              value={commentDraft}
+                              onChange={(event) => setCommentDraft(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" && !event.shiftKey) {
+                                  event.preventDefault();
+                                  void submitComment();
+                                }
+                              }}
+                              placeholder={commentReplyTarget ? `回复 ${commentReplyTarget.nickname}` : "写评论..."}
+                              rows={1}
+                              className="share-friends-scroll min-h-9 max-h-20 flex-1 resize-none rounded-lg border border-white/[0.08] bg-white/[0.06] px-2.5 py-2 text-[0.74rem] leading-5 text-white outline-none placeholder:text-white/30 focus:border-white/18"
+                            />
+                            <button
+                              type="submit"
+                              aria-label="发表评论"
+                              title="发表评论"
+                              disabled={!commentDraft.trim() || commentSubmitting || !currentAwemeId}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                              }}
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-white/[0.08] disabled:text-white/30"
+                            >
+                              {commentSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                            </button>
+                          </form>
                         </div>
                       </motion.div>
                     )}

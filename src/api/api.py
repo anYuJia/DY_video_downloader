@@ -26,6 +26,34 @@ logger = logging.getLogger('api')
 # Configure a session with retry/SSL resilience
 _retry = urllib3.util.retry.Retry(total=3, backoff_factor=0.5, status_forcelist=[502, 503, 504])
 _thread_local = threading.local()
+_spider_ab_context = None
+
+
+def _splice_params(params: dict) -> str:
+    parts = []
+    for key, value in params.items():
+        if value is None:
+            value = ''
+        parts.append(f'{key}={urllib.parse.quote(str(value))}')
+    return '&'.join(parts)
+
+
+def _sign_spider_a_bogus(query: str, data: str) -> str:
+    """Use Douyin_Spider's JS signer for endpoints whose body participates in a_bogus."""
+    return _spider_js_call('get_ab', query, data)
+
+
+def _spider_js_call(name: str, *args):
+    global _spider_ab_context
+    if _spider_ab_context is None:
+        import execjs
+
+        api_root = os.path.abspath(os.path.dirname(__file__))
+        dy_ab_path = os.path.join(api_root, 'static', 'dy_ab.js')
+        node_modules = os.path.join(api_root, 'node_modules')
+        with open(dy_ab_path, 'r', encoding='utf-8') as fh:
+            _spider_ab_context = execjs.compile(fh.read(), cwd=node_modules)
+    return _spider_ab_context.call(name, *args)
 
 
 def _create_api_session():
@@ -132,19 +160,23 @@ class DouyinAPI:
             "accept": "application/json, text/plain, */*",
         }
 
-    async def _get_webid(self, headers: dict) -> str:
+    async def _get_webid(self, headers: dict, url: str = '') -> str:
         """获取webid（缓存10分钟）"""
         import time
         if self._cached_webid and (time.time() - self._webid_time) < 600:
             return self._cached_webid
         try:
-            url = 'https://www.douyin.com/?recommend=1'
+            url = url or 'https://www.douyin.com/?recommend=1'
             h = headers.copy()
             h['sec-fetch-dest'] = 'document'
             h['sec-fetch-mode'] = 'navigate'
+            h['sec-fetch-site'] = 'none'
             h['accept'] = 'text/html,application/xhtml+xml'
+            h['upgrade-insecure-requests'] = '1'
+            if self.cookie:
+                h['Cookie'] = self.cookie
 
-            response = await asyncio.to_thread(_api_get, url, headers=h, timeout=10)
+            response = await asyncio.to_thread(_api_get, url, headers=h, timeout=10, verify=False)
             if self.debug_mode:
                 print(f"\033[93m[API] _get_webid 响应状态: {response.status_code}, 内容长度: {len(response.text)}\033[0m")
             if response.status_code != 200 or not response.text:
@@ -175,15 +207,36 @@ class DouyinAPI:
                 print(f"\033[91m[API] 获取webid异常: {e}\033[0m")
         return None
 
-    async def _get_csrf_token(self, headers: dict) -> str:
+    def _generate_fake_webid(self, random_length: int = 19) -> str:
+        """生成 Spider 同款兜底 webid。"""
+        return ''.join(random.choices(string.digits, k=random_length))
+
+    async def _get_csrf_token(self, headers: dict, force_refresh: bool = False) -> str:
         """获取抖音动作接口需要的 csrf token（缓存10分钟）。"""
         import time
-        if self._cached_csrf_token and (time.time() - self._csrf_time) < 600:
+        if not force_refresh and self._cached_csrf_token and (time.time() - self._csrf_time) < 600:
             return self._cached_csrf_token
 
         h = dict(headers or {})
-        h['X-Secsdk-Csrf-Request'] = '1'
-        h['X-Secsdk-Csrf-Version'] = '1.2.22'
+        h.update({
+            'accept': '*/*',
+            'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6',
+            'cache-control': 'no-cache',
+            'pragma': 'no-cache',
+            'priority': 'u=1, i',
+            'referer': 'https://www.douyin.com/?recommend=1',
+            'sec-ch-ua': '"Microsoft Edge";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'x-secsdk-csrf-request': '1',
+            'x-secsdk-csrf-version': '1.2.22',
+        })
+        h.pop('content-type', None)
+        h.pop('Content-Type', None)
         try:
             response = await asyncio.to_thread(
                 _get_api_session().head,
@@ -192,7 +245,8 @@ class DouyinAPI:
                 timeout=(10, 30),
             )
             raw_token = response.headers.get('x-ware-csrf-token') or response.headers.get('X-Ware-Csrf-Token') or ''
-            token = next((part.strip() for part in raw_token.split(',') if len(part.strip()) > 16), '')
+            parts = [part.strip() for part in raw_token.split(',')]
+            token = parts[1] if len(parts) > 1 and parts[1] else next((part for part in parts if len(part) > 16), '')
             if token:
                 self._cached_csrf_token = token
                 self._csrf_time = time.time()
@@ -232,10 +286,8 @@ class DouyinAPI:
                 headers['uifid'] = uifid
                 params['uifid'] = uifid
 
-            # 获取webid（失败时不添加，避免无效值导致请求被拒）
-            webid = await self._get_webid(headers)
-            if webid:
-                params['webid'] = webid
+            # Spider 在提取失败时会生成 19 位数字 webid，动作接口不能省略它。
+            params['webid'] = await self._get_webid(headers) or self._generate_fake_webid()
 
             return params
         except Exception as e:
@@ -262,10 +314,22 @@ class DouyinAPI:
 
     def _ticket_guard_headers_from_cookie(self) -> dict:
         cookie_dict = self._cookies_to_dict(self.cookie)
+        raw_legacy_client_data = cookie_dict.get('bd_ticket_guard_client_data') or ''
         raw_client_data_v2 = cookie_dict.get('bd_ticket_guard_client_data_v2') or ''
         raw_client_data = raw_client_data_v2 or cookie_dict.get('bd_ticket_guard_client_data') or ''
         if not raw_client_data:
             return {}
+
+        headers = {}
+        if raw_client_data_v2 and raw_legacy_client_data:
+            try:
+                legacy_decoded = urllib.parse.unquote(raw_legacy_client_data)
+                legacy_payload = json.loads(base64.b64decode(legacy_decoded).decode('utf-8'))
+                for key, value in legacy_payload.items():
+                    if key.startswith('bd-ticket-guard-'):
+                        headers[key] = str(value)
+            except Exception:
+                pass
 
         try:
             decoded_cookie = urllib.parse.unquote(raw_client_data)
@@ -273,7 +337,6 @@ class DouyinAPI:
         except Exception:
             return {}
 
-        headers = {}
         if raw_client_data_v2:
             headers['bd-ticket-guard-client-data'] = decoded_cookie
         for key, value in payload.items():
@@ -333,6 +396,40 @@ class DouyinAPI:
             'bd-ticket-guard-version': '2',
             'bd-ticket-guard-iteration-version': '1',
             'bd-ticket-guard-client-data': client_data,
+        }
+
+    def _spider_ticket_guard_headers(self, path: str) -> dict:
+        """TicketGuard headers exactly like Douyin_Spider Header.with_bd."""
+        try:
+            from src.config.config import Config
+            signer = Config.RELATION_SIGNER if isinstance(Config.RELATION_SIGNER, dict) else None
+        except Exception:
+            signer = None
+
+        if not signer:
+            return {}
+
+        ticket = str(signer.get('ticket') or '').strip()
+        ts_sign = str(signer.get('ts_sign') or '').strip()
+        private_key = str(signer.get('private_key') or '').strip().replace('\\n', '\n')
+        if not ticket or not ts_sign or not private_key:
+            return {}
+
+        timestamp = int(time.time())
+        sign_data = f'ticket={ticket}&path={path}&timestamp={timestamp}'
+        client_data = base64.urlsafe_b64encode(json.dumps({
+            'ts_sign': ts_sign,
+            'req_content': 'ticket,path,timestamp',
+            'req_sign': _spider_js_call('get_req_sign', sign_data, private_key),
+            'timestamp': timestamp,
+        }, separators=(',', ':'), ensure_ascii=False).encode('utf-8')).decode('utf-8')
+
+        return {
+            'bd-ticket-guard-client-data': client_data,
+            'bd-ticket-guard-iteration-version': '1',
+            'bd-ticket-guard-ree-public-key': _spider_js_call('get_ree_key', private_key),
+            'bd-ticket-guard-version': '2',
+            'bd-ticket-guard-web-version': '1',
         }
 
     def _relation_uid_hash(self) -> str:
@@ -690,12 +787,23 @@ class DouyinAPI:
 
         return json_response, True
 
-    async def signed_form_action_request(self, uri: str, body_params: dict, headers: dict, host: str = None) -> tuple[dict, bool]:
+    async def signed_form_action_request(
+        self,
+        uri: str,
+        body_params: dict,
+        headers: dict,
+        host: str = None,
+        query_overrides: dict | None = None,
+    ) -> tuple[dict, bool]:
         """POST 动作接口：公共参数放 query 并签名，动作参数放 form body。"""
         base_host = host or self.host
         url = f'{base_host}{uri}'
         query_params = dict(self.common_params)
-        if 'aweme/v1/web/commit/item/digg' in uri or 'aweme/v1/web/aweme/collect' in uri:
+        if (
+            'aweme/v1/web/commit/item/digg' in uri
+            or 'aweme/v1/web/aweme/collect' in uri
+            or 'aweme/v1/web/comment/digg' in uri
+        ):
             query_params.update({
                 'update_version_code': '170400',
                 'version_code': '170400',
@@ -709,6 +817,8 @@ class DouyinAPI:
                 uid_hash = self._relation_uid_hash()
                 if uid_hash:
                     query_params['uid'] = uid_hash
+        if query_overrides:
+            query_params.update({str(key): str(value) for key, value in query_overrides.items()})
         merged_headers = dict(self.common_headers)
         merged_headers.update(headers or {})
         merged_headers.update({
@@ -716,7 +826,11 @@ class DouyinAPI:
             'sec-ch-ua': '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
         })
         merged_headers.update(self._relation_ticket_guard_headers(uri))
-        is_relation_action = 'aweme/v1/web/commit/item/digg' in uri or 'aweme/v1/web/aweme/collect' in uri
+        is_relation_action = (
+            'aweme/v1/web/commit/item/digg' in uri
+            or 'aweme/v1/web/aweme/collect' in uri
+            or 'aweme/v1/web/comment/digg' in uri
+        )
         dtrait = self._relation_dtrait()
         if is_relation_action and not dtrait:
             return {
@@ -2093,7 +2207,7 @@ class DouyinAPI:
             },
         }, True
 
-    async def get_current_user(self) -> tuple[dict, bool]:
+    async def get_current_user(self, strict_profile: bool = False) -> tuple[dict, bool]:
         """获取当前登录用户，用于强校验 Cookie 是否仍被抖音服务端认可。"""
         resp, success = await self.common_request(
             '/aweme/v1/web/user/profile/self/',
@@ -2103,6 +2217,8 @@ class DouyinAPI:
         )
 
         if not success:
+            if strict_profile:
+                return resp, False
             logger.warning(
                 'Douyin profile/self current user lookup failed, falling back to query/user: %s',
                 resp.get('message') if isinstance(resp, dict) else resp,
@@ -2111,6 +2227,11 @@ class DouyinAPI:
 
         user = resp.get('user') if isinstance(resp, dict) else None
         if not isinstance(user, dict) or not user:
+            if strict_profile:
+                return {
+                    '_need_login': True,
+                    'message': '登录态校验失败：抖音未返回当前用户，请重新登录获取 Cookie',
+                }, False
             logger.warning('Douyin profile/self returned no user, falling back to query/user')
             return await self._get_current_user_from_query_user()
 
@@ -2226,6 +2347,373 @@ class DouyinAPI:
                 print(f"\033[91m[API] 响应: {resp}\033[0m")
 
         return resp, False
+
+    async def set_comment_liked(self, aweme_id: str, comment_id: str, liked: bool, level: int = 1) -> tuple[dict, bool]:
+        """点赞或取消点赞评论。"""
+        aweme_id = str(aweme_id or '').strip()
+        comment_id = str(comment_id or '').strip()
+        if not aweme_id:
+            return {'message': '作品ID不能为空'}, False
+        if not comment_id:
+            return {'message': '评论ID不能为空'}, False
+
+        return await self.signed_form_action_request(
+            '/aweme/v1/web/comment/digg',
+            {},
+            {
+                'Referer': 'https://www.douyin.com/',
+                'Origin': 'https://www.douyin.com',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-dest': 'empty',
+                'priority': 'u=1, i',
+            },
+            host='https://www-hj.douyin.com',
+            query_overrides={
+                'cid': comment_id,
+                'aweme_id': aweme_id,
+                'digg_type': '1' if liked else '2',
+                'channel_id': '0',
+                'app_name': 'aweme',
+                'item_type': '0',
+                'level': str(max(1, int(level or 1))),
+                'enter_from': 'discover',
+                'previous_page': 'discover',
+            },
+        )
+
+    async def publish_comment(
+        self,
+        aweme_id: str,
+        text: str,
+        reply_id: str = '',
+        reply_to_reply_id: str = '',
+    ) -> tuple[dict, bool]:
+        """发布一级评论或回复评论，按 Douyin_Spider 的 comment_publish 请求形态构造。"""
+        aweme_id = str(aweme_id or '').strip()
+        text = str(text or '').strip()
+        reply_id = str(reply_id or '').strip()
+        reply_to_reply_id = str(reply_to_reply_id or '').strip()
+        if not aweme_id:
+            return {'message': '作品ID不能为空'}, False
+        if not text:
+            return {'message': '评论内容不能为空'}, False
+
+        current_user, logged_in = await self.get_current_user(strict_profile=True)
+        if not logged_in:
+            return self._build_login_required_error(current_user if isinstance(current_user, dict) else None), False
+
+        uri = '/aweme/v1/web/comment/publish'
+        url = f'https://www.douyin.com{uri}'
+        referer = f'https://www.douyin.com/discover?modal_id={aweme_id}'
+        headers = {
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0',
+            'cache-control': 'no-cache',
+            'pragma': 'no-cache',
+            'sec-ch-ua': '"Microsoft Edge";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'priority': 'u=1, i',
+            'accept': 'application/json, text/plain, */*',
+            'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6',
+            'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'Origin': 'https://www.douyin.com',
+            'referer': referer,
+        }
+        query_params = {
+            'app_name': 'aweme',
+            'enter_from': 'discover',
+            'previous_page': 'discover',
+            'device_platform': 'webapp',
+            'aid': '6383',
+            'channel': 'channel_pc_web',
+            'pc_client_type': '1',
+            'update_version_code': '170400',
+            'version_code': '170400',
+            'version_name': '17.4.0',
+            'cookie_enabled': 'true',
+            'screen_width': '1707',
+            'screen_height': '960',
+            'browser_language': 'zh-CN',
+            'browser_platform': 'Win32',
+            'browser_name': 'Edge',
+            'browser_version': '125.0.0.0',
+            'browser_online': 'true',
+            'engine_name': 'Blink',
+            'engine_version': '125.0.0.0',
+            'os_name': 'Windows',
+            'os_version': '10',
+            'cpu_core_num': '32',
+            'device_memory': '8',
+            'platform': 'PC',
+            'downlink': '10',
+            'effective_type': '4g',
+            'round_trip_time': '100',
+        }
+        cookie_dict = self._cookies_to_dict(self.cookie)
+        query_params['webid'] = await self._get_webid(headers, referer) or self._generate_fake_webid()
+        query_params['msToken'] = cookie_dict.get('msToken') or self._get_ms_token()
+        cookie_dict['msToken'] = query_params['msToken']
+        cookie_str_with_ms_token = '; '.join([f'{key}={value}' for key, value in cookie_dict.items()])
+        headers.update(self._spider_ticket_guard_headers(uri))
+        csrf_headers = dict(headers)
+        csrf_headers['cookie'] = cookie_str_with_ms_token
+        csrf_token = await self._get_csrf_token(csrf_headers, force_refresh=True)
+        if csrf_token:
+            headers['x-secsdk-csrf-token'] = csrf_token
+        verify_fp = cookie_dict.get('s_v_web_id') or self._generate_s_v_web_id()
+
+        body_params = {
+            'aweme_id': aweme_id,
+            'comment_send_celltime': random.randint(1000, 20000),
+            'comment_video_celltime': random.randint(1000, 20000),
+        }
+        if reply_id:
+            body_params['reply_id'] = reply_id
+        body_params['text'] = text
+        body_params['text_extra'] = []
+
+        query = _splice_params(query_params)
+        body_query = _splice_params(body_params)
+        try:
+            query_params['a_bogus'] = _sign_spider_a_bogus(query, body_query)
+        except Exception as e:
+            return {
+                'status_code': -1,
+                'status_msg': '签名生成失败',
+                'message': f'Spider 签名生成失败: {e}',
+            }, False
+        query_params['verifyFp'] = verify_fp
+        query_params['fp'] = verify_fp
+        logger.info(
+            "comment_publish request shape: query_keys=%s body_keys=%s csrf=%s ticket_guard=%s webid=%s verify_fp=%s",
+            list(query_params.keys()),
+            list(body_params.keys()),
+            bool(headers.get('x-secsdk-csrf-token')),
+            bool(headers.get('bd-ticket-guard-client-data')),
+            bool(query_params.get('webid')),
+            bool(verify_fp),
+        )
+
+        try:
+            response = await asyncio.to_thread(
+                _api_post,
+                url,
+                params=query_params,
+                data=body_params,
+                headers=headers,
+                cookies=cookie_dict,
+                timeout=(10, 30),
+            )
+        except requests.RequestException as e:
+            return {
+                'status_code': -1,
+                'status_msg': '网络请求失败',
+                'message': f'网络请求失败: {e}',
+            }, False
+
+        ticket_guard_result = response.headers.get('bd-ticket-guard-result') or response.headers.get('Bd-Ticket-Guard-Result') or ''
+        logger.info(
+            "comment_publish first response: status=%s len=%s ticket_guard_result=%s logid=%s",
+            response.status_code,
+            len(response.content or b''),
+            ticket_guard_result or '',
+            response.headers.get('x-tt-logid') or response.headers.get('X-Tt-Logid') or '',
+        )
+        if response.status_code == 200 and len(response.content or b'') == 0 and ticket_guard_result == '1002':
+            cookie_ticket_headers = self._ticket_guard_headers_from_cookie()
+            if cookie_ticket_headers:
+                retry_headers = {
+                    key: value
+                    for key, value in headers.items()
+                    if not key.lower().startswith('bd-ticket-guard-')
+                }
+                retry_headers.update(cookie_ticket_headers)
+                retry_csrf_headers = dict(retry_headers)
+                retry_csrf_headers['cookie'] = cookie_str_with_ms_token
+                retry_csrf_token = await self._get_csrf_token(retry_csrf_headers, force_refresh=True)
+                if retry_csrf_token:
+                    retry_headers['x-secsdk-csrf-token'] = retry_csrf_token
+                logger.info(
+                    "comment_publish retry with cookie TicketGuard: query_keys=%s ticket_guard=%s",
+                    list(query_params.keys()),
+                    bool(retry_headers.get('bd-ticket-guard-client-data')),
+                )
+                try:
+                    response = await asyncio.to_thread(
+                        _api_post,
+                        url,
+                        params=query_params,
+                        data=body_params,
+                        headers=retry_headers,
+                        cookies=cookie_dict,
+                        timeout=(10, 30),
+                    )
+                    retry_ticket_guard_result = response.headers.get('bd-ticket-guard-result') or response.headers.get('Bd-Ticket-Guard-Result') or ''
+                    logger.info(
+                        "comment_publish retry response: status=%s len=%s ticket_guard_result=%s logid=%s",
+                        response.status_code,
+                        len(response.content or b''),
+                        retry_ticket_guard_result or '',
+                        response.headers.get('x-tt-logid') or response.headers.get('X-Tt-Logid') or '',
+                    )
+                except requests.RequestException as e:
+                    return {
+                        'status_code': -1,
+                        'status_msg': '网络请求失败',
+                        'message': f'网络请求失败: {e}',
+                    }, False
+
+        if response.status_code == 200 and len(response.content or b'') == 0:
+            rust_headers = dict(self.common_headers)
+            rust_headers.update(self._relation_ticket_guard_headers(uri))
+            rust_headers.update({
+                'Referer': f'https://www.douyin.com/video/{aweme_id}',
+                'Origin': 'https://www.douyin.com',
+                'sec-fetch-site': 'same-origin',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-dest': 'empty',
+                'priority': 'u=1, i',
+                'x-secsdk-csrf-token': 'DOWNGRADE',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+                'sec-ch-ua': '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
+            })
+            dtrait = self._relation_dtrait()
+            if dtrait:
+                rust_headers['x-tt-session-dtrait'] = dtrait
+
+            rust_query_params = dict(self.common_params)
+            for key in ('pc_libra_divert', 'support_h265', 'support_dash', 'disable_rs', 'need_filter_settings', 'list_type'):
+                rust_query_params.pop(key, None)
+            rust_query_params.update({
+                'app_name': 'aweme',
+                'enter_from': 'discover',
+                'previous_page': 'discover',
+                'update_version_code': '170400',
+                'version_code': '170400',
+                'version_name': '17.4.0',
+                'browser_name': 'Chrome',
+                'browser_version': '148.0.0.0',
+                'engine_version': '148.0.0.0',
+                'device_memory': '16',
+            })
+            rust_query_params = await self._deal_params(rust_query_params, rust_headers)
+            rust_cookie_dict = dict(cookie_dict)
+            rust_cookie_dict['msToken'] = rust_query_params.get('msToken') or rust_cookie_dict.get('msToken') or self._get_ms_token()
+            rust_query_params['msToken'] = rust_cookie_dict['msToken']
+            rust_headers['Cookie'] = '; '.join([f'{key}={value}' for key, value in rust_cookie_dict.items()])
+            rust_params_str = urllib.parse.urlencode(rust_query_params)
+            try:
+                rust_query_params['a_bogus'] = douyin_sign.sign_detail(
+                    rust_params_str,
+                    rust_headers.get('User-Agent') or rust_headers.get('user-agent') or '',
+                )
+            except Exception as e:
+                logger.warning("comment_publish relation-v2 fallback sign failed: %s", e)
+            else:
+                rust_body_params = {
+                    'aweme_id': aweme_id,
+                    'text': text,
+                    'text_extra': '[]',
+                    'paste_edit_method': 'non_paste',
+                    'comment_send_celltime': '3000',
+                    'comment_video_celltime': '2000',
+                    'one_level_comment_rank': '1',
+                }
+                if reply_id:
+                    rust_body_params['reply_id'] = reply_id
+                    rust_body_params['reply_to_reply_id'] = reply_to_reply_id or '0'
+
+                logger.info(
+                    "comment_publish relation-v2 fallback: query_keys=%s body_keys=%s ticket_guard=%s dtrait=%s",
+                    list(rust_query_params.keys()),
+                    list(rust_body_params.keys()),
+                    bool(rust_headers.get('bd-ticket-guard-client-data')),
+                    bool(rust_headers.get('x-tt-session-dtrait')),
+                )
+                try:
+                    response = await asyncio.to_thread(
+                        _api_post,
+                        url,
+                        params=rust_query_params,
+                        data=rust_body_params,
+                        headers=rust_headers,
+                        cookies=rust_cookie_dict,
+                        timeout=(10, 30),
+                    )
+                    rust_ticket_guard_result = response.headers.get('bd-ticket-guard-result') or response.headers.get('Bd-Ticket-Guard-Result') or ''
+                    logger.info(
+                        "comment_publish relation-v2 fallback response: status=%s len=%s ticket_guard_result=%s logid=%s",
+                        response.status_code,
+                        len(response.content or b''),
+                        rust_ticket_guard_result or '',
+                        response.headers.get('x-tt-logid') or response.headers.get('X-Tt-Logid') or '',
+                    )
+                except requests.RequestException as e:
+                    return {
+                        'status_code': -1,
+                        'status_msg': '网络请求失败',
+                        'message': f'网络请求失败: {e}',
+                    }, False
+
+        if response.status_code != 200 or len(response.content or b'') == 0:
+            body_preview = ''
+            try:
+                body_preview = response.text[:1000]
+            except Exception:
+                body_preview = '<unreadable>'
+            logger.warning(
+                "comment_publish empty/error response: status=%s headers=%s",
+                response.status_code,
+                {
+                    key: value
+                    for key, value in response.headers.items()
+                    if key.lower() in (
+                        'content-type',
+                        'content-length',
+                        'bd-ticket-guard-result',
+                        'bd-ticket-guard-server-data',
+                        'passport-security-gateway',
+                        'x-tt-logid',
+                        'x-ms-token',
+                        'x-ware-csrf-token',
+                    )
+                },
+            )
+            return {
+                'status_code': response.status_code,
+                'status_msg': '请求失败',
+                'message': '发表评论失败，请检查 Cookie 或稍后重试',
+                'body': body_preview,
+            }, False
+
+        try:
+            json_response = response.json()
+        except Exception as e:
+            return {
+                'status_code': -1,
+                'status_msg': 'JSON解析失败',
+                'message': f'JSON解析失败: {e}',
+            }, False
+
+        if json_response.get('status_code', 0) != 0:
+            if self._looks_like_logged_out_error(json_response):
+                return self._build_login_required_error(json_response), False
+            if self._looks_like_login_or_verify_error(uri, json_response):
+                verify_hint, _ = self._build_verify_hint(uri, query_params, response)
+                api_message = self._extract_api_message(json_response)
+                verify_hint.update({
+                    'status_code': json_response.get('status_code'),
+                    'status_msg': json_response.get('status_msg', ''),
+                    'message': f'{api_message}，请完成验证或重新获取 Cookie 后重试',
+                })
+                return verify_hint, False
+            return json_response, False
+
+        return json_response, True
 
     async def get_comments(self, aweme_id: str, count: int = 20, cursor: int = 0) -> tuple[dict, bool]:
         """获取视频评论列表。"""
